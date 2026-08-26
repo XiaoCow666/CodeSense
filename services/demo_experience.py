@@ -1,13 +1,8 @@
-"""面向公开体验入口的稳定演示数据。
-
-演示数据不是一次性测试夹具：公开体验入口、教师看板和学生思维竞技场都依赖同一组
-记录。因此这里采用“按业务唯一键补齐”的方式，重复调用只会补缺，不会删除学生在
-体验过程中产生的会话、提交或日志。
-"""
+"""Seed a complete demo workspace inside the current temporary database."""
 
 import json
 from dataclasses import dataclass
-from datetime import datetime as dt
+from datetime import datetime as dt, timedelta
 
 from models import (
     AbilityTrend,
@@ -23,12 +18,17 @@ from models import (
     User,
     db,
 )
+from services.demo_database import (
+    DEMO_STUDENT_ID,
+    DEMO_TEACHER_ID,
+    DemoRun,
+    _db_path,
+    current_demo_run_id,
+)
 
 
-DEMO_TEACHER_ID = 'demo_t_001'
 DEMO_TEACHER_USERNAME = 'teacher_demo'
 DEMO_TEACHER_PASSWORD = '123456'
-DEMO_STUDENT_ID = 'demo_s_001'
 DEMO_STUDENT_USERNAME = 'student_demo_good'
 DEMO_STUDENT_PASSWORD = '123456'
 DEMO_CLASS_NAME = '软件工程24-演示班'
@@ -44,6 +44,7 @@ class DemoExperience:
     student_id: str
     class_id: int
     assignment_id: int
+    second_assignment_id: int
 
 
 def _json(value):
@@ -363,6 +364,167 @@ int main() {
     return preset
 
 
+def _ensure_tree_preset(assignment):
+    """Create a deterministic teaching preset for the second demo assignment."""
+    key_steps = [
+        '先确认二叉树的根节点，并理解中序遍历的访问顺序。',
+        '递归处理左子树，再访问当前节点，最后处理右子树。',
+        '将遍历结果按顺序输出，并比较递归与显式栈的空间开销。',
+    ]
+    code_blocks = [
+        {
+            'id': 'tree-include',
+            'code': '#include <iostream>\n#include <vector>\n#include <stack>',
+            'label': '引入输入输出、数组与栈',
+            'indent': 0,
+            'phase': 1,
+            'part_name': '遍历函数',
+            'part_header': '',
+            'part_footer': '',
+        },
+        {
+            'id': 'tree-node',
+            'code': 'struct Node { int value; Node* left; Node* right; };',
+            'label': '定义二叉树节点结构',
+            'indent': 0,
+            'phase': 1,
+            'part_name': '遍历函数',
+            'part_header': '',
+            'part_footer': '',
+        },
+        {
+            'id': 'tree-base',
+            'code': 'void inorder(Node* root) {\n    if (!root) return;',
+            'label': '处理空节点并进入遍历函数',
+            'indent': 0,
+            'phase': 1,
+            'part_name': '遍历函数',
+            'part_header': '',
+            'part_footer': '\n}',
+        },
+        {
+            'id': 'tree-left',
+            'code': 'inorder(root->left);',
+            'label': '先遍历左子树',
+            'indent': 1,
+            'phase': 2,
+            'part_name': '遍历函数',
+            'part_header': 'void inorder(Node* root) {',
+            'part_footer': '}',
+        },
+        {
+            'id': 'tree-visit',
+            'code': 'std::cout << root->value << " ";',
+            'label': '访问并输出当前节点',
+            'indent': 1,
+            'phase': 2,
+            'part_name': '遍历函数',
+            'part_header': 'void inorder(Node* root) {',
+            'part_footer': '}',
+        },
+        {
+            'id': 'tree-right',
+            'code': 'inorder(root->right);\n}',
+            'label': '最后遍历右子树并结束函数',
+            'indent': 1,
+            'phase': 2,
+            'part_name': '遍历函数',
+            'part_header': 'void inorder(Node* root) {',
+            'part_footer': '}',
+        },
+    ]
+    noise_blocks = [
+        {
+            'id': 'noise-tree-root',
+            'code': 'std::cout << root->value << " ";',
+            'label': '进入函数后立即输出根节点（干扰项）',
+            'indent': 1,
+            'phase': 1,
+            'part_name': '遍历函数',
+            'part_header': 'void inorder(Node* root) {',
+            'part_footer': '}',
+        },
+    ]
+    quiz_steps = [
+        {
+            'step_id': 1,
+            'part_name': '遍历函数',
+            'type': 'choice',
+            'question': '中序遍历访问节点的顺序是什么？',
+            'options': ['左子树、当前节点、右子树', '当前节点、左子树、右子树', '右子树、当前节点、左子树'],
+            'correct_answer': '左子树、当前节点、右子树',
+            'explanation': '中序遍历的核心顺序是 Left-Root-Right。',
+        },
+        {
+            'step_id': 2,
+            'part_name': '遍历函数',
+            'type': 'fill',
+            'question': '递归函数的终止条件应检查指针是否为？',
+            'context_before': 'if (!root) ',
+            'context_after': 'return;',
+            'blank_hint': '输入布尔条件',
+            'correct_answer': 'return',
+            'code_line': 'if (!root) return;',
+            'indent': 1,
+            'explanation': '遇到空节点时立即返回，避免访问空指针。',
+        },
+        {
+            'step_id': 3,
+            'part_name': '遍历函数',
+            'type': 'choice',
+            'question': '递归中序遍历的额外空间主要来自哪里？',
+            'options': ['递归调用栈', '输入数组的排序', '输出流缓冲区'],
+            'correct_answer': '递归调用栈',
+            'explanation': '递归深度与树高相关，显式栈可以把它转换为可见的数据结构。',
+        },
+    ]
+    difficulty_config = {
+        'feynman_rounds': 3,
+        'student_persona': 'curious',
+        'guided_questions': [
+            '为什么中序遍历在二叉搜索树上会得到有序序列？',
+            '最坏情况下递归深度是多少？',
+            '如何用显式栈改写递归遍历？',
+        ],
+    }
+    reference_code = """#include <iostream>
+
+struct Node {
+    int value;
+    Node* left;
+    Node* right;
+};
+
+void inorder(Node* root) {
+    if (!root) return;
+    inorder(root->left);
+    std::cout << root->value << ' ';
+    inorder(root->right);
+}
+
+int main() {
+    return 0;
+}"""
+
+    preset = AssignmentThinkingPreset.query.filter_by(assignment_id=assignment.id).first()
+    if not preset:
+        preset = AssignmentThinkingPreset(assignment_id=assignment.id)
+        db.session.add(preset)
+    preset.reference_code = reference_code
+    preset.key_steps = _json(key_steps)
+    preset.code_blocks = _json(code_blocks)
+    preset.noise_blocks = _json(noise_blocks)
+    preset.quiz_steps = _json(quiz_steps)
+    preset.difficulty_config = _json(difficulty_config)
+    preset.algorithm_summary = (
+        '算法流程：从根节点开始，先递归访问左子树，再输出当前节点，最后访问右子树；'
+        '遇到空节点立即返回，并比较递归调用栈与显式栈的空间开销。'
+    )
+    preset.status = 'ready'
+    preset.error_message = None
+    return preset
+
+
 def _ensure_trend(student_id):
     trend_data = {
         'trend': '基础算法理解较稳定，循环控制与边界处理表现较好。',
@@ -595,3 +757,411 @@ def is_demo_guided_assignment(assignment):
         and assignment.creator_id == DEMO_TEACHER_ID
         and DEMO_CLASS_NAME in assignment.get_target_class_list()
     )
+
+
+# ---------------------------------------------------------------------------
+# Per-session fixture set
+# ---------------------------------------------------------------------------
+#
+# The original fixture above was kept as a compatibility reference while the
+# public demo was migrated away from the formal database.  The definitions
+# below are the active implementation.  They deliberately use only the
+# currently-bound SQLAlchemy session; the caller must activate a DemoRun
+# before invoking seed_demo_experience().
+
+from flask import has_request_context, session as flask_session
+
+from services.demo_database import (
+    DEMO_ROLE_SESSION_KEY,
+    is_active_demo_run,
+)
+
+
+C_LANGUAGE_POINTS = (
+    ('basic_syntax', '基础语法'),
+    ('pointer', '指针'),
+    ('function', '函数'),
+    ('array', '数组'),
+    ('string', '字符串'),
+    ('struct', '结构体'),
+    ('file_io', '文件操作'),
+    ('dynamic_memory', '动态内存'),
+    ('linked_list', '链表'),
+    ('tree', '树'),
+    ('sorting', '排序算法'),
+    ('searching', '搜索算法'),
+    ('recursion', '递归'),
+)
+
+
+DEMO_STUDENT_SPECS = (
+    ('demo_s_001', 'student_demo_good', '赵一（优秀）', 4.6),
+    ('demo_s_002', 'student_demo_mid', '钱二（中等）', 3.7),
+    ('demo_s_003', 'student_demo_risk', '孙三（风险）', 2.2),
+    ('demo_s_004', 'student_demo_04', '周四', 3.1),
+    ('demo_s_005', 'student_demo_05', '吴五', 4.1),
+    ('demo_s_006', 'student_demo_06', '郑六', 2.8),
+    ('demo_s_007', 'student_demo_07', '王七', 3.5),
+    ('demo_s_008', 'student_demo_08', '冯八', 4.3),
+    ('demo_s_009', 'student_demo_09', '陈九', 2.6),
+    ('demo_s_010', 'student_demo_10', '褚十', 3.9),
+    ('demo_s_011', 'student_demo_11', '卫十一', 4.0),
+    ('demo_s_012', 'student_demo_12', '蒋十二', 3.3),
+)
+
+
+DEMO_ASSIGNMENT_SPECS = (
+    {
+        'key': 'guided_fibonacci',
+        'title': DEMO_ASSIGNMENT_TITLE,
+        'description': '使用循环计算斐波那契数列的前 N 项，并说明边界条件与空间复杂度。',
+        'difficulty': 2,
+        'knowledge': [('basic_syntax', 0.8, 1.5), ('array', 0.7, 1.8), ('recursion', 0.5, 2.0)],
+        'cases': [('5', '0 1 1 2 3', True), ('8', '0 1 1 2 3 5 8 13', False), ('0', '', True)],
+    },
+    {
+        'key': 'guided_tree',
+        'title': DEMO_SECOND_ASSIGNMENT_TITLE,
+        'description': '实现二叉树的中序遍历，比较递归写法与显式栈写法的空间开销。',
+        'difficulty': 4,
+        'knowledge': [('tree', 1.0, 4.0), ('recursion', 0.9, 3.5), ('struct', 0.8, 3.5)],
+        'cases': [('1 2 3', '2 1 3', True), ('7 3 9 1 5', '1 3 5 7 9', True)],
+    },
+    {
+        'key': 'pointer_array',
+        'title': '作业三：指针与数组的边界管理',
+        'description': '使用指针遍历整数数组，完成最大值、最小值和平均值计算，并处理空数组。',
+        'difficulty': 3,
+        'knowledge': [('pointer', 1.0, 3.0), ('array', 1.0, 2.5), ('function', 0.7, 2.0)],
+        'cases': [('4\\n3 1 9 2', '9 1 3.75', True), ('0', 'empty', False)],
+    },
+    {
+        'key': 'linked_list',
+        'title': '作业四：链表节点插入与释放',
+        'description': '定义链表节点，完成头插、尾插和遍历操作，说明动态内存释放时机。',
+        'difficulty': 4,
+        'knowledge': [('linked_list', 1.0, 4.0), ('dynamic_memory', 1.0, 4.0), ('struct', 0.8, 3.5)],
+        'cases': [('3\\n1 2 3', '1 2 3', True), ('0', 'empty', True)],
+    },
+    {
+        'key': 'file_io',
+        'title': '作业五：文本文件统计器',
+        'description': '读取文本文件并统计字符、单词和行数，正确处理文件打开失败的情况。',
+        'difficulty': 3,
+        'knowledge': [('file_io', 1.0, 3.0), ('string', 0.8, 2.5), ('basic_syntax', 0.6, 1.5)],
+        'cases': [('hello\\nworld', '2 lines', True), ('', '0 lines', True)],
+    },
+    {
+        'key': 'sorting_search',
+        'title': '作业六：排序与二分查找综合练习',
+        'description': '实现插入排序和二分查找，比较不同数据规模下的时间复杂度。',
+        'difficulty': 4,
+        'knowledge': [('sorting', 1.0, 3.5), ('searching', 1.0, 3.5), ('function', 0.7, 2.0)],
+        'cases': [('5\\n5 2 4 1 3', '1 2 3 4 5', True), ('3\\n2 4 6', 'not found', False)],
+    },
+)
+
+
+def _structured_demo_feedback(score, seed):
+    """Return historical evaluator-shaped feedback on the 0–5 scale."""
+    offsets = (0.2, -0.1, 0.1, -0.2, 0.0)
+    dimensions = {
+        key: round(max(0.0, min(5.0, float(score) + offsets[(seed + index) % len(offsets)])), 1)
+        for index, key in enumerate((
+            'algorithm_score',
+            'style_score',
+            'functionality_score',
+            'efficiency_score',
+            'readability_score',
+        ))
+    }
+    dimensions.update({
+        'overall_score': round(float(score), 1),
+        'strengths': ['能够拆分输入、处理和输出流程', '变量命名与函数边界较清楚'],
+        'suggestions': ['补充边界条件测试', '尝试解释时间复杂度与空间复杂度'],
+    })
+    return _json(dimensions)
+
+
+def _ensure_history_submission(
+    student_id,
+    assignment_id,
+    score,
+    attempt_index,
+    submitted_at,
+    assignment_title,
+):
+    """Upsert one deterministic historical submission without touching new work."""
+    marker = f'/* CodeSense demo history: {student_id}/{assignment_id}/{attempt_index} */'
+    submission = Submission.query.filter(
+        Submission.student_id == student_id,
+        Submission.assignment_id == assignment_id,
+        Submission.code.like(f'{marker}%'),
+    ).first()
+    if not submission:
+        submission = Submission(
+            student_id=student_id,
+            assignment_id=assignment_id,
+            code=marker,
+        )
+        db.session.add(submission)
+
+    score = max(0, min(5, int(round(score))))
+    passed = 3 if score >= 4 else 2 if score >= 3 else 1 if score > 0 else 0
+    submission.code = marker + f'\n/* {assignment_title} 示例历史记录 */\nint main(void) {{ return {score}; }}'
+    submission.score = score
+    submission.language = 'c'
+    submission.status = 'evaluated'
+    submission.feedback = (
+        '本次提交已完成基础评测。' if score >= 3
+        else '核心思路已经出现，建议继续检查边界条件和指针安全。'
+    )
+    submission.ai_feedback = _structured_demo_feedback(score, attempt_index)
+    submission.sandbox_status = 'passed' if passed == 3 else 'partial' if passed else 'failed'
+    submission.sandbox_passed = passed
+    submission.sandbox_total = 3
+    submission.sandbox_detail = _json({
+        'cases': [
+            {'index': 1, 'status': 'passed' if passed >= 1 else 'failed'},
+            {'index': 2, 'status': 'passed' if passed >= 2 else 'failed'},
+            {'index': 3, 'status': 'passed' if passed >= 3 else 'failed'},
+        ]
+    })
+    submission.submitted_at = submitted_at
+    return submission
+
+
+def _seed_demo_knowledge_scores(student, student_index):
+    """Seed all C-language dimensions with meaningful 0–100 profile values."""
+    base = float(student.user_ascore or 3.0) * 20.0
+    for point_index, (key, _name) in enumerate(C_LANGUAGE_POINTS):
+        variation = ((student_index * 7 + point_index * 11) % 19) - 9
+        score = round(max(28.0, min(96.0, base + 18.0 + variation)), 1)
+        attempts = 2 + ((student_index + point_index) % 5)
+        correct = max(0, min(attempts, round(attempts * score / 100.0)))
+        _ensure_knowledge_score(
+            student.student_id,
+            key,
+            score,
+            attempts,
+            correct,
+            round(1.5 + ((student_index + point_index) % 4) * 0.6, 1),
+        )
+
+
+def _ensure_pending_trend(student_id, submission_count, student_index):
+    """Create numeric trend history while leaving narrative generation to real AI."""
+    trend = AbilityTrend.query.filter_by(student_id=student_id).first()
+    if not trend:
+        trend = AbilityTrend(student_id=student_id, status='pending')
+        db.session.add(trend)
+
+    if not trend.trend_data:
+        start = 48 + ((student_index * 5) % 15)
+        trend.trend_data = _json({
+            'labels': [f'D-{offset}' for offset in range(13, -1, -1)],
+            'scores': [
+                round(max(0, min(100, start + offset * (1.5 + student_index % 3))), 1)
+                for offset in range(14)
+            ],
+            'submission_count': submission_count,
+            'source': 'demo_fixture_history',
+        })
+    trend.submissions_count = submission_count
+    if not trend.last_updated:
+        trend.last_updated = dt.utcnow()
+    if not trend.analysis_markdown and trend.status not in ('failed', 'processing'):
+        trend.status = 'pending'
+    return trend
+
+
+def _ensure_pending_teacher_suggestion(demo_class):
+    suggestion = TeacherAISuggestion.query.filter_by(class_id=demo_class.id).first()
+    if not suggestion:
+        suggestion = TeacherAISuggestion(
+            class_id=demo_class.id,
+            teacher_id=DEMO_TEACHER_ID,
+            status='pending',
+        )
+        db.session.add(suggestion)
+    suggestion.teacher_id = DEMO_TEACHER_ID
+    if not suggestion.suggestion_markdown and suggestion.status != 'failed':
+        suggestion.status = 'pending'
+    if not suggestion.last_updated:
+        suggestion.last_updated = dt.utcnow()
+    return suggestion
+
+
+def _refresh_assignment_stats(assignment):
+    """Keep assignment aggregates on the same 0–5 scale as submissions."""
+    submissions = Submission.query.filter_by(assignment_id=assignment.id).all()
+    scores = [submission.score for submission in submissions if submission.score is not None]
+    assignment.count = len(submissions)
+    assignment.total_score = sum(scores) if scores else 0
+    assignment.average_score = round(sum(scores) / len(scores), 2) if scores else 0.0
+
+
+def _demo_run_from_request():
+    if not has_request_context():
+        return None
+    run_id = current_demo_run_id()
+    if not run_id:
+        return None
+    role = flask_session.get(DEMO_ROLE_SESSION_KEY) or 'student'
+    return DemoRun(
+        run_id=run_id,
+        role=role,
+        student_id=DEMO_STUDENT_ID,
+        teacher_id=DEMO_TEACHER_ID,
+        db_path=str(_db_path(run_id)),
+        created_at=dt.utcnow(),
+    )
+
+
+def seed_demo_experience(run: DemoRun) -> DemoExperience:
+    """Seed one rich demo workspace into the explicitly active temporary DB."""
+    if not isinstance(run, DemoRun):
+        raise TypeError('seed_demo_experience 需要 DemoRun')
+    if not is_active_demo_run(run.run_id):
+        raise RuntimeError('体验临时数据库尚未激活，拒绝写入其他数据库')
+
+    teacher = _ensure_user(
+        DEMO_TEACHER_ID,
+        DEMO_TEACHER_USERNAME,
+        '教师',
+        '李老师（演示）',
+        DEMO_TEACHER_PASSWORD,
+        user_ascore=4.8,
+    )
+    _set_unique_email(teacher, 'teacher_demo@codesense.edu')
+    demo_class = _ensure_class(teacher)
+
+    students = []
+    for index, (student_id, username, full_name, ascore) in enumerate(DEMO_STUDENT_SPECS):
+        student = _ensure_user(
+            student_id,
+            username,
+            '学生',
+            full_name,
+            DEMO_STUDENT_PASSWORD,
+            class_id=demo_class.id,
+            class_name=demo_class.name,
+            user_ascore=ascore,
+        )
+        _set_unique_email(student, f'{username}@demo.codesense.edu')
+        students.append(student)
+
+    db.session.flush()
+
+    for student in students:
+        _ensure_roster(student.student_id, student.full_name, demo_class, student.student_id)
+    # Keep a couple of pending roster entries so class management also shows
+    # the registration workflow without creating fake users for them.
+    _ensure_roster('demo_r_013', '何十三（待注册）', demo_class)
+    _ensure_roster('demo_r_014', '吕十四（待注册）', demo_class)
+
+    assignments = {}
+    now = dt.utcnow()
+    for assignment_index, spec in enumerate(DEMO_ASSIGNMENT_SPECS):
+        assignment = _ensure_assignment(
+            spec['title'],
+            spec['description'],
+            spec['difficulty'],
+            demo_class,
+        )
+        assignment.created_time = now - timedelta(days=35 - assignment_index * 4)
+        assignment.due_date = now + timedelta(days=7 + assignment_index * 2)
+        db.session.flush()
+        for knowledge_point, weight, difficulty in spec['knowledge']:
+            _ensure_assignment_knowledge(assignment, knowledge_point, weight, difficulty)
+        for case_index, (input_data, expected_output, is_public) in enumerate(spec['cases']):
+            _ensure_test_case(assignment, input_data, expected_output, is_public, case_index + 1)
+        assignments[spec['key']] = assignment
+
+    db.session.flush()
+    assignment_list = list(assignments.values())
+
+    # The primary demo student has a visible progression history; the other
+    # students provide the teacher dashboard with enough cross-sectional data.
+    for student_index, student in enumerate(students):
+        _seed_demo_knowledge_scores(student, student_index)
+        if student_index == 0:
+            selected = (
+                list(enumerate(assignment_list))
+                + [(attempt_index + len(assignment_list), assignment)
+                   for attempt_index, assignment in enumerate(assignment_list)]
+            )
+        else:
+            selected = [
+                (offset, assignment_list[(student_index + offset) % len(assignment_list)])
+                for offset in range(4)
+            ]
+        for attempt_index, assignment in selected:
+            score = ((student_index * 2 + attempt_index * 3) % 5) + 1
+            if student_index == 0:
+                score = min(5, max(2, 3 + ((attempt_index + 1) % 3)))
+            submitted_at = now - timedelta(
+                days=(student_index * 2 + attempt_index) % 14,
+                hours=(attempt_index * 3) % 8,
+            )
+            _ensure_history_submission(
+                student.student_id,
+                assignment.id,
+                score,
+                attempt_index,
+                submitted_at,
+                assignment.title,
+            )
+
+    for assignment in assignment_list:
+        _refresh_assignment_stats(assignment)
+    for student_index, student in enumerate(students):
+        submissions_count = Submission.query.filter_by(student_id=student.student_id).count()
+        student.submit_count = submissions_count
+        _ensure_pending_trend(student.student_id, submissions_count, student_index)
+
+    demo_class.student_count = len(students)
+    demo_class.avg_score = round(
+        sum(student.user_ascore for student in students) / len(students), 2
+    )
+    demo_class.total_submissions = Submission.query.join(User).filter(
+        User.class_id == demo_class.id,
+    ).count()
+
+    _ensure_pending_teacher_suggestion(demo_class)
+    _ensure_preset(assignments['guided_fibonacci'])
+    _ensure_tree_preset(assignments['guided_tree'])
+
+    db.session.commit()
+    return DemoExperience(
+        teacher_id=teacher.student_id,
+        student_id=students[0].student_id,
+        class_id=demo_class.id,
+        assignment_id=assignments['guided_fibonacci'].id,
+        second_assignment_id=assignments['guided_tree'].id,
+    )
+
+
+def ensure_demo_experience(run=None):
+    """Compatibility wrapper that only works when a demo run is active."""
+    run = run or _demo_run_from_request()
+    if run is None:
+        raise RuntimeError('公开体验数据必须写入临时数据库')
+    return seed_demo_experience(run)
+
+
+def get_demo_assignment_id(run_id: str, key: str = 'guided_fibonacci') -> int:
+    """Return a seeded demo assignment id from the active run."""
+    if not is_active_demo_run(run_id):
+        raise RuntimeError('体验临时数据库尚未激活')
+    title_by_key = {spec['key']: spec['title'] for spec in DEMO_ASSIGNMENT_SPECS}
+    title = title_by_key.get(key)
+    if not title:
+        raise KeyError(f'未知的演示作业标识: {key}')
+    assignment = Assignment.query.filter_by(
+        title=title,
+        creator_id=DEMO_TEACHER_ID,
+    ).first()
+    if assignment is None:
+        raise LookupError(f'演示作业尚未初始化: {key}')
+    return assignment.id

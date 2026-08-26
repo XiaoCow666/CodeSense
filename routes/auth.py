@@ -10,9 +10,11 @@ from forms import LoginForm, RegistrationForm
 from services.demo_experience import (
     DEMO_STUDENT_ID,
     DEMO_TEACHER_ID,
-    ensure_demo_experience,
+    seed_demo_experience,
 )
 from services.demo_database import (
+    DEMO_ROLE_SESSION_KEY,
+    DEMO_SESSION_KEY,
     activate_demo_run,
     create_demo_run,
     current_demo_run_id,
@@ -119,7 +121,11 @@ def demo_login(role):
         run = create_demo_run(role)
         if not activate_demo_run(run.run_id):
             raise RuntimeError('临时体验数据库无法激活')
-        demo = ensure_demo_experience()
+        # The run marker must be present before any subsequent request or
+        # Flask-Login user loading can resolve the temporary database.
+        session[DEMO_SESSION_KEY] = run.run_id
+        session[DEMO_ROLE_SESSION_KEY] = role
+        demo = seed_demo_experience(run)
         login_demo_run(run)
         if role == 'student':
             return redirect(url_for('thinking.arena', assignment_id=demo.assignment_id))

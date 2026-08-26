@@ -5,6 +5,7 @@ import tempfile
 
 from app import create_app
 from models import db
+from services.demo_database import destroy_all_demo_runs
 
 
 def create_test_app():
@@ -28,8 +29,11 @@ def create_test_app():
 
 def destroy_test_app(app):
     """释放测试应用占用的临时数据库文件。"""
-    with app.app_context():
-        db.session.remove()
-        db.drop_all()
-    os.close(app._demo_test_db_fd)
-    os.unlink(app._demo_test_db_path)
+    try:
+        with app.app_context():
+            db.session.remove()
+            db.drop_all()
+    finally:
+        os.close(app._demo_test_db_fd)
+        os.unlink(app._demo_test_db_path)
+        destroy_all_demo_runs()

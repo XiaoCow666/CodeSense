@@ -1,18 +1,12 @@
 import unittest
 
-from services.demo_experience import (
-    DEMO_STUDENT_ID,
-    DEMO_TEACHER_ID,
-    ensure_demo_experience,
-)
+from services.demo_experience import DEMO_STUDENT_ID, DEMO_TEACHER_ID
 from tests.demo_test_utils import create_test_app, destroy_test_app
 
 
 class DemoLoginTestCase(unittest.TestCase):
     def setUp(self):
         self.app = create_test_app()
-        with self.app.app_context():
-            ensure_demo_experience()
         self.client = self.app.test_client()
 
     def tearDown(self):

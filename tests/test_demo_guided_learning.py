@@ -3,7 +3,8 @@ import unittest
 from pathlib import Path
 
 from models import Assignment, AssignmentThinkingPreset, ThinkingSession, User, db
-from services.demo_experience import ensure_demo_experience
+from services.demo_database import activate_demo_run
+from services.demo_experience import get_demo_assignment_id
 from tests.demo_test_utils import create_test_app, destroy_test_app
 
 
@@ -12,7 +13,6 @@ class DemoGuidedLearningTestCase(unittest.TestCase):
         self.app = create_test_app()
         self.client = self.app.test_client()
         with self.app.app_context():
-            self.demo = ensure_demo_experience()
             teacher = User(
                 student_id='regular_teacher',
                 username='regular_teacher',
@@ -54,6 +54,17 @@ class DemoGuidedLearningTestCase(unittest.TestCase):
             db.session.commit()
             self.regular_assignment_id = regular_assignment.id
 
+    def _login_demo(self):
+        response = self.client.get('/demo-login/student')
+        self.assertEqual(response.status_code, 302)
+        with self.client.session_transaction() as client_session:
+            return client_session['demo_run_id']
+
+    def _demo_assignment_id(self, run_id, key='guided_fibonacci'):
+        with self.app.app_context():
+            self.assertTrue(activate_demo_run(run_id))
+            return get_demo_assignment_id(run_id, key)
+
     def tearDown(self):
         destroy_test_app(self.app)
 
@@ -66,9 +77,10 @@ class DemoGuidedLearningTestCase(unittest.TestCase):
         self.assertIn('演示作业一：循环与斐波那契数列'.encode('utf-8'), arena_response.data)
 
     def test_demo_start_session_returns_all_three_stage_preset_data(self):
-        self.client.get('/demo-login/student')
+        run_id = self._login_demo()
+        assignment_id = self._demo_assignment_id(run_id)
         response = self.client.post('/thinking/api/start_session', json={
-            'assignment_id': self.demo.assignment_id,
+            'assignment_id': assignment_id,
         })
 
         self.assertEqual(response.status_code, 200)
@@ -104,10 +116,14 @@ class DemoGuidedLearningTestCase(unittest.TestCase):
     def test_public_demo_shortcuts_can_move_shared_session_through_all_stages(self):
         base_url = 'https://experience.codesense.test'
         self.client.get('/demo-login/student', base_url=base_url)
+        with self.client.session_transaction() as client_session:
+            run_id = client_session['demo_run_id']
         with self.app.app_context():
+            self.assertTrue(activate_demo_run(run_id))
+            demo_assignment_id = get_demo_assignment_id(run_id)
             shared_session = ThinkingSession(
                 student_id='demo_s_001',
-                assignment_id=self.demo.assignment_id,
+                assignment_id=demo_assignment_id,
             )
             db.session.add(shared_session)
             db.session.commit()
@@ -123,6 +139,7 @@ class DemoGuidedLearningTestCase(unittest.TestCase):
             self.assertTrue(response.get_json()['success'])
 
         with self.app.app_context():
+            self.assertTrue(activate_demo_run(run_id))
             updated = ThinkingSession.query.get(session_id)
             self.assertEqual(updated.status, 'completed')
             self.assertTrue(updated.stage3_completed)
@@ -132,16 +149,11 @@ class DemoGuidedLearningTestCase(unittest.TestCase):
         with self.app.app_context():
             regular_session = ThinkingSession(
                 student_id='regular_student',
-                assignment_id=self.demo.assignment_id,
-            )
-            other_assignment_session = ThinkingSession(
-                student_id='demo_s_001',
                 assignment_id=self.regular_assignment_id,
             )
-            db.session.add_all([regular_session, other_assignment_session])
+            db.session.add(regular_session)
             db.session.commit()
             regular_session_id = regular_session.id
-            other_assignment_session_id = other_assignment_session.id
 
         self.client.post('/login', base_url=base_url, data={
             'username': 'regular_student',
@@ -156,6 +168,17 @@ class DemoGuidedLearningTestCase(unittest.TestCase):
 
         self.client.get('/logout', base_url=base_url)
         self.client.get('/demo-login/student', base_url=base_url)
+        with self.client.session_transaction() as client_session:
+            run_id = client_session['demo_run_id']
+        with self.app.app_context():
+            self.assertTrue(activate_demo_run(run_id))
+            other_assignment_session = ThinkingSession(
+                student_id='demo_s_001',
+                assignment_id=get_demo_assignment_id(run_id, 'guided_tree'),
+            )
+            db.session.add(other_assignment_session)
+            db.session.commit()
+            other_assignment_session_id = other_assignment_session.id
         other_assignment_response = self.client.post(
             '/thinking/api/debug/jump_stage',
             base_url=base_url,

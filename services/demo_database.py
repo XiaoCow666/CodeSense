@@ -233,6 +233,18 @@ def activate_demo_run(run_id: str) -> bool:
     return True
 
 
+def is_active_demo_run(run_id: str) -> bool:
+    """Return whether the current scoped session is bound to this demo run."""
+
+    engine = _engine_for_run(run_id)
+    if engine is None:
+        return False
+    try:
+        return getattr(db.session(), '_codesense_demo_bind', None) is engine
+    except RuntimeError:
+        return False
+
+
 def activate_demo_request_database() -> bool:
     """Activate the database selected by the current request's session."""
 
@@ -303,6 +315,23 @@ def cleanup_expired_demo_runs(now: datetime | None = None) -> int:
         run_id = path.stem
         if not _RUN_ID_PATTERN.fullmatch(run_id):
             continue
+        if destroy_demo_run(run_id):
+            removed += 1
+    return removed
+
+
+def destroy_all_demo_runs() -> int:
+    """Remove every valid demo run, primarily for deterministic test cleanup."""
+    root = _demo_root()
+    run_ids = set()
+    with _LOCK:
+        run_ids.update(_ENGINES)
+    for path in root.glob('*.sqlite3'):
+        if _RUN_ID_PATTERN.fullmatch(path.stem):
+            run_ids.add(path.stem)
+
+    removed = 0
+    for run_id in run_ids:
         if destroy_demo_run(run_id):
             removed += 1
     return removed
