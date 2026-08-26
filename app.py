@@ -166,6 +166,11 @@ def setup_logging(app):
         # 忽略静态文件、静态资源
         if not request.endpoint or 'static' in request.endpoint or request.endpoint == 'favicon':
             return
+
+        # 公开体验必须在任何 Flask-Login/业务查询发生前切换到本次会话的临时库。
+        # 若临时库已经失效，服务会清除 demo 身份，绝不回退到正式库。
+        from services.demo_database import activate_demo_request_database
+        activate_demo_request_database()
             
         # 忽略测试环境，避免 Session 干扰
         if app.config.get('TESTING'):
@@ -177,6 +182,8 @@ def setup_logging(app):
 
         from flask_login import current_user, logout_user
         if current_user.is_authenticated:
+            if getattr(current_user, 'is_demo', False):
+                return
             # 检查Session中的ID是否与数据库中一致
             session_id = session.get('current_session_id')
             db_session_id = current_user.current_session_id
@@ -302,6 +309,9 @@ def create_app(config_name='default'):
     def load_user(user_id):
         # 从models模块导入User模型
         from models import User
+        from services.demo_database import is_demo_login_id, load_demo_principal
+        if is_demo_login_id(user_id):
+            return load_demo_principal(user_id)
         return db.session.get(User, user_id)
     
     # 注册蓝图

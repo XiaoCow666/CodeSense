@@ -12,6 +12,13 @@ from services.demo_experience import (
     DEMO_TEACHER_ID,
     ensure_demo_experience,
 )
+from services.demo_database import (
+    activate_demo_run,
+    create_demo_run,
+    current_demo_run_id,
+    destroy_demo_run,
+    login_demo_run,
+)
 from utils.auth import redirect_if_logged_in
 
 auth = Blueprint('auth', __name__)
@@ -102,24 +109,29 @@ def login():
 @auth.route('/demo-login/<role>')
 @redirect_if_logged_in
 def demo_login(role):
-    """公开演示入口：准备演示数据后，按角色进入对应体验首页。"""
+    """公开演示入口：为本次会话创建独立临时库后进入对应体验首页。"""
     if role not in ('student', 'teacher'):
         flash('该演示入口不可用，请返回登录页重试。', 'warning')
         return redirect(url_for('auth.login'))
 
+    run = None
     try:
+        run = create_demo_run(role)
+        if not activate_demo_run(run.run_id):
+            raise RuntimeError('临时体验数据库无法激活')
         demo = ensure_demo_experience()
-        user_id = DEMO_STUDENT_ID if role == 'student' else DEMO_TEACHER_ID
-        user = User.query.get(user_id)
-        if not user:
-            raise RuntimeError('演示账号初始化后不存在')
-
-        _establish_login_session(user, source='公开演示')
+        login_demo_run(run)
         if role == 'student':
             return redirect(url_for('thinking.arena', assignment_id=demo.assignment_id))
         return redirect(url_for('main.home'))
     except Exception:
         db.session.rollback()
+        if run is not None:
+            db.session.remove()
+            try:
+                destroy_demo_run(run.run_id)
+            except Exception:
+                current_app.logger.exception('清理失败的公开体验临时库失败')
         current_app.logger.exception('公开演示入口初始化失败')
         flash('演示入口暂时不可用，请稍后重试。', 'warning')
         return redirect(url_for('auth.login'))
@@ -284,6 +296,7 @@ def register_teacher(token):
 @auth.route('/logout')
 def logout():
     """登出处理"""
+    demo_run_id = current_demo_run_id()
     user_id = session.get('student_id')
     username = session.get('username')
     full_name = session.get('full_name', '未知用户')
@@ -292,6 +305,15 @@ def logout():
     
     logout_user()
     session.clear()
+
+    if demo_run_id:
+        db.session.remove()
+        try:
+            destroy_demo_run(demo_run_id)
+        except Exception:
+            current_app.logger.exception('公开体验临时库清理失败')
+        flash('本次体验已结束，体验数据已清除', 'info')
+        return redirect(url_for('auth.login'))
     
     if user_id:
         SystemLog.add_log(

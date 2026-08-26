@@ -71,6 +71,28 @@ class DemoRun:
     created_at: datetime
 
 
+class DemoPrincipal:
+    """Flask-Login principal backed by a temporary-database User row."""
+
+    is_demo = True
+    is_active = True
+    is_authenticated = True
+    is_anonymous = False
+
+    def __init__(self, user, run_id: str):
+        self._user = user
+        self.run_id = _validate_run_id(run_id)
+
+    def get_id(self) -> str:
+        return f"{DEMO_ID_PREFIX}{self.run_id}"
+
+    def __getattr__(self, name):
+        return getattr(self._user, name)
+
+    def __repr__(self) -> str:
+        return f"<DemoPrincipal {self.get_id()}>"
+
+
 def is_demo_login_id(user_id: str) -> bool:
     """Return whether a Flask-Login id belongs to the demo namespace."""
 
@@ -90,6 +112,48 @@ def current_demo_run_id() -> str | None:
     if not isinstance(run_id, str) or not _RUN_ID_PATTERN.fullmatch(run_id):
         return None
     return run_id
+
+
+def login_demo_run(run: DemoRun) -> DemoPrincipal:
+    """Log in the temporary User row without creating a formal user."""
+
+    from flask_login import login_user
+    from models import User
+
+    user_id = run.teacher_id if run.role == "teacher" else run.student_id
+    user = db.session.get(User, user_id)
+    if user is None:
+        raise RuntimeError("临时体验用户初始化失败")
+
+    principal = DemoPrincipal(user, run.run_id)
+    login_user(principal)
+    session[DEMO_SESSION_KEY] = run.run_id
+    session[DEMO_ROLE_SESSION_KEY] = run.role
+    session["current_session_id"] = f"{DEMO_ID_PREFIX}{run.run_id}"
+    session["student_id"] = user.student_id
+    session["username"] = user.username
+    session["full_name"] = user.full_name or user.username
+    session["usertype"] = user.usertype
+    session["login"] = True
+    return principal
+
+
+def load_demo_principal(user_id: str) -> DemoPrincipal | None:
+    """Load a temporary principal for Flask-Login's user loader."""
+
+    if not is_demo_login_id(user_id):
+        return None
+    run_id = user_id[len(DEMO_ID_PREFIX) :]
+    if not activate_demo_run(run_id):
+        return None
+
+    from models import User
+
+    student_id = session.get("student_id")
+    user = db.session.get(User, student_id) if student_id else None
+    if user is None:
+        return None
+    return DemoPrincipal(user, run_id)
 
 
 def _engine_for_run(run_id: str):
@@ -154,7 +218,7 @@ def activate_demo_run(run_id: str) -> bool:
     # production connection or identity map can leak into the demo request.
     db.session.remove()
     request_session = db.session()
-    request_session.bind = engine
+    request_session._codesense_demo_bind = engine
 
     now = datetime.utcnow()
     with _LOCK:
