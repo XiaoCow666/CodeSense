@@ -18,6 +18,11 @@ from utils.thinking_ai import (
     student_agent_chat, student_agent_write_code, evaluate_feynman_code_fix,
     sanitize_response
 )
+from services.demo_experience import (
+    DEMO_STUDENT_ID,
+    is_demo_guided_assignment,
+    is_demo_guided_session,
+)
 
 thinking = Blueprint('thinking', __name__, url_prefix='/thinking')
 
@@ -122,7 +127,11 @@ def arena(assignment_id):
     return render_template('thinking/arena.html',
                            assignment=assignment,
                            preset_status=preset_status,
-                           existing_session=existing_session)
+                           existing_session=existing_session,
+                           is_demo_experience=(
+                               current_user.student_id == DEMO_STUDENT_ID
+                               and is_demo_guided_assignment(assignment)
+                           ))
 
 
 # ============================================================
@@ -1295,22 +1304,24 @@ def _lazy_backfill_summary(preset: AssignmentThinkingPreset):
 
 
 @thinking.route('/api/debug/jump_stage', methods=['POST'])
-@login_required
 def debug_jump_stage():
-    """开发者调试模式：快速跳过或跳转阶段"""
-    # 限制仅在开发环境（本地运行或 Flask DEBUG 模式）允许访问
-    is_local = request.host.startswith('localhost') or request.host.startswith('127.0.0.1')
-    if not (current_app.debug or is_local):
-        return jsonify({'error': '非开发环境，拒绝访问该调试接口'}), 403
-
+    """开发者调试模式及公开演示体验的阶段快捷入口。"""
     try:
-        data = request.get_json()
+        if not current_user.is_authenticated:
+            return jsonify({'error': '请先登录'}), 403
+
+        data = request.get_json(silent=True) or {}
         session_id = data.get('session_id')
         target_stage = data.get('stage')
 
         ts = ThinkingSession.query.get(session_id)
         if not ts or ts.student_id != current_user.student_id:
             return jsonify({'error': '会话不存在'}), 403
+
+        is_local = request.host.startswith('localhost') or request.host.startswith('127.0.0.1')
+        demo_allowed = is_demo_guided_session(ts)
+        if not (current_app.debug or is_local or demo_allowed):
+            return jsonify({'error': '非开发环境，拒绝访问该调试接口'}), 403
 
         if target_stage == 1:
             ts.current_stage = 1

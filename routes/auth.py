@@ -7,9 +7,37 @@ from itsdangerous import URLSafeTimedSerializer, SignatureExpired
 from flask_login import login_user, logout_user, current_user
 from models import db, Class, StudentRoster, User, SystemLog, SystemConfig
 from forms import LoginForm, RegistrationForm
+from services.demo_experience import (
+    DEMO_STUDENT_ID,
+    DEMO_TEACHER_ID,
+    ensure_demo_experience,
+)
 from utils.auth import redirect_if_logged_in
 
 auth = Blueprint('auth', __name__)
+
+
+def _establish_login_session(user, source=None):
+    """建立单点登录会话，并同步 Flask-Login 与旧版 session 字段。"""
+    new_session_id = uuid.uuid4().hex
+    user.current_session_id = new_session_id
+    db.session.commit()
+
+    login_user(user)
+    session['current_session_id'] = new_session_id
+    session['student_id'] = user.student_id
+    session['username'] = user.username
+    session['full_name'] = user.full_name or user.username
+    session['usertype'] = user.usertype
+    session['login'] = True
+
+    prefix = f'[{source}] ' if source else ''
+    SystemLog.add_log(
+        log_type='用户登录',
+        content=f'{prefix}用户 {user.username} ({user.full_name}) 登录了系统',
+        user_id=user.student_id,
+    )
+    return new_session_id
 
 
 @auth.route('/')
@@ -69,6 +97,32 @@ def login():
     login_message = SystemConfig.get_value('login_message', '欢迎登录 CodeSense 酷森思')
     site_name = SystemConfig.get_value('site_name', 'CodeSense 酷森思')
     return render_template('login.html', form=form, login_message=login_message, site_name=site_name)
+
+
+@auth.route('/demo-login/<role>')
+@redirect_if_logged_in
+def demo_login(role):
+    """公开演示入口：准备演示数据后，按角色进入对应体验首页。"""
+    if role not in ('student', 'teacher'):
+        flash('该演示入口不可用，请返回登录页重试。', 'warning')
+        return redirect(url_for('auth.login'))
+
+    try:
+        demo = ensure_demo_experience()
+        user_id = DEMO_STUDENT_ID if role == 'student' else DEMO_TEACHER_ID
+        user = User.query.get(user_id)
+        if not user:
+            raise RuntimeError('演示账号初始化后不存在')
+
+        _establish_login_session(user, source='公开演示')
+        if role == 'student':
+            return redirect(url_for('thinking.arena', assignment_id=demo.assignment_id))
+        return redirect(url_for('main.home'))
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception('公开演示入口初始化失败')
+        flash('演示入口暂时不可用，请稍后重试。', 'warning')
+        return redirect(url_for('auth.login'))
 
 
 @auth.route('/register', methods=['GET', 'POST'])
