@@ -128,6 +128,14 @@ def demo_login(role):
         demo = seed_demo_experience(run)
         login_demo_run(run)
         if role == 'student':
+            # 真实环境首次进入体验时即启动一次能力分析，分析结果会被
+            # 缓存在本次临时库中；测试环境由专门的任务测试控制线程。
+            if not current_app.config.get('TESTING'):
+                from tasks.ability_analysis import trigger_analysis_if_needed
+                trigger_analysis_if_needed(
+                    DEMO_STUDENT_ID,
+                    demo_run_id=run.run_id,
+                )
             return redirect(url_for('thinking.arena', assignment_id=demo.assignment_id))
         return redirect(url_for('main.home'))
     except Exception:

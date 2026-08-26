@@ -8,6 +8,7 @@ from forms import AssignmentForm, SubmissionForm
 from utils.auth import login_required, admin_required, teacher_required, admin_or_teacher_required
 from utils.code_evaluator import evaluate_cpp_code, initialize_models
 from tasks.submission_tasks import evaluate_submission_async
+from services.demo_database import current_demo_run_id
 from io import BytesIO
 from sqlalchemy import desc
 import traceback  # 添加traceback模块
@@ -549,7 +550,8 @@ def submit_code(assignment_id):
                 evaluate_submission_async(
                     current_app._get_current_object(), 
                     submission.id, 
-                    assignment.title
+                    assignment.title,
+                    demo_run_id=current_demo_run_id(),
                 )
                 print(f"已为提交 {submission.id} 启动后台评测")
                 

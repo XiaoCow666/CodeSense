@@ -10,6 +10,7 @@ from flask_login import login_required, current_user
 from sqlalchemy import func
 from models import db, User, Assignment, Submission, SystemLog, SystemConfig
 from services.teacher_analytics import build_teacher_dashboard_data
+from services.demo_database import current_demo_run_id
 from utils.auth import admin_required
 from utils.maturity_calculator import calculate_maturity_components
 
@@ -601,7 +602,12 @@ def teacher_ai_suggestions():
             # 异步触发生成
             from services.teacher_ai_advisor import generate_class_suggestions_async
             from flask import current_app
-            generate_class_suggestions_async(cls.id, teacher.student_id, current_app._get_current_object())
+            generate_class_suggestions_async(
+                cls.id,
+                teacher.student_id,
+                current_app._get_current_object(),
+                demo_run_id=current_demo_run_id(),
+            )
             
         class_suggestions.append({
             'class': cls,
@@ -639,7 +645,12 @@ def api_generate_teacher_suggestions():
     sug.status = 'pending'
     db.session.commit()
     
-    generate_class_suggestions_async(cls.id, current_user.student_id, current_app._get_current_object())
+    generate_class_suggestions_async(
+        cls.id,
+        current_user.student_id,
+        current_app._get_current_object(),
+        demo_run_id=current_demo_run_id(),
+    )
     
     return jsonify({'success': True, 'message': 'AI 建议生成任务已启动'})
 
@@ -688,7 +699,13 @@ def api_stream_teacher_suggestions():
     from flask import Response, stream_with_context
 
     return Response(
-        stream_with_context(generate_class_suggestions_stream(cls.id, current_user.student_id)),
+        stream_with_context(
+            generate_class_suggestions_stream(
+                cls.id,
+                current_user.student_id,
+                demo_run_id=current_demo_run_id(),
+            )
+        ),
         mimetype='text/event-stream',
         headers={
             'Cache-Control': 'no-cache',

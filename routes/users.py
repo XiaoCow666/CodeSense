@@ -6,6 +6,7 @@ from itsdangerous import URLSafeTimedSerializer
 from models import db, User, Submission, SystemLog, Class, AbilityTrend
 from utils.auth import login_required, admin_required, admin_or_teacher_required
 from tasks.ability_analysis import trigger_analysis_if_needed
+from services.demo_database import current_demo_run_id
 from sqlalchemy import desc
 from forms import ChangePasswordForm, EditProfileForm
 from werkzeug.utils import secure_filename
@@ -228,7 +229,10 @@ def view_submissions():
         
         # 如果没有分析或者已过期，尝试触发异步生成
         if not ability_trend or ability_trend.status in ['pending', 'outdated', 'failed']:
-            trigger_analysis_if_needed(student_id)
+            trigger_analysis_if_needed(
+                student_id,
+                demo_run_id=current_demo_run_id(),
+            )
         
         return render_template('submissions.html', 
                             submissions=submissions, 
@@ -255,7 +259,11 @@ def refresh_analysis():
         return jsonify({'status': 'error', 'message': '未找到学生 ID'}), 401
     
     # 强制触发重新分析
-    triggered = trigger_analysis_if_needed(student_id, force=True)
+    triggered = trigger_analysis_if_needed(
+        student_id,
+        force=True,
+        demo_run_id=current_demo_run_id(),
+    )
     
     if triggered:
         return jsonify({'status': 'success', 'message': '已启动深度能力分析分析，请稍后刷新页面查看结果'})
