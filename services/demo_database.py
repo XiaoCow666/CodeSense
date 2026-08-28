@@ -67,6 +67,16 @@ def _metadata_path(run_id: str) -> Path:
     return metadata_path
 
 
+def _pending_delete_path(run_id: str) -> Path:
+    """Return the marker used to retry deletion after a transient file lock."""
+
+    database_path = _db_path(run_id)
+    pending_path = Path(f"{database_path}.pending").resolve()
+    if pending_path.parent != database_path.parent:
+        raise ValueError("体验数据库待删除标记路径越界")
+    return pending_path
+
+
 def _sqlite_uri(path: Path) -> str:
     return f"sqlite:///{path.as_posix()}"
 
@@ -117,6 +127,22 @@ def _is_expired(run_id: str, now: datetime) -> bool:
         now - last_access > DEMO_IDLE_TIMEOUT
         or now - created_at > DEMO_MAX_LIFETIME
     )
+
+
+def _unlink_with_retry(path: Path) -> bool:
+    """Delete one sidecar, returning false when another process still holds it."""
+
+    for attempt in range(3):
+        try:
+            path.unlink()
+            return True
+        except FileNotFoundError:
+            return True
+        except PermissionError:
+            if attempt == 2:
+                return False
+            time.sleep(0.02)
+    return False
 
 
 @dataclass(frozen=True)
@@ -351,7 +377,13 @@ def activate_demo_request_database() -> bool:
 
 
 def destroy_demo_run(run_id: str) -> bool:
-    """Dispose and delete one temporary database and its SQLite sidecars."""
+    """Dispose and delete one temporary database and its SQLite sidecars.
+
+    A worker may still hold a connection briefly after the browser logs out.
+    Windows refuses to unlink such a file, so cleanup is deliberately
+    best-effort: a marker is left behind and the maintenance sweep retries it
+    later instead of breaking the request or another test's teardown.
+    """
 
     path = _db_path(run_id)
     with _LOCK:
@@ -366,25 +398,26 @@ def destroy_demo_run(run_id: str) -> bool:
         gc.collect()
 
     existed = False
+    cleanup_failed = False
     for candidate in (
         path,
         _metadata_path(run_id),
         Path(f"{path}-wal"),
         Path(f"{path}-shm"),
         Path(f"{path}-journal"),
+        _pending_delete_path(run_id),
     ):
         if candidate.exists():
             existed = True
-            for attempt in range(3):
-                try:
-                    candidate.unlink()
-                    break
-                except FileNotFoundError:
-                    break
-                except PermissionError:
-                    if attempt == 2:
-                        raise
-                    time.sleep(0.02)
+            if not _unlink_with_retry(candidate):
+                cleanup_failed = True
+
+    if cleanup_failed:
+        try:
+            _pending_delete_path(run_id).touch(exist_ok=True)
+        except OSError:
+            pass
+        return False
     return existed or engine is not None
 
 
@@ -394,15 +427,34 @@ def cleanup_expired_demo_runs(now: datetime | None = None) -> int:
     now = now or datetime.utcnow()
     removed = 0
     root = _demo_root()
+    run_ids = set()
     for path in root.glob("*.sqlite3"):
-        run_id = path.stem
-        if not _RUN_ID_PATTERN.fullmatch(run_id):
+        if _RUN_ID_PATTERN.fullmatch(path.stem):
+            run_ids.add(path.stem)
+    pending_suffix = ".sqlite3.pending"
+    for path in root.glob(f"*{pending_suffix}"):
+        if path.name.endswith(pending_suffix):
+            run_id = path.name[: -len(pending_suffix)]
+            if _RUN_ID_PATTERN.fullmatch(run_id):
+                run_ids.add(run_id)
+
+    for run_id in run_ids:
+        try:
+            expired = _pending_delete_path(run_id).exists() or _is_expired(
+                run_id,
+                now,
+            )
+        except (OSError, ValueError):
+            continue
+        if not expired:
             continue
         try:
-            expired = _is_expired(run_id, now)
-        except FileNotFoundError:
+            deleted = destroy_demo_run(run_id)
+        except OSError:
+            # A different process can still own the SQLite handle. Continue
+            # with other sessions and let the next sweep retry this one.
             continue
-        if expired and destroy_demo_run(run_id):
+        if deleted:
             removed += 1
     return removed
 
@@ -428,17 +480,24 @@ def _maybe_cleanup_expired_demo_runs(now: datetime) -> None:
 
 
 def destroy_all_demo_runs() -> int:
-    """Remove every valid demo run, primarily for deterministic test cleanup."""
-    root = _demo_root()
-    run_ids = set()
+    """Remove runs owned by this process, primarily for test cleanup.
+
+    Do not scan every file in the shared temp directory here: test teardown
+    must never remove an active visitor's session from another process.
+    Cross-process leftovers are handled by ``cleanup_expired_demo_runs``.
+    """
+
     with _LOCK:
-        run_ids.update(_ENGINES)
-    for path in root.glob('*.sqlite3'):
-        if _RUN_ID_PATTERN.fullmatch(path.stem):
-            run_ids.add(path.stem)
+        run_ids = set(_ENGINES)
 
     removed = 0
     for run_id in run_ids:
-        if destroy_demo_run(run_id):
+        try:
+            deleted = destroy_demo_run(run_id)
+        except OSError:
+            # A background worker may still be finishing a task for this run.
+            # Leave the pending marker for a later maintenance sweep.
+            continue
+        if deleted:
             removed += 1
     return removed

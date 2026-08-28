@@ -1,11 +1,15 @@
 import os
 import sqlite3
+import tempfile
 import unittest
 from datetime import datetime, timedelta
+from pathlib import Path
+from unittest.mock import patch
 
 import services.demo_database as demo_database
 from services.demo_database import (
     DEMO_IDLE_TIMEOUT,
+    DEMO_MAX_LIFETIME,
     cleanup_expired_demo_runs,
     create_demo_run,
     destroy_demo_run,
@@ -83,6 +87,73 @@ class DemoDatabaseLifecycleTestCase(unittest.TestCase):
             self.assertEqual(cleanup_expired_demo_runs(datetime.utcnow()), 1)
             self.assertFalse(os.path.exists(run.db_path))
             self.assertFalse(os.path.exists(f'{run.db_path}.meta'))
+
+    def test_cleanup_skips_locked_run_and_continues_with_other_runs(self):
+        locked_id = 'a' * 48
+        removable_id = 'b' * 48
+        stale_value = (
+            datetime.utcnow() - DEMO_MAX_LIFETIME - timedelta(seconds=1)
+        ).isoformat()
+
+        with tempfile.TemporaryDirectory() as root_name:
+            root = Path(root_name)
+            for run_id in (locked_id, removable_id):
+                (root / f'{run_id}.sqlite3').touch()
+                (root / f'{run_id}.sqlite3.meta').write_text(
+                    stale_value,
+                    encoding='ascii',
+                )
+
+            def destroy(run_id):
+                if run_id == locked_id:
+                    raise PermissionError('demo database is still in use')
+                for suffix in ('.sqlite3', '.sqlite3.meta'):
+                    (root / f'{run_id}{suffix}').unlink()
+                return True
+
+            with patch.object(demo_database, '_demo_root', return_value=root):
+                with patch.object(
+                    demo_database,
+                    'destroy_demo_run',
+                    side_effect=destroy,
+                ):
+                    removed = demo_database.cleanup_expired_demo_runs()
+
+            self.assertEqual(removed, 1)
+            self.assertTrue((root / f'{locked_id}.sqlite3').exists())
+            self.assertFalse((root / f'{removable_id}.sqlite3').exists())
+
+    def test_destroy_all_skips_locked_run_and_continues_with_other_runs(self):
+        locked_id = 'c' * 48
+        removable_id = 'd' * 48
+
+        with tempfile.TemporaryDirectory() as root_name:
+            root = Path(root_name)
+            for run_id in (locked_id, removable_id):
+                (root / f'{run_id}.sqlite3').touch()
+
+            def destroy(run_id):
+                if run_id == locked_id:
+                    raise PermissionError('demo database is still in use')
+                (root / f'{run_id}.sqlite3').unlink()
+                return True
+
+            with patch.object(demo_database, '_demo_root', return_value=root):
+                with patch.object(
+                    demo_database,
+                    '_ENGINES',
+                    {locked_id: object(), removable_id: object()},
+                ):
+                    with patch.object(
+                        demo_database,
+                        'destroy_demo_run',
+                        side_effect=destroy,
+                    ):
+                        removed = demo_database.destroy_all_demo_runs()
+
+            self.assertEqual(removed, 1)
+            self.assertTrue((root / f'{locked_id}.sqlite3').exists())
+            self.assertFalse((root / f'{removable_id}.sqlite3').exists())
 
 
 if __name__ == '__main__':

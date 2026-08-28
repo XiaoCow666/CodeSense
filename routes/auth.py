@@ -322,11 +322,16 @@ def logout():
 
     if demo_run_id:
         db.session.remove()
+        demo_data_removed = True
         try:
-            destroy_demo_run(demo_run_id)
+            demo_data_removed = destroy_demo_run(demo_run_id)
         except Exception:
             current_app.logger.exception('公开体验临时库清理失败')
-        flash('本次体验已结束，体验数据已清除', 'info')
+            demo_data_removed = False
+        if demo_data_removed:
+            flash('本次体验已结束，体验数据已清除', 'info')
+        else:
+            flash('本次体验已结束，临时数据将在后台完成清理', 'warning')
         return redirect(url_for('auth.login'))
     
     if user_id:
