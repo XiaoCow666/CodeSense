@@ -1,84 +1,47 @@
-# AGENTS.md
+# 源代码目录：CodeSense 酷森思
 
-This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+## 项目摘要
 
-## Project Overview
+CodeSense 酷森思是面向高校编程教学的 Flask 平台，整合代码评测、因果隔离沙箱、启发式 AI 辅导和教师学情分析。核心学习流程为“思路描述 → 积木式编程 → 费曼教学”，AI 只提供引导，不直接投喂完整代码。
 
-CodeSense 酷森思 is an intelligent programming education platform for universities. It uses a "Causal Sandbox" for code execution and "Heuristic LLM" for AI-powered programming guidance that leads students to answers through questioning rather than providing direct solutions.
-
-## Commands
+## 常用命令
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
+# 安装依赖
+python -m pip install -r requirements.txt
 
-# Run development server
+# 启动开发服务
 python run.py
-# or
+# 或
 python app.py
 
-# Run tests
-python -m pytest tests/test_app.py
-# or
-python tests/test_app.py
+# 运行全部测试
+python -m pytest tests -q
 
-# Initialize database (in Python shell)
-from models import db, app
-with app.app_context():
-    db.create_all()
+# 运行单项测试
+python -m pytest tests/test_app.py -q
 
-# Production deployment
+# 生产服务
 gunicorn -w 4 -b 0.0.0.0:5000 wsgi:app
 ```
 
-## Architecture
+配置使用 `.env.example` 作为模板；不要提交 `.env`、密钥或本地数据库文件。测试使用 `create_app("testing")` 和独立 SQLite 数据库。
 
-### Application Entry Point
-- `app.py` - Main application factory (`create_app()`), registers blueprints, initializes models and async tasks
-- `run.py` - Simple wrapper that imports and runs `app.py`
-- `wsgi.py` - Production WSGI entry point
+## 目录索引
 
-### Configuration
-- `config.py` - Config class with three environments: `development`, `testing`, `production`
-  - Database: `DATABASE_URL` env var (MySQL in production, SQLite in development)
-  - AI APIs: `ZHIPU_API_KEY` and/or `OPENAI_API_KEY`
-  - `LOAD_LOCAL_MODEL=False` for cloud deployments (saves ~1GB memory)
+- `app.py`、`run.py`、`wsgi.py`：应用创建与启动入口。
+- `routes/`：认证、页面、作业、班级、提交 API、三阶段学习和成绩路由。
+- `services/`、`utils/`、`tasks/`：业务服务、评测与 AI 工具、异步任务。
+- `models.py`、`models/`：数据库模型和本地评测模型。
+- `templates/`、`static/`：页面模板和前端资源。
+- `tests/`：应用、沙箱、演示体验、教师分析和引导式学习测试。
 
-### Blueprints (Routes)
-| Blueprint | Purpose |
-|-----------|---------|
-| `routes/auth.py` | Login, logout, registration |
-| `routes/main.py` | Main pages (home, about, help) |
-| `routes/assignments.py` | Assignment CRUD operations |
-| `routes/users.py` | User profile management |
-| `routes/classes.py` | Class management for teachers |
-| `routes/api.py` | REST API for code submission, AI evaluation, ability scoring |
+## 必须保持的约束
 
-### Core Services (`utils/`)
-- `code_evaluator.py` - CodeBERT embedding + TextCNN scoring, initializes local ML models
-- `sandbox_runner.py` - subprocess-based code execution sandbox with timeout
-- `llm_evaluator.py` - GLM-4/GPT-4 API calls for code evaluation
-- `guidance_generator.py` - Heuristic prompts that guide students through questioning
-- `code_advisor.py` - Code advice and feedback generation
-- `async_tasks.py` - ThreadPool-based async task queue with SSE streaming
-- `ability_scorer.py` - Bayesian-weighted ability tracking across 13 C programming concepts
-- `prompts.py` - Prompt templates for AI interactions
+- 保持沙箱隔离和超时限制：编译 15 秒、运行 5 秒；不要为方便调试而放宽限制。
+- 保持 `sanitize_response` 与提示词约束，AI 辅导不得输出完整答案代码。
+- 演示体验使用临时数据库并与正式数据隔离；AI 失败时必须明确显示失败或重试，不得伪造结果。
 
-### Models (`models/`)
-- `CNN.py` - TextCNN model using CodeBERT embeddings
-- `codebert.py` - CodeBERT model wrapper
-- `codebertcnn.pth` - Pretrained weights
+## Git 与 PR 规则
 
-### Key Patterns
-1. **AI-only mode**: Set `LOAD_LOCAL_MODEL=False` to skip PyTorch model loading
-2. **Async evaluation**: Code submissions go through `async_tasks.py` with SSE progress updates
-3. **Sandbox security**: 15s compile timeout, 5s run timeout, subprocess isolation
-4. **Session management**: Flask-Session with filesystem backend
-
-## Database
-
-SQLAlchemy ORM with models in `models.py`. Uses Flask-Migrate for schema migrations. Key models: User (with usertype: 学生/教师/管理员), Assignment, Submission, Class, AbilityScore.
-
-## Frontend
-
-Bootstrap 5 + Monaco Editor for code editing. Jinja2 templates in `templates/`. Static assets in `static/` with CSS, JS, and images.
+每次项目改动都必须在独立分支提交并推送到 GitHub，创建或更新 PR，并详细备注改动内容、测试结果和注意事项。随后先向项目负责人申请合并；未经本人明确同意，不得推送或合并到 `main`，获准后方可合并。

@@ -4,6 +4,7 @@ from datetime import datetime as dt
 from models import db, User, Class, KnowledgePointScore, Assignment, AssignmentKnowledgePoint, TeacherAISuggestion
 from services.teacher_analytics import build_class_learning_rows
 from services.llm_client import SharedLLMClient
+from services.demo_database import activate_demo_run, is_active_demo_run
 
 # 线程锁，防止重复并发生成同一班级的AI建议
 _generation_locks = {}
@@ -16,10 +17,32 @@ def get_generation_lock(class_id):
         return _generation_locks[class_id]
 
 
-def generate_class_suggestions(class_id, teacher_id):
+def _demo_database_is_available(demo_run_id):
+    return not demo_run_id or is_active_demo_run(demo_run_id)
+
+
+def _mark_demo_suggestion_failed(class_id, teacher_id):
+    suggestion = TeacherAISuggestion.get_or_create(
+        class_id=class_id,
+        teacher_id=teacher_id,
+    )
+    if suggestion is None:
+        return None
+    suggestion.status = 'failed'
+    suggestion.suggestion_markdown = None
+    suggestion.suggestion_json = None
+    suggestion.last_updated = dt.utcnow()
+    db.session.commit()
+    return suggestion
+
+
+def generate_class_suggestions(class_id, teacher_id, demo_run_id=None):
     """
     同步生成班级学情建议，计算规则引擎结果，并可选调用LLM增强
     """
+    if demo_run_id and not activate_demo_run(demo_run_id):
+        return None
+
     lock = get_generation_lock(class_id)
     acquired = lock.acquire(blocking=False)
     if not acquired:
@@ -230,7 +253,12 @@ def generate_class_suggestions(class_id, teacher_id):
             except Exception as le:
                 print(f"LLM 接口调用或处理失败: {le}")
 
-        # Rules-based fallback
+        # 公开体验要求使用真实 AI。没有可用模型或模型返回内容不完整时，
+        # 明确记录失败，不能把规则引擎结果伪装成 AI 报告。
+        if demo_run_id:
+            raise RuntimeError('AI 服务不可用或未返回有效班级建议')
+
+        # Rules-based fallback（正式账户的历史兼容行为）
         suggestion.suggestion_markdown = rule_markdown
         suggestion.suggestion_json = json.dumps(rule_json_dict, ensure_ascii=False)
         suggestion.status = 'completed'
@@ -241,12 +269,19 @@ def generate_class_suggestions(class_id, teacher_id):
     except Exception as e:
         db.session.rollback()
         print(f"生成AI建议失败: {e}")
-        try:
-            suggestion = TeacherAISuggestion.get_or_create(class_id=class_id, teacher_id=teacher_id)
-            suggestion.status = 'failed'
-            db.session.commit()
-        except:
-            pass
+        if _demo_database_is_available(demo_run_id):
+            try:
+                if demo_run_id:
+                    _mark_demo_suggestion_failed(class_id, teacher_id)
+                else:
+                    suggestion = TeacherAISuggestion.get_or_create(
+                        class_id=class_id,
+                        teacher_id=teacher_id,
+                    )
+                    suggestion.status = 'failed'
+                    db.session.commit()
+            except Exception:
+                db.session.rollback()
         return None
     finally:
         lock.release()
@@ -291,13 +326,19 @@ def _generate_rule_based_markdown(cls, weak_points, attention_students, suggeste
     return markdown
 
 
-def generate_class_suggestions_async(class_id, teacher_id, app):
+def generate_class_suggestions_async(class_id, teacher_id, app, demo_run_id=None):
     """
     异步启动班级AI建议生成任务
     """
     def task():
         with app.app_context():
-            generate_class_suggestions(class_id, teacher_id)
+            if demo_run_id and not activate_demo_run(demo_run_id):
+                return
+            generate_class_suggestions(
+                class_id,
+                teacher_id,
+                demo_run_id=demo_run_id,
+            )
 
     thread = threading.Thread(target=task)
     thread.daemon = True
@@ -305,10 +346,14 @@ def generate_class_suggestions_async(class_id, teacher_id, app):
     return thread
 
 
-def generate_class_suggestions_stream(class_id, teacher_id):
+def generate_class_suggestions_stream(class_id, teacher_id, demo_run_id=None):
     """
     流式生成班级学情建议，计算规则引擎结果，并流式输出LLM反馈报告，最后保存入库
     """
+    if demo_run_id and not activate_demo_run(demo_run_id):
+        yield f"data: {json.dumps({'type': 'error', 'message': '体验会话已结束，请重新进入演示'})}\n\n"
+        return
+
     yield f"data: {json.dumps({'type': 'status', 'message': '正在读取班级基本数据...'})}\n\n"
     
     cls = Class.query.get(class_id)
@@ -523,6 +568,18 @@ def generate_class_suggestions_stream(class_id, teacher_id):
 
         except Exception as le:
             print(f"LLM 流式分析失败: {le}")
+
+        if demo_run_id:
+            if _demo_database_is_available(demo_run_id):
+                _mark_demo_suggestion_failed(class_id, teacher_id)
+            yield f"data: {json.dumps({'type': 'error', 'message': '真实 AI 建议生成失败，请稍后重试'})}\n\n"
+            return
+
+    elif demo_run_id:
+        if _demo_database_is_available(demo_run_id):
+            _mark_demo_suggestion_failed(class_id, teacher_id)
+        yield f"data: {json.dumps({'type': 'error', 'message': 'AI 服务当前不可用，请稍后重试'})}\n\n"
+        return
 
     # Fallback to rules-based
     yield f"data: {json.dumps({'type': 'start'})}\n\n"

@@ -243,6 +243,57 @@
         color: var(--primary-color);
         background-color: rgba(52, 152, 219, 0.1);
     }
+
+    .profile-summary-card {
+        border: 1px solid #e8eef7;
+        border-radius: 14px;
+        background: linear-gradient(135deg, #f8fbff 0%, #ffffff 72%);
+        padding: 1rem 1.1rem;
+        margin-bottom: 1rem;
+    }
+
+    .profile-summary-card .summary-value {
+        color: #1e3a8a;
+        font-size: 1.35rem;
+        font-weight: 700;
+    }
+
+    .knowledge-profile-table {
+        max-height: 430px;
+        overflow-y: auto;
+        border: 1px solid #edf1f7;
+        border-radius: 10px;
+    }
+
+    .knowledge-profile-table table {
+        margin-bottom: 0;
+    }
+
+    .knowledge-profile-table thead th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: #f8fafc;
+        white-space: nowrap;
+    }
+
+    .knowledge-profile-table td,
+    .knowledge-profile-table th {
+        padding: 0.65rem 0.7rem;
+        vertical-align: middle;
+    }
+
+    .knowledge-status {
+        font-size: 0.72rem;
+        white-space: nowrap;
+    }
+
+    .analysis-status-panel {
+        border: 1px solid #e8eef7;
+        border-radius: 12px;
+        padding: 0.9rem 1rem;
+        background: #fbfdff;
+    }
 </style>
 {% endblock %}
 
@@ -272,7 +323,7 @@
                     </div>
                 </div>
 
-                <a href="{{ url_for('assignments.manage_assignments') }}" class="btn btn-secondary btn-sm mt-3"
+                <a href="{{ url_for('assignments.student_assignments') }}" class="btn btn-secondary btn-sm mt-3"
                     style="padding: 0.5rem 1rem; margin-top: 1.25rem; font-weight: 500; width: 100%;">
                     <i class="bi bi-arrow-right" style="margin-right: 8px;"></i> 查看所有作业
                 </a>
@@ -295,6 +346,7 @@
                         </div>
                         <h3 style="font-size: 1.8rem; font-weight: 700; margin: 0.75rem 0;">{{ submissions_count }}</h3>
                         <p class="text-muted" style="margin-top: 0.5rem;">已提交的作业</p>
+                        <small class="text-muted">平均提交得分 {{ "%.1f"|format(average_score|float) }}/5</small>
                     </div>
                 </div>
 
@@ -321,7 +373,7 @@
                         </div>
                         <h3 style="font-size: 1.8rem; font-weight: 700; margin: 0.75rem 0;">{{ maturity_score if
                             maturity_score else '暂无' }}</h3>
-                        <p class="text-muted" style="margin-top: 0.5rem;">多维度贝叶斯权重评估</p>
+                        <p class="text-muted" style="margin-top: 0.5rem;">多维度贝叶斯权重评估（0–100）</p>
                     </div>
                 </div>
 
@@ -424,9 +476,10 @@
                 <div class="mb-4" style="margin-bottom: 2rem;" id="knowledge-profile-container">
                     <h5 style="margin-bottom: 1.25rem;">
                         <i class="bi bi-person-badge text-primary"></i> C语言知识点画像
-                        <span id="profile-status-badge" class="badge badge-secondary"
+                        <span id="profile-status-badge" class="badge {% if knowledge_profile_rows %}badge-success{% else %}badge-secondary{% endif %}"
                             style="margin-left: 0.5rem; font-size: 0.75rem;">
-                            <i class="bi bi-hourglass-split"></i> 加载中
+                            <i class="bi {% if knowledge_profile_rows %}bi-check-circle-fill{% else %}bi-hourglass-split{% endif %}"></i>
+                            {% if knowledge_profile_rows %}已加载{% else %}加载中{% endif %}
                         </span>
                     </h5>
 
@@ -443,16 +496,39 @@
                 <!-- SSE流式架构：AI能力分析 -->
                 <div class="mb-4" style="margin-bottom: 2rem;" id="ai-analysis-container">
                     <h5 style="margin-bottom: 1.25rem;">
-                        <i class="bi bi-robot text-success"></i> AI个性化分析
-                        <span id="analysis-status-badge" class="badge badge-secondary"
+                        <i class="bi bi-robot text-success"></i> AI 个性化分析
+                        <span id="analysis-status-badge" class="badge {% if analysis_status == 'completed' %}badge-success{% elif analysis_status == 'failed' %}badge-danger{% elif analysis_status == 'processing' %}badge-info{% else %}badge-warning{% endif %}"
+                            data-analysis-status="{{ analysis_status }}"
                             style="margin-left: 0.5rem; font-size: 0.75rem;">
-                            <i class="bi bi-hourglass-split"></i> 加载中
+                            <i class="bi {% if analysis_status == 'completed' %}bi-check-circle-fill{% elif analysis_status == 'failed' %}bi-x-circle-fill{% elif analysis_status == 'processing' %}bi-arrow-repeat{% else %}bi-hourglass-split{% endif %}"></i>
+                            {{ analysis_status_label }}
                         </span>
                         <button id="refresh-analysis-btn" class="btn btn-sm btn-outline-primary"
-                            style="margin-left: 0.5rem; display: none;" onclick="location.reload()">
+                            style="margin-left: 0.5rem; {% if analysis_status in ['failed', 'outdated'] %}display: inline-block;{% else %}display: none;{% endif %}" onclick="location.reload()">
                             <i class="bi bi-arrow-clockwise"></i> 刷新
                         </button>
                     </h5>
+
+                    <div class="analysis-status-panel mb-3" data-analysis-status="{{ analysis_status }}">
+                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                            <span class="small text-muted">
+                                {% if analysis_status == 'completed' %}
+                                分析已基于最近 {{ ability_trend.submissions_count }} 次提交完成。
+                                {% elif analysis_status == 'failed' %}
+                                本次 AI 分析未完成，可以重新发起；不会影响已有作业记录。
+                                {% elif analysis_status == 'processing' %}
+                                AI 正在读取提交内容并生成个性化建议。
+                                {% else %}
+                                首次打开会为本次体验会话生成专属分析，提交成功后会自动刷新。
+                                {% endif %}
+                            </span>
+                            <span class="small text-muted">
+                                {% if ability_trend and ability_trend.last_updated %}
+                                最近更新：{{ ability_trend.last_updated.strftime('%Y-%m-%d %H:%M') }}
+                                {% else %}尚未更新{% endif %}
+                            </span>
+                        </div>
+                    </div>
 
                     <!-- 进度条 -->
                     <div class="progress mb-3" id="analysis-progress" style="height: 20px; display: none;">
@@ -461,13 +537,24 @@
                     </div>
 
                     <!-- 流式输出区域 -->
-                    <div id="analysis-output" style="min-height: 200px;">
-                        <div class="text-center text-muted py-5">
-                            <div class="spinner-border spinner-border-sm me-2" role="status">
-                                <span class="visually-hidden">连接中...</span>
-                            </div>
-                            正在连接AI分析服务...
+                    <div id="analysis-output" data-analysis-status="{{ analysis_status }}" style="min-height: 200px;">
+                        {% if analysis_status == 'completed' and ability_trend and ability_trend.analysis_markdown %}
+                        <div class="markdown-render" data-markdown="{{ ability_trend.analysis_markdown|e }}"></div>
+                        {% elif analysis_status == 'failed' %}
+                        <div class="alert alert-warning mb-0">
+                            <i class="bi bi-exclamation-triangle me-1"></i> AI 分析暂时失败，请点击“刷新”重试。
                         </div>
+                        {% elif analysis_status == 'processing' %}
+                        <div class="text-center text-muted py-5">
+                            <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                            AI 正在生成个性化分析...
+                        </div>
+                        {% else %}
+                        <div class="text-center text-muted py-5">
+                            <i class="bi bi-stars text-primary fs-3 d-block mb-2"></i>
+                            首次分析将在页面连接后开始，请稍候。
+                        </div>
+                        {% endif %}
                     </div>
                 </div>
             </div>
@@ -476,18 +563,47 @@
                     <h5 style="margin-bottom: 1.25rem;">知识点详细评分</h5>
 
                     <!-- 知识点评分表格 -->
-                    <div class="table-responsive" id="knowledge-points-table">
-                        <div class="text-center text-muted py-5">
-                            <div class="spinner-border" role="status">
-                                <span class="visually-hidden">加载中...</span>
-                            </div>
-                            <p class="mt-2">正在加载知识点数据...</p>
-                        </div>
+                    <div class="knowledge-profile-table" id="knowledge-points-table">
+                        <table class="table table-hover table-sm">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>知识点</th>
+                                    <th>掌握度</th>
+                                    <th>尝试</th>
+                                    <th>正确率</th>
+                                    <th>状态</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in knowledge_profile_rows %}
+                                {% set kp_score = row.score|float %}
+                                <tr data-knowledge-point="{{ row.key }}" data-knowledge-score="{{ kp_score }}">
+                                    <td class="fw-semibold">{{ row.name }}</td>
+                                    <td class="{% if kp_score >= 85 %}text-success{% elif kp_score >= 70 %}text-primary{% elif kp_score > 0 %}text-warning{% else %}text-muted{% endif %}">
+                                        {{ "%.1f"|format(kp_score) }}/100
+                                    </td>
+                                    <td>{{ row.total_attempts }}</td>
+                                    <td>{{ "%.0f"|format(row.accuracy|float) }}%</td>
+                                    <td>
+                                        {% if kp_score >= 85 %}
+                                        <span class="badge bg-success knowledge-status">熟练</span>
+                                        {% elif kp_score >= 70 %}
+                                        <span class="badge bg-primary knowledge-status">稳定</span>
+                                        {% elif kp_score > 0 %}
+                                        <span class="badge bg-warning text-dark knowledge-status">练习中</span>
+                                        {% else %}
+                                        <span class="badge bg-secondary knowledge-status">待开始</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
                     </div>
                 </div>
 
                 <div class="mb-4" style="margin-bottom: 2rem;">
-                    <h5 style="margin-bottom: 1.25rem;">最近提交记录</h5>
+                        <h5 style="margin-bottom: 1.25rem;">最近提交记录 <small class="text-muted fw-normal">提交评分 0–5 分</small></h5>
                     <div class="table-responsive">
                         <table class="table table-hover">
                             <thead>
@@ -503,9 +619,9 @@
                                     <td>{{ submission.assignment.title }}</td>
                                     <td>{{ submission.submitted_at.strftime('%Y-%m-%d %H:%M') }}</td>
                                     <td>
-                                        <span
-                                            class="badge {% if submission.score >= 80 %}bg-success{% elif submission.score >= 60 %}bg-warning{% else %}bg-danger{% endif %}">
-                                            {{ submission.score }}
+                                        <span data-submission-score="{{ submission.score }}"
+                                            class="badge {% if submission.score is not none and submission.score >= 4 %}bg-success{% elif submission.score is not none and submission.score >= 3 %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+                                            {{ "%.1f"|format(submission.score|float) }}/5
                                         </span>
                                     </td>
                                 </tr>
@@ -715,6 +831,7 @@
         const statusBadge = document.getElementById('profile-status-badge');
         if (statusBadge) {
             statusBadge.className = 'badge badge-success';
+            statusBadge.dataset.status = 'completed';
             statusBadge.innerHTML = '<i class="bi bi-check-circle-fill"></i> 已加载';
         }
 
@@ -803,9 +920,10 @@
             <thead class="table-light">
                 <tr>
                     <th>知识点</th>
-                    <th>评分</th>
-                    <th>尝试次数</th>
+                    <th>掌握度</th>
+                    <th>尝试</th>
                     <th>正确率</th>
+                    <th>状态</th>
                 </tr>
             </thead>
             <tbody>
@@ -820,16 +938,30 @@
             const accuracy = data.accuracy || 0;
 
             let scoreClass = 'text-muted';
-            if (score >= 80) scoreClass = 'text-success fw-bold';
-            else if (score >= 60) scoreClass = 'text-primary';
+            if (score >= 85) scoreClass = 'text-success fw-bold';
+            else if (score >= 70) scoreClass = 'text-primary';
             else if (score > 0) scoreClass = 'text-warning';
 
+            let statusText = '待开始';
+            let statusClass = 'bg-secondary';
+            if (score >= 85) {
+                statusText = '熟练';
+                statusClass = 'bg-success';
+            } else if (score >= 70) {
+                statusText = '稳定';
+                statusClass = 'bg-primary';
+            } else if (score > 0) {
+                statusText = '练习中';
+                statusClass = 'bg-warning text-dark';
+            }
+
             tableHTML += `
-            <tr>
-                <td>${name}</td>
-                <td class="${scoreClass}">${score.toFixed(1)}</td>
+            <tr data-knowledge-point="${key}" data-knowledge-score="${score}">
+                <td class="fw-semibold">${name}</td>
+                <td class="${scoreClass}">${score.toFixed(1)}/100</td>
                 <td>${total}</td>
                 <td>${accuracy.toFixed(0)}%</td>
+                <td><span class="badge ${statusClass} knowledge-status">${statusText}</span></td>
             </tr>
         `;
         }
@@ -852,6 +984,11 @@
         if (outputDiv) {
             // 不再清空内容,而是移除旧的消息并准备接收新内容
             outputDiv.innerHTML = '';
+            outputDiv.dataset.analysisStatus = 'processing';
+        }
+        const statusBadge = document.getElementById('analysis-status-badge');
+        if (statusBadge) {
+            statusBadge.dataset.analysisStatus = 'processing';
         }
     }
 
@@ -1049,8 +1186,9 @@
         if (statusBadge) {
             // 检查是否是"正在生成"状态（需要刷新）
             const outputDiv = document.getElementById('analysis-output');
-            if (outputDiv && outputDiv.textContent.includes('正在生成') || outputDiv.textContent.includes('生成中')) {
+            if (outputDiv && (outputDiv.textContent.includes('正在生成') || outputDiv.textContent.includes('生成中'))) {
                 statusBadge.className = 'badge badge-info';
+                statusBadge.dataset.analysisStatus = 'processing';
                 statusBadge.innerHTML = '<i class="bi bi-arrow-clockwise"></i> 需要刷新';
 
                 // 显示刷新按钮
@@ -1060,6 +1198,7 @@
                 }
             } else {
                 statusBadge.className = 'badge badge-success';
+                statusBadge.dataset.analysisStatus = 'completed';
                 statusBadge.innerHTML = '<i class="bi bi-check-circle-fill"></i> 已完成';
             }
         }
@@ -1093,6 +1232,7 @@
         const statusBadge = document.getElementById('analysis-status-badge');
         if (statusBadge) {
             statusBadge.className = 'badge badge-danger';
+            statusBadge.dataset.analysisStatus = 'failed';
             statusBadge.innerHTML = '<i class="bi bi-x-circle-fill"></i> 错误';
         }
     }

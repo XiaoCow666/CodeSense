@@ -43,6 +43,44 @@
         font-weight: bold;
         margin-right: 5px;
     }
+
+    .profile-kp-card {
+        border: 1px solid #e7edf6;
+        border-radius: 14px;
+        background: #fff;
+    }
+
+    .profile-kp-table {
+        max-height: 410px;
+        overflow-y: auto;
+        border: 1px solid #edf1f7;
+        border-radius: 10px;
+    }
+
+    .profile-kp-table table {
+        margin-bottom: 0;
+    }
+
+    .profile-kp-table thead th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: #f8fafc;
+        white-space: nowrap;
+    }
+
+    .profile-kp-table td,
+    .profile-kp-table th {
+        padding: 0.62rem 0.7rem;
+        vertical-align: middle;
+    }
+
+    .profile-ai-card {
+        height: 100%;
+        border-radius: 12px;
+        background: linear-gradient(145deg, #f8fbff 0%, #ffffff 72%);
+        border: 1px solid #e7edf6;
+    }
 </style>
 {% endblock %}
 
@@ -112,6 +150,93 @@
         </div>
     </div>
 
+    <!-- C语言知识点画像与 AI 复盘 -->
+    <div class="row g-4 mb-5">
+        <div class="col-lg-7">
+            <div class="card profile-kp-card shadow-sm h-100">
+                <div class="card-header bg-white border-0 pt-4 px-4 d-flex justify-content-between align-items-center">
+                    <div>
+                        <h4 class="mb-1"><i class="bi bi-grid-3x3-gap text-primary me-2"></i>C语言知识点画像</h4>
+                        <p class="text-muted small mb-0">掌握度采用 0–100 分，结合尝试次数与正确率观察学习进展。</p>
+                    </div>
+                    <span class="badge bg-primary-subtle text-primary">13 个知识点</span>
+                </div>
+                <div class="card-body px-4 pb-4">
+                    <div class="profile-kp-table">
+                        <table class="table table-hover table-sm">
+                            <thead>
+                                <tr>
+                                    <th>知识点</th>
+                                    <th>掌握度</th>
+                                    <th>尝试</th>
+                                    <th>正确率</th>
+                                    <th>状态</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in knowledge_profile_rows %}
+                                {% set kp_score = row.score|float %}
+                                <tr data-knowledge-point="{{ row.key }}" data-knowledge-score="{{ kp_score }}">
+                                    <td class="fw-semibold">{{ row.name }}</td>
+                                    <td class="{% if kp_score >= 85 %}text-success{% elif kp_score >= 70 %}text-primary{% elif kp_score > 0 %}text-warning{% else %}text-muted{% endif %}">
+                                        {{ "%.1f"|format(kp_score) }}/100
+                                    </td>
+                                    <td>{{ row.total_attempts }}</td>
+                                    <td>{{ "%.0f"|format(row.accuracy|float) }}%</td>
+                                    <td>
+                                        {% if kp_score >= 85 %}
+                                        <span class="badge bg-success">熟练</span>
+                                        {% elif kp_score >= 70 %}
+                                        <span class="badge bg-primary">稳定</span>
+                                        {% elif kp_score > 0 %}
+                                        <span class="badge bg-warning text-dark">练习中</span>
+                                        {% else %}
+                                        <span class="badge bg-secondary">待开始</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-5">
+            <div class="profile-ai-card shadow-sm p-4">
+                <div class="d-flex justify-content-between align-items-start gap-2 mb-3">
+                    <div>
+                        <h4 class="mb-1"><i class="bi bi-stars text-success me-2"></i>AI 个性化分析</h4>
+                        <p class="text-muted small mb-0">基于本次体验会话中的提交记录生成。</p>
+                    </div>
+                    <span class="badge {% if analysis_status == 'completed' %}bg-success{% elif analysis_status == 'failed' %}bg-danger{% elif analysis_status == 'processing' %}bg-info{% else %}bg-warning text-dark{% endif %}"
+                        data-analysis-status="{{ analysis_status }}">{{ analysis_status_label }}</span>
+                </div>
+                {% if ability_trend and ability_trend.analysis_markdown %}
+                <div class="markdown-render small" data-markdown="{{ ability_trend.analysis_markdown|e }}"></div>
+                {% elif analysis_status == 'failed' %}
+                <div class="alert alert-warning small">AI 分析暂时失败，可以点击下方按钮重新生成。</div>
+                {% elif analysis_status == 'processing' %}
+                <div class="text-center text-muted py-5"><i class="bi bi-arrow-repeat fs-2 d-block mb-2"></i>AI 正在分析提交记录…</div>
+                {% else %}
+                <div class="text-center text-muted py-5"><i class="bi bi-hourglass-split fs-2 d-block mb-2"></i>本次会话的 AI 分析即将开始。</div>
+                {% endif %}
+                <div class="border-top pt-3 mt-3 d-flex justify-content-between align-items-center">
+                    <small class="text-muted">
+                        {% if ability_trend and ability_trend.last_updated %}
+                        最近更新：{{ ability_trend.last_updated.strftime('%Y-%m-%d %H:%M') }}
+                        {% else %}尚未更新{% endif %}
+                    </small>
+                    {% if session.get('student_id') == user.student_id %}
+                    <button id="refreshProfileAnalysisBtn" class="btn btn-sm btn-outline-primary" type="button">
+                        <i class="bi bi-arrow-clockwise me-1"></i>刷新分析
+                    </button>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- 真实蜕变轨迹 -->
     <div class="card mb-5 border-0 shadow-sm overflow-hidden">
         <div class="card-header bg-white py-3 border-0">
@@ -130,7 +255,7 @@
     <!-- 重点攻坚：近期瓶颈题目精选 -->
     <div class="d-flex align-items-center mb-4">
         <h3 class="mb-0 me-3"><i class="bi bi-shield-exclamation text-danger me-2"></i> 待攻坚：瓶颈题目精选</h3>
-        <span class="text-muted fs-6">这些题目您的最高分尚未达到 5 分，通过重构实现蜕变吧</span>
+        <span class="text-muted fs-6">提交分数 0–5 分 · 这些题目最高分尚未达到 5 分，通过重构实现蜕变吧</span>
     </div>
 
     <div class="evolution-timeline">
@@ -141,7 +266,7 @@
                 <div class="review-title">
                     <i class="bi bi-file-earmark-code me-2"></i> {{ sub.assignment.title if sub.assignment else '未知作业'
                     }}
-                    <span class="ms-2 badge bg-soft-danger text-danger">目前最高分: {{ sub.score }}</span>
+                    <span class="ms-2 badge bg-soft-danger text-danger">目前最高分: {{ "%.1f"|format(sub.score|float) }}/5</span>
                 </div>
                 <div class="review-meta">
                     <small class="text-muted">最近尝试于: {{ sub.submitted_at.strftime('%Y-%m-%d %H:%M') }}</small>
@@ -293,6 +418,33 @@
             }
         }
     });
+    });
+</script>
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const refreshButton = document.getElementById('refreshProfileAnalysisBtn');
+        if (!refreshButton) return;
+
+        refreshButton.addEventListener('click', function () {
+            const original = this.innerHTML;
+            this.disabled = true;
+            this.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>分析中…';
+            fetch('{{ url_for("users.refresh_analysis") }}')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        window.location.reload();
+                        return;
+                    }
+                    throw new Error(data.message || '刷新失败');
+                })
+                .catch(error => {
+                    console.error(error);
+                    this.disabled = false;
+                    this.innerHTML = original;
+                    window.alert(error.message || '刷新失败，请稍后重试');
+                });
+        });
     });
 </script>
 {% endblock %}

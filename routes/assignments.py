@@ -8,6 +8,8 @@ from forms import AssignmentForm, SubmissionForm
 from utils.auth import login_required, admin_required, teacher_required, admin_or_teacher_required
 from utils.code_evaluator import evaluate_cpp_code, initialize_models
 from tasks.submission_tasks import evaluate_submission_async
+from services.demo_database import current_demo_run_id
+from services.demo_experience import ensure_demo_guided_preset, is_demo_guided_assignment
 from io import BytesIO
 from sqlalchemy import desc
 import traceback  # 添加traceback模块
@@ -549,7 +551,8 @@ def submit_code(assignment_id):
                 evaluate_submission_async(
                     current_app._get_current_object(), 
                     submission.id, 
-                    assignment.title
+                    assignment.title,
+                    demo_run_id=current_demo_run_id(),
                 )
                 print(f"已为提交 {submission.id} 启动后台评测")
                 
@@ -687,10 +690,24 @@ def student_assignments():
         assignment_statuses = {}
         from models import AssignmentThinkingPreset
         from utils.async_tasks import add_generate_preset_task
+        demo_run_id = current_demo_run_id()
+        is_demo_session = bool(demo_run_id and getattr(current_user, 'is_demo', False))
         for a in all_assignments:
-            # 自动检查预设，若不存在或失败则优先触发生成
+            # 公开体验的预设只能在当前临时库中修复，绝不能把列表加载
+            # 变成写入正式任务队列的入口。普通账号保留原有异步生成逻辑。
             preset = AssignmentThinkingPreset.query.filter_by(assignment_id=a.id).first()
-            if not preset:
+            a.is_guided_available = not is_demo_session or is_demo_guided_assignment(a)
+            if is_demo_session:
+                if is_demo_guided_assignment(a):
+                    if (
+                        not preset
+                        or preset.status != 'ready'
+                        or not preset.quiz_steps
+                        or preset.quiz_steps.strip() == '[]'
+                    ):
+                        preset = ensure_demo_guided_preset(a)
+                        db.session.commit()
+            elif not preset:
                 try:
                     preset = AssignmentThinkingPreset(assignment_id=a.id, status='generating')
                     db.session.add(preset)
@@ -728,12 +745,14 @@ def student_assignments():
             ).order_by(Submission.score.desc()).first()
             if sub:
                 assignment_max_scores[a.id] = sub.score
-                if sub.score >= 60:
+                a.max_student_score = sub.score
+                if sub.score >= 3:
                     assignment_statuses[a.id] = '已通过'
                 else:
                     assignment_statuses[a.id] = '不及格'
             else:
                 assignment_max_scores[a.id] = 0
+                a.max_student_score = 0
                 assignment_statuses[a.id] = '未提交'
 
         filtered_assignments = []

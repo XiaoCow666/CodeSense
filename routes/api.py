@@ -13,6 +13,7 @@ from utils.guidance_generator import generate_guidance, generate_answer_to_quest
 from utils.code_advisor import generate_code_advice  # 导入新的代码建议系统
 from services.ai_evaluator import AIEvaluator
 from services.api_keys import api_keys  # 导入 API 密钥管理器
+from services.demo_database import current_demo_run_id
 import json
 import traceback
 import os
@@ -299,6 +300,21 @@ def submit_code():
             assignment.average_score = assignment.total_score / assignment.count
             
             db.session.commit()
+
+            # 与网页提交保持一致：每次成功提交都刷新学生能力分析。
+            # demo 请求携带 run id，后台任务因此只会写入当前临时库。
+            try:
+                from tasks.ability_analysis import trigger_analysis_if_needed
+
+                AbilityTrend.mark_as_outdated(student_id)
+                trigger_analysis_if_needed(
+                    student_id,
+                    demo_run_id=current_demo_run_id(),
+                )
+            except Exception as analysis_error:
+                current_app.logger.warning(
+                    "提交后的能力分析刷新未启动: %s", analysis_error
+                )
             
             return api_response(
                 success=True,
@@ -1004,6 +1020,7 @@ def stream_ability_analysis():
     from flask import current_app, stream_with_context
     from models import KnowledgePointScore, AbilityTrend
     from tasks.ability_analysis import trigger_analysis_if_needed
+    demo_run_id = current_demo_run_id()
 
     def generate():
         try:
@@ -1026,7 +1043,10 @@ def stream_ability_analysis():
             # 如果没有缓存或需要更新，触发后台生成
             if not ability_trend or ability_trend.status in ['pending', 'outdated', 'failed']:
                 # 触发后台任务
-                trigger_analysis_if_needed(student_id)
+                trigger_analysis_if_needed(
+                    student_id,
+                    demo_run_id=demo_run_id,
+                )
 
                 # 返回提示信息
                 yield f"data: {json.dumps({'type': 'analysis_start'})}\n\n"

@@ -446,6 +446,62 @@
             text-decoration: underline;
         }
 
+        .demo-entry {
+            margin-top: 1.75rem;
+            padding: 1rem;
+            border: 1px solid #dbeafe;
+            border-radius: 12px;
+            background: #f8fbff;
+        }
+
+        .demo-entry-title {
+            margin-bottom: 0.35rem;
+            color: #0f172a;
+            font-size: 0.95rem;
+            font-weight: 700;
+        }
+
+        .demo-entry-copy {
+            margin-bottom: 0.8rem;
+            color: #64748b;
+            font-size: 0.82rem;
+            line-height: 1.5;
+        }
+
+        .demo-entry-actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.6rem;
+        }
+
+        .demo-entry-link {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.35rem;
+            min-height: 2.4rem;
+            padding: 0.45rem 0.6rem;
+            border: 1px solid #bfdbfe;
+            border-radius: 8px;
+            background: #fff;
+            color: #1d4ed8;
+            font-size: 0.82rem;
+            font-weight: 600;
+            text-decoration: none;
+            transition: background 0.2s ease, border-color 0.2s ease;
+        }
+
+        .demo-entry-link:hover {
+            border-color: #60a5fa;
+            background: #eff6ff;
+        }
+
+        @media (max-width: 400px) {
+            .demo-entry-actions {
+                grid-template-columns: 1fr;
+            }
+        }
+
         /* 底部 */
         .footer {
             display: flex;
@@ -582,6 +638,19 @@
                         </button>
                     </div>
                 </form>
+
+                <section class="demo-entry" aria-labelledby="demo-entry-title">
+                    <div id="demo-entry-title" class="demo-entry-title">先体验一下</div>
+                    <p class="demo-entry-copy">无需注册，也不用填写账号。选择一个身份，直接查看完整的学习或教学流程。</p>
+                    <div class="demo-entry-actions">
+                        <a class="demo-entry-link" href="{{ url_for('auth.demo_login', role='student') }}">
+                            <i class="bi bi-mortarboard"></i> 学生体验
+                        </a>
+                        <a class="demo-entry-link" href="{{ url_for('auth.demo_login', role='teacher') }}">
+                            <i class="bi bi-easel2"></i> 教师体验
+                        </a>
+                    </div>
+                </section>
 
                 <div class="register-box">
                     还没有账号？ <a href="{{ url_for('auth.register') }}" class="register-link">立即注册</a>

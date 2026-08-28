@@ -7,9 +7,46 @@ from itsdangerous import URLSafeTimedSerializer, SignatureExpired
 from flask_login import login_user, logout_user, current_user
 from models import db, Class, StudentRoster, User, SystemLog, SystemConfig
 from forms import LoginForm, RegistrationForm
+from services.demo_experience import (
+    DEMO_STUDENT_ID,
+    DEMO_TEACHER_ID,
+    seed_demo_experience,
+)
+from services.demo_database import (
+    DEMO_ROLE_SESSION_KEY,
+    DEMO_SESSION_KEY,
+    activate_demo_run,
+    create_demo_run,
+    current_demo_run_id,
+    destroy_demo_run,
+    login_demo_run,
+)
 from utils.auth import redirect_if_logged_in
 
 auth = Blueprint('auth', __name__)
+
+
+def _establish_login_session(user, source=None):
+    """建立单点登录会话，并同步 Flask-Login 与旧版 session 字段。"""
+    new_session_id = uuid.uuid4().hex
+    user.current_session_id = new_session_id
+    db.session.commit()
+
+    login_user(user)
+    session['current_session_id'] = new_session_id
+    session['student_id'] = user.student_id
+    session['username'] = user.username
+    session['full_name'] = user.full_name or user.username
+    session['usertype'] = user.usertype
+    session['login'] = True
+
+    prefix = f'[{source}] ' if source else ''
+    SystemLog.add_log(
+        log_type='用户登录',
+        content=f'{prefix}用户 {user.username} ({user.full_name}) 登录了系统',
+        user_id=user.student_id,
+    )
+    return new_session_id
 
 
 @auth.route('/')
@@ -69,6 +106,49 @@ def login():
     login_message = SystemConfig.get_value('login_message', '欢迎登录 CodeSense 酷森思')
     site_name = SystemConfig.get_value('site_name', 'CodeSense 酷森思')
     return render_template('login.html', form=form, login_message=login_message, site_name=site_name)
+
+
+@auth.route('/demo-login/<role>')
+@redirect_if_logged_in
+def demo_login(role):
+    """公开演示入口：为本次会话创建独立临时库后进入对应体验首页。"""
+    if role not in ('student', 'teacher'):
+        flash('该演示入口不可用，请返回登录页重试。', 'warning')
+        return redirect(url_for('auth.login'))
+
+    run = None
+    try:
+        run = create_demo_run(role)
+        if not activate_demo_run(run.run_id):
+            raise RuntimeError('临时体验数据库无法激活')
+        # The run marker must be present before any subsequent request or
+        # Flask-Login user loading can resolve the temporary database.
+        session[DEMO_SESSION_KEY] = run.run_id
+        session[DEMO_ROLE_SESSION_KEY] = role
+        demo = seed_demo_experience(run)
+        login_demo_run(run)
+        if role == 'student':
+            # 真实环境首次进入体验时即启动一次能力分析，分析结果会被
+            # 缓存在本次临时库中；测试环境由专门的任务测试控制线程。
+            if not current_app.config.get('TESTING'):
+                from tasks.ability_analysis import trigger_analysis_if_needed
+                trigger_analysis_if_needed(
+                    DEMO_STUDENT_ID,
+                    demo_run_id=run.run_id,
+                )
+            return redirect(url_for('thinking.arena', assignment_id=demo.assignment_id))
+        return redirect(url_for('main.home'))
+    except Exception:
+        db.session.rollback()
+        if run is not None:
+            db.session.remove()
+            try:
+                destroy_demo_run(run.run_id)
+            except Exception:
+                current_app.logger.exception('清理失败的公开体验临时库失败')
+        current_app.logger.exception('公开演示入口初始化失败')
+        flash('演示入口暂时不可用，请稍后重试。', 'warning')
+        return redirect(url_for('auth.login'))
 
 
 @auth.route('/register', methods=['GET', 'POST'])
@@ -230,6 +310,7 @@ def register_teacher(token):
 @auth.route('/logout')
 def logout():
     """登出处理"""
+    demo_run_id = current_demo_run_id()
     user_id = session.get('student_id')
     username = session.get('username')
     full_name = session.get('full_name', '未知用户')
@@ -238,6 +319,20 @@ def logout():
     
     logout_user()
     session.clear()
+
+    if demo_run_id:
+        db.session.remove()
+        demo_data_removed = True
+        try:
+            demo_data_removed = destroy_demo_run(demo_run_id)
+        except Exception:
+            current_app.logger.exception('公开体验临时库清理失败')
+            demo_data_removed = False
+        if demo_data_removed:
+            flash('本次体验已结束，体验数据已清除', 'info')
+        else:
+            flash('本次体验已结束，临时数据将在后台完成清理', 'warning')
+        return redirect(url_for('auth.login'))
     
     if user_id:
         SystemLog.add_log(

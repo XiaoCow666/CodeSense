@@ -185,7 +185,7 @@
 {% endblock %}
 
 {% block content %}
-<div class="container">
+<div class="container" data-class-id="{{ cls.id }}">
     <!-- 班级头部信息 -->
     <div class="class-header">
         <div class="row">
@@ -239,7 +239,7 @@
         </div>
         <div class="stat-card">
             <div class="stat-value">{{ "%.1f"|format(stats.avg_score) }}</div>
-            <div class="stat-label">平均分</div>
+                <div class="stat-label">班级平均提交分（0–5）</div>
         </div>
         <div class="stat-card">
             <div class="stat-value">{{ stats.total_submissions }}</div>
@@ -401,11 +401,11 @@
     {% endif %}
 
     {% if assignment_matrix and assignment_matrix.assignments %}
-    <div class="assignment-matrix-card">
+    <div class="assignment-matrix-card" data-assignment-matrix="true">
         <div class="d-flex justify-content-between align-items-start mb-3">
             <div>
                 <h4 class="mb-1">最近作业完成矩阵</h4>
-                <p class="text-muted mb-0">横向看作业完成率，纵向看学生是否连续缺交或低分。</p>
+                <p class="text-muted mb-0">横向看作业完成率，纵向看学生是否连续缺交或低分。提交得分采用 0–5 分。</p>
             </div>
             <div class="matrix-legend">
                 <span><i class="legend-dot legend-excellent"></i>优秀</span>
@@ -440,7 +440,7 @@
                             <div class="matrix-cell {{ cell.status_class }}">
                                 {{ cell.status }}
                                 {% if cell.best_score is not none %}
-                                <div class="small">{{ cell.best_score }} 分</div>
+                                <div class="small">{{ "%.1f"|format(cell.best_score|float) }}/5</div>
                                 {% endif %}
                             </div>
                         </td>
@@ -491,8 +491,8 @@
                         <th>学生</th>
                         <th>学号</th>
                         <th>状态</th>
-                        <th>平均分</th>
-                        <th>最近得分</th>
+                        <th>能力综合分（0–5）</th>
+                        <th>提交得分（0–5）</th>
                         <th>提交次数</th>
                         <th>最近提交</th>
                         <th>风险标签</th>
@@ -522,14 +522,14 @@
                         </td>
                         <td>
                             <span class="badge badge-score-{{ student.user_ascore|round|int }}">
-                                {{ "%.1f"|format(student.user_ascore) }}
+                                {{ "%.1f"|format(student.user_ascore|float) }}/5
                             </span>
                         </td>
                         <td>
                             {% if row.latest_score is not none %}
                             <span
                                 class="badge {% if row.latest_score >= 4 %}bg-success{% elif row.latest_score >= 3 %}bg-warning text-dark{% else %}bg-danger{% endif %}">
-                                {{ row.latest_score }}
+                                {{ "%.1f"|format(row.latest_score|float) }}/5
                             </span>
                             {% else %}
                             -

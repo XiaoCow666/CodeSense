@@ -340,6 +340,11 @@ def build_teacher_dashboard_data(teacher, now=None):
     return {
         'managed_classes': managed_classes,
         'student_count': len(students),
+        'student_rows': sorted(
+            rows_by_student_id.values(),
+            key=lambda row: (row['student'].user_ascore or 0),
+            reverse=True,
+        ),
         'total_submissions': total_submissions,
         'recent_submissions': recent_submissions,
         'submission_trend': build_submission_trend(student_ids, days=14, now=now),

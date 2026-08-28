@@ -1328,13 +1328,20 @@
     // ============================================================
     function initDevDebugConsole() {
         const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-        if (!isLocal) return;
+        const container = document.getElementById('arena-container');
+        const isDemo = container && container.dataset.demoExperience === '1';
+        if (!isLocal && !isDemo) return;
+
+        const panelTitle = isDemo ? '体验进度快捷入口' : '开发者调试面板 (Dev Only)';
+        const panelDescription = isDemo
+            ? '按需查看三个学习阶段的页面效果，完成体验后可重新回到任意阶段。'
+            : '快速进行阶段流转及自动化测试';
 
         const panel = document.createElement('div');
         panel.className = 'dev-debug-panel';
         panel.innerHTML = `
-            <h4><i class="bi bi-braces-asterisk"></i> 开发者调试面板 (Dev Only)</h4>
-            <div style="font-size: 11px; margin-bottom: 8px; color: #94a3b8;">快速进行阶段流转及自动化测试</div>
+            <h4><i class="bi bi-braces-asterisk"></i> ${panelTitle}</h4>
+            <div style="font-size: 11px; margin-bottom: 8px; color: #94a3b8;">${panelDescription}</div>
             <div class="dev-debug-btn-group">
                 <button class="dev-debug-btn" onclick="window.ThinkingArena.debugJumpStage(1)">跳到阶段一</button>
                 <button class="dev-debug-btn" onclick="window.ThinkingArena.debugJumpStage(2)">跳到阶段二</button>
@@ -1342,10 +1349,13 @@
                 <button class="dev-debug-btn dev-debug-btn-success" onclick="window.ThinkingArena.debugJumpStage(4)">一键通关</button>
             </div>
             <div class="dev-debug-btn-group" style="margin-bottom: 0;">
-                <button class="dev-debug-btn dev-debug-btn-primary dev-debug-btn-full" onclick="window.ThinkingArena.debugAutoS1()">秒杀阶段一 (Auto S1)</button>
-                <button class="dev-debug-btn dev-debug-btn-primary dev-debug-btn-full" onclick="window.ThinkingArena.debugAutoS2()" style="margin-top: 6px;">秒杀阶段二 (Auto S2)</button>
+                <button class="dev-debug-auto dev-debug-btn dev-debug-btn-primary dev-debug-btn-full" onclick="window.ThinkingArena.debugAutoS1()">秒杀阶段一 (Auto S1)</button>
+                <button class="dev-debug-auto dev-debug-btn dev-debug-btn-primary dev-debug-btn-full" onclick="window.ThinkingArena.debugAutoS2()" style="margin-top: 6px;">秒杀阶段二 (Auto S2)</button>
             </div>
         `;
+        if (isDemo) {
+            panel.querySelectorAll('.dev-debug-auto').forEach(button => button.remove());
+        }
         document.body.appendChild(panel);
     }
 
@@ -1364,7 +1374,14 @@
         }).then(data => {
             if (data.success) {
                 showNotification(`已切换到阶段 ${stage === 4 ? '已完成' : stage}`, 'success');
-                setTimeout(() => location.reload(), 1000);
+                const arena = document.getElementById('arena-container');
+                const isDemo = arena && arena.dataset.demoExperience === '1';
+                if (stage === 4 && isDemo) {
+                    state.currentStage = 3;
+                    showCelebration();
+                } else {
+                    setTimeout(() => location.reload(), 1000);
+                }
             } else {
                 showNotification(data.error || '跳转失败', 'warning');
             }
