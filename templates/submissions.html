@@ -199,6 +199,38 @@
 </div>
 
 <!-- 提交趋势图表 -->
+<h3 class="section-title"><i class="bi bi-grid-3x3-gap"></i> C语言知识点画像</h3>
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <div class="card-title"><i class="bi bi-person-badge"></i> 知识点掌握明细</div>
+        <span class="badge bg-primary">评分范围 0–100</span>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover">
+                <thead>
+                    <tr>
+                        <th>知识点</th>
+                        <th>掌握度</th>
+                        <th>尝试次数</th>
+                        <th>正确率</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in knowledge_profile_rows %}
+                    <tr data-knowledge-point="{{ row.key }}">
+                        <td>{{ row.name }}</td>
+                        <td>{{ "%.1f"|format(row.score|float) }}/100</td>
+                        <td>{{ row.total_attempts }}</td>
+                        <td>{{ "%.0f"|format(row.accuracy|float) }}%</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
 <h3 class="section-title"><i class="bi bi-calendar-check"></i> 提交趋势</h3>
 <div class="card">
     <div class="card-header">
@@ -228,7 +260,7 @@
                     <tr>
                         <th>题目ID</th>
                         <th>题目标题</th>
-                        <th>提交评分</th>
+                        <th>提交评分（0–5）</th>
                         <th>评估建议</th>
                         <th>操作</th>
                     </tr>
@@ -241,7 +273,7 @@
                         <td>
                             {% if submission.score is not none %}
                             <span class="badge badge-score-{{ submission.score|round|int }}">
-                                {{ submission.score }}
+                                {{ "%.1f"|format(submission.score|float) }}/5
                             </span>
                             {% else %}
                             <span class="badge badge-secondary">未评分</span>
@@ -273,7 +305,9 @@
 </div>
 
 <div class="card-header d-flex justify-content-between align-items-center">
-    <div class="card-title"><i class="bi bi-graph-up"></i> 深度能力分析报告</div>
+    <div class="card-title"><i class="bi bi-graph-up"></i> 深度能力分析报告
+        {% if ability_trend %}<span class="badge bg-light text-dark ms-2" data-analysis-status="{{ ability_trend.status }}">{{ ability_trend.status }}{% if ability_trend.last_updated %} · {{ ability_trend.last_updated.strftime('%Y-%m-%d %H:%M') }}{% endif %}</span>{% endif %}
+    </div>
     {% if session.get('student_id') == user.student_id %}
     <button id="refreshAnalysisBtn" class="btn btn-sm btn-outline-primary">
         <i class="bi bi-arrow-clockwise"></i> 重新生成分析
@@ -286,6 +320,11 @@
     <div class="text-center py-4">
         <div class="spinner-border text-primary mb-3" role="status"></div>
         <p class="text-muted">AI 正在深度分析您的编程习惯和能力趋势，请稍候...</p>
+    </div>
+    {% elif ability_trend.status == 'failed' %}
+    <div class="alert alert-warning text-center py-4">
+        <i class="bi bi-exclamation-triangle fs-2 d-block mb-2 text-warning"></i>
+        <p>本次 AI 分析没有成功完成，请点击右上角重新生成。</p>
     </div>
     {% elif ability_trend.analysis_markdown %}
     <div class="markdown-render" data-markdown="{{ ability_trend.analysis_markdown }}"></div>
@@ -426,7 +465,9 @@
                     maintainAspectRatio: false,
                     scales: {
                         y: {
-                            beginAtZero: true
+                            beginAtZero: true,
+                            max: 5,
+                            ticks: { stepSize: 1 }
                         }
                     },
                     plugins: {

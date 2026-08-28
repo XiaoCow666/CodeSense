@@ -10,7 +10,7 @@ from flask import Blueprint, render_template, request, jsonify, session, Respons
 from flask_login import current_user
 
 from models import (db, Assignment, AssignmentThinkingPreset,
-                    ThinkingSession, ThinkingStageLog)
+                    ThinkingSession, ThinkingStageLog, Submission, User)
 from utils.auth import login_required
 from utils.thinking_ai import (
     generate_preset, evaluate_description, generate_stage1_hint,
@@ -22,15 +22,46 @@ from services.demo_experience import (
     DEMO_STUDENT_ID,
     is_demo_guided_assignment,
     is_demo_guided_session,
+    ensure_demo_guided_preset,
 )
+from services.demo_database import current_demo_run_id, is_active_demo_run
 
 thinking = Blueprint('thinking', __name__, url_prefix='/thinking')
+
+
+def _demo_guided_assignment(assignment_id):
+    """Return the current temporary guided assignment, if this is a demo request."""
+    run_id = current_demo_run_id()
+    if not run_id or not getattr(current_user, 'is_demo', False):
+        return None
+    assignment = Assignment.query.get(assignment_id)
+    if assignment and is_demo_guided_assignment(assignment):
+        return assignment
+    return None
 
 
 def _check_and_trigger_stale_preset(preset, assignment_id):
     """
     检查预设是否是老版本（状态为 ready 但没有 quiz_steps），如果是，则自动触发重新生成。
     """
+    # 演示作业的预设完全属于当前临时库。无论之前的后台任务把它标成
+    # failed、generating 还是缺少字段，都在当前临时库内恢复固定教学数据，
+    # 不向正式任务队列投递任何任务。
+    demo_assignment = _demo_guided_assignment(assignment_id)
+    if demo_assignment:
+        is_stale = (
+            not preset
+            or preset.status != 'ready'
+            or not getattr(preset, 'quiz_steps', None)
+            or preset.quiz_steps.strip() == '[]'
+        )
+        if is_stale:
+            repaired = ensure_demo_guided_preset(demo_assignment)
+            if repaired:
+                db.session.commit()
+                return repaired
+        return preset
+
     if preset and preset.status == 'ready' and (not hasattr(preset, 'quiz_steps') or not preset.quiz_steps or preset.quiz_steps.strip() == '' or preset.quiz_steps == '[]'):
         try:
             preset.status = 'generating'
@@ -45,6 +76,116 @@ def _check_and_trigger_stale_preset(preset, assignment_id):
             db.session.rollback()
             current_app.logger.error(f"重置作业 {assignment_id} 预设状态失败: {e}")
     return preset
+
+
+def _record_demo_guided_submission(thinking_session):
+    """Create one idempotent 0–5 submission when a demo run is completed."""
+    run_id = current_demo_run_id()
+    if (
+        not run_id
+        or not getattr(current_user, 'is_demo', False)
+        or not is_active_demo_run(run_id)
+    ):
+        return None
+
+    assignment = Assignment.query.get(thinking_session.assignment_id)
+    if not is_demo_guided_assignment(assignment):
+        return None
+
+    marker = f'/* codesense-demo-guided-session:{thinking_session.id} */'
+    submission = Submission.query.filter(
+        Submission.student_id == current_user.student_id,
+        Submission.assignment_id == assignment.id,
+        Submission.code.like(f'{marker}%'),
+    ).first()
+    if not submission:
+        submission = Submission(
+            student_id=current_user.student_id,
+            assignment_id=assignment.id,
+            code=marker,
+            language='c',
+        )
+        db.session.add(submission)
+
+    # 完成三阶段的示范提交使用 0–5 评分；阶段一的百分制只作为
+    # 一个轻微的区分因素，不会直接写入提交分数字段。
+    stage1_score = float(thinking_session.stage1_score or 80)
+    score = max(3, min(5, int(round(stage1_score / 20))))
+    preset = AssignmentThinkingPreset.query.filter_by(
+        assignment_id=assignment.id,
+    ).first()
+    reference_code = preset.reference_code if preset else ''
+    submission.code = f'{marker}\n{reference_code or "int main(void) { return 0; }"}'
+    submission.score = score
+    submission.status = 'evaluated'
+    submission.feedback = '已完成三阶段引导式学习，提交记录用于展示学习闭环。'
+    submission.ai_feedback = json.dumps({
+        'overall_score': score,
+        'algorithm_score': score,
+        'style_score': score,
+        'functionality_score': score,
+        'efficiency_score': max(2, score - 1),
+        'readability_score': score,
+        'source': 'guided_demo_completion',
+    }, ensure_ascii=False)
+    submission.sandbox_status = 'passed'
+    submission.sandbox_passed = 3
+    submission.sandbox_total = 3
+    submission.sandbox_detail = json.dumps({
+        'source': 'guided_demo_completion',
+        'cases': [
+            {'index': 1, 'status': 'passed'},
+            {'index': 2, 'status': 'passed'},
+            {'index': 3, 'status': 'passed'},
+        ],
+    }, ensure_ascii=False)
+    submission.submitted_at = thinking_session.completed_at or dt.utcnow()
+    db.session.flush()
+
+    evaluated_scores = [
+        row.score for row in Submission.query.filter_by(
+            assignment_id=assignment.id,
+            status='evaluated',
+        ).all() if row.score is not None
+    ]
+    assignment.count = len(evaluated_scores)
+    assignment.total_score = sum(evaluated_scores)
+    assignment.average_score = (
+        sum(evaluated_scores) / len(evaluated_scores)
+        if evaluated_scores else 0.0
+    )
+
+    student = db.session.get(User, current_user.student_id)
+    if student:
+        student_scores = [
+            row.score for row in Submission.query.filter_by(
+                student_id=student.student_id,
+                status='evaluated',
+            ).all() if row.score is not None
+        ]
+        student.submit_count = len(student_scores)
+        student.user_tscore = sum(student_scores)
+        student.user_ascore = (
+            sum(student_scores) / len(student_scores)
+            if student_scores else 0.0
+        )
+
+    db.session.commit()
+
+    # 完成记录写入后按正常提交路径刷新临时 AI 分析。
+    try:
+        from models import AbilityTrend
+        from tasks.ability_analysis import trigger_analysis_if_needed
+
+        AbilityTrend.mark_as_outdated(current_user.student_id)
+        trigger_analysis_if_needed(
+            current_user.student_id,
+            demo_run_id=run_id,
+        )
+    except Exception as error:
+        current_app.logger.warning('引导式学习完成后的 AI 刷新未启动: %s', error)
+
+    return submission
 
 
 # ============================================================
@@ -914,6 +1055,7 @@ def stage3_fix_code():
             ts.status = 'completed'
             ts.completed_at = dt.utcnow()
             _log_event(session_id, 3, 'stage_pass', 'system', f'费曼教学完成: {feedback}')
+            _record_demo_guided_submission(ts)
 
         db.session.commit()
 
@@ -948,6 +1090,8 @@ def complete_session():
             ts.status = 'completed'
             ts.completed_at = dt.utcnow()
 
+        _record_demo_guided_submission(ts)
+
         db.session.commit()
 
         return jsonify({'success': True})
@@ -972,6 +1116,7 @@ def api_generate_preset():
         assignment = Assignment.query.get(assignment_id)
         if not assignment:
             return jsonify({'error': '作业不存在'}), 404
+        demo_assignment = _demo_guided_assignment(assignment_id)
 
         # 检查是否已有预设
         preset = AssignmentThinkingPreset.query.filter_by(assignment_id=assignment_id).first()
@@ -999,17 +1144,26 @@ def api_generate_preset():
             preset.error_message = None
 
         except Exception as gen_err:
-            preset.status = 'failed'
-            preset.error_message = str(gen_err)
             print(f"预设生成失败: {gen_err}")
             traceback.print_exc()
+            if demo_assignment:
+                # 演示作业已有确定性的本地教学预设。真实 AI 重生成失败
+                # 时恢复它，避免进入会再次投递正式任务的 failed 状态。
+                preset = ensure_demo_guided_preset(demo_assignment)
+                preset_status_error = None
+            else:
+                preset.status = 'failed'
+                preset.error_message = str(gen_err)
+                preset_status_error = preset.error_message
+        else:
+            preset_status_error = preset.error_message
 
         db.session.commit()
 
         return jsonify({
             'success': preset.status == 'ready',
             'status': preset.status,
-            'error': preset.error_message
+            'error': preset_status_error
         })
 
     except Exception as e:
@@ -1041,6 +1195,12 @@ def preset_status(assignment_id):
 def retry_preset(assignment_id):
     """重新尝试生成预设（异步）"""
     try:
+        demo_assignment = _demo_guided_assignment(assignment_id)
+        if demo_assignment:
+            preset = ensure_demo_guided_preset(demo_assignment)
+            db.session.commit()
+            return jsonify({'success': True, 'status': 'ready', 'demo': True})
+
         preset = AssignmentThinkingPreset.query.filter_by(assignment_id=assignment_id).first()
         if not preset:
             preset = AssignmentThinkingPreset(assignment_id=assignment_id)
@@ -1234,7 +1394,18 @@ def _serialize_preset(preset: AssignmentThinkingPreset) -> dict:
 
     # 惰性回填：如果旧预设缺少 algorithm_summary，尝试后台异步生成，避免阻塞主请求
     algorithm_summary = preset.get_algorithm_summary()
-    if not algorithm_summary and preset.status == 'ready' and preset.reference_code:
+    demo_run_id = current_demo_run_id()
+    is_demo_preset = (
+        demo_run_id
+        and getattr(current_user, 'is_demo', False)
+        and is_demo_guided_assignment(preset.assignment)
+    )
+    if is_demo_preset and not algorithm_summary:
+        repaired = ensure_demo_guided_preset(preset.assignment)
+        if repaired:
+            db.session.commit()
+            algorithm_summary = repaired.get_algorithm_summary()
+    elif not algorithm_summary and preset.status == 'ready' and preset.reference_code:
         import threading
         app = current_app._get_current_object()
         preset_id = preset.id
@@ -1354,6 +1525,7 @@ def debug_jump_stage():
             ts.stage3_completed = True
             ts.status = 'completed'
             ts.completed_at = dt.utcnow()
+            _record_demo_guided_submission(ts)
 
         db.session.commit()
         return jsonify({'success': True, 'current_stage': ts.current_stage, 'status': ts.status})

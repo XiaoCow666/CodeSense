@@ -228,8 +228,8 @@
                         <th width="100">出题教师</th>
                         <th width="150">发布日期</th>
                         <th width="150">截止倒计时</th>
-                        <th width="100">提交/平均分</th>
-                        <th width="100">个人最高分</th>
+                        <th width="100">提交/平均分（0–5）</th>
+                        <th width="100">个人最高分（0–5）</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -242,11 +242,14 @@
                                 {{ assignment.title }}
                             </a>
                             <br>
+                            {% if assignment.is_guided_available %}
                             <a href="{{ url_for('thinking.arena', assignment_id=assignment.id) }}"
-                               class="badge bg-primary bg-opacity-10 text-primary text-decoration-none mt-1"
-                               style="font-size: 0.7rem;">
+                               class="badge bg-primary bg-opacity-10 text-primary text-decoration-none mt-1">
                                 <i class="bi bi-lightning-charge"></i> 引导式学习
                             </a>
+                            {% else %}
+                            <span class="badge bg-light text-secondary mt-1">常规编码练习</span>
+                            {% endif %}
                         </td>
                         <td>{{ assignment.creator.full_name if assignment.creator else '未知' }}</td>
                         <td>
@@ -283,12 +286,12 @@
         </td>
         <td>
             <small class="text-muted">提交: {{ assignment.count }}</small><br>
-            <small class="text-info">平均: {{ assignment.average_score }}</small>
+            <small class="text-info">平均: {{ "%.1f"|format(assignment.average_score|float) }}/5</small>
         </td>
         <td>
             {% if assignment.max_student_score %}
             <span class="badge badge-score-{{ assignment.max_student_score|round|int }}">
-                {{ assignment.max_student_score }}
+                {{ "%.1f"|format(assignment.max_student_score|float) }}/5
             </span>
             {% else %}
             <span class="text-muted small">未提交</span>

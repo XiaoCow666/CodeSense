@@ -149,7 +149,7 @@
                 </ol>
             </nav>
             <h1 class="h2 fw-bold text-slate-800">
-                <i class="bi bi-cpu text-primary me-2"></i>AI 教学个性化建议落地页
+                <i class="bi bi-cpu text-primary me-2"></i>AI 教学个性化建议 · 学情建议
             </h1>
         </div>
         <a href="{{ url_for('main.teacher_dashboard') }}" class="btn btn-outline-secondary">
@@ -212,6 +212,17 @@
                             <button class="btn btn-light text-primary fw-bold px-3 py-2 btn-refresh-sug" data-class-id="{{ cls.id }}">
                                 <i class="bi bi-arrow-repeat me-1 btn-refresh-icon"></i>刷新 AI 建议
                             </button>
+                        </div>
+                        <div class="px-4 py-2 bg-light border-bottom d-flex justify-content-between align-items-center flex-wrap gap-2 small"
+                             data-ai-status="{{ sug.status }}">
+                            <span>
+                                <i class="bi bi-activity text-primary me-1"></i>
+                                AI 个性化教学建议 · 状态：
+                                {% if sug.status == 'completed' %}已生成{% elif sug.status == 'processing' %}分析中{% elif sug.status == 'failed' %}生成失败{% else %}待生成{% endif %}
+                            </span>
+                            <span class="text-muted">
+                                最近更新：{{ sug.last_updated.strftime('%Y-%m-%d %H:%M:%S') if sug.last_updated else '尚未更新' }}
+                            </span>
                         </div>
 
                         <!-- 核心区域 -->

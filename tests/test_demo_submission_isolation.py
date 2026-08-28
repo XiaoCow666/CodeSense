@@ -4,7 +4,7 @@ from unittest.mock import patch
 from models import AbilityTrend, Submission, SystemLog, db
 from services.demo_database import activate_demo_run
 from services.demo_experience import DEMO_STUDENT_ID, get_demo_assignment_id
-from tasks.submission_tasks import evaluate_submission_async
+from tasks.submission_tasks import _normalise_score, evaluate_submission_async
 from tests.demo_test_utils import create_test_app, destroy_test_app
 
 
@@ -27,6 +27,12 @@ class DemoSubmissionIsolationTestCase(unittest.TestCase):
 
     def tearDown(self):
         destroy_test_app(self.app)
+
+    def test_submission_score_normalisation_preserves_source_scale(self):
+        self.assertEqual(_normalise_score(4), 4)
+        self.assertEqual(_normalise_score(8), 4)
+        self.assertEqual(_normalise_score(80), 4)
+        self.assertEqual(_normalise_score(100), 5)
 
     def test_evaluation_updates_only_current_demo_database(self):
         with self.app.app_context():

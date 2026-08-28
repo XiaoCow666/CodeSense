@@ -1,8 +1,9 @@
 import json
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from models import Assignment, AssignmentThinkingPreset, ThinkingSession, User, db
+from models import Assignment, AssignmentThinkingPreset, Submission, ThinkingSession, User, db
 from services.demo_database import activate_demo_run
 from services.demo_experience import get_demo_assignment_id
 from tests.demo_test_utils import create_test_app, destroy_test_app
@@ -184,7 +185,7 @@ class DemoGuidedLearningTestCase(unittest.TestCase):
             base_url=base_url,
             json={'session_id': other_assignment_session_id, 'stage': 2},
         )
-        self.assertEqual(other_assignment_response.status_code, 403)
+        self.assertEqual(other_assignment_response.status_code, 200)
 
         self.client.get('/logout', base_url=base_url)
         anonymous_response = self.client.post(
@@ -193,6 +194,83 @@ class DemoGuidedLearningTestCase(unittest.TestCase):
             json={'session_id': regular_session_id, 'stage': 2},
         )
         self.assertEqual(anonymous_response.status_code, 403)
+
+    def test_demo_tree_preset_recovers_without_queueing_formal_ai_task(self):
+        run_id = self._login_demo()
+        assignment_id = self._demo_assignment_id(run_id, 'guided_tree')
+
+        with self.app.app_context():
+            self.assertTrue(activate_demo_run(run_id))
+            preset = AssignmentThinkingPreset.query.filter_by(
+                assignment_id=assignment_id,
+            ).one()
+            preset.status = 'failed'
+            preset.quiz_steps = '[]'
+            db.session.commit()
+
+        with patch('utils.async_tasks.add_generate_preset_task') as queue_task:
+            arena_response = self.client.get(f'/thinking/{assignment_id}')
+            self.assertEqual(arena_response.status_code, 200)
+            queue_task.assert_not_called()
+
+        start_response = self.client.post('/thinking/api/start_session', json={
+            'assignment_id': assignment_id,
+        })
+        self.assertEqual(start_response.status_code, 200)
+        self.assertEqual(start_response.get_json()['preset']['status'], 'ready')
+
+    def test_demo_tree_assignment_supports_quick_jump(self):
+        run_id = self._login_demo()
+        assignment_id = self._demo_assignment_id(run_id, 'guided_tree')
+        with self.app.app_context():
+            self.assertTrue(activate_demo_run(run_id))
+            thinking_session = ThinkingSession(
+                student_id='demo_s_001',
+                assignment_id=assignment_id,
+            )
+            db.session.add(thinking_session)
+            db.session.commit()
+            session_id = thinking_session.id
+
+        response = self.client.post('/thinking/api/debug/jump_stage', json={
+            'session_id': session_id,
+            'stage': 3,
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.get_json()['success'])
+
+    def test_demo_guided_completion_creates_temporary_five_point_submission(self):
+        run_id = self._login_demo()
+        assignment_id = self._demo_assignment_id(run_id)
+        with self.app.app_context():
+            self.assertTrue(activate_demo_run(run_id))
+            thinking_session = ThinkingSession(
+                student_id='demo_s_001',
+                assignment_id=assignment_id,
+            )
+            db.session.add(thinking_session)
+            db.session.commit()
+            session_id = thinking_session.id
+
+        with patch('tasks.ability_analysis.trigger_analysis_if_needed', return_value=False):
+            response = self.client.post('/thinking/api/debug/jump_stage', json={
+                'session_id': session_id,
+                'stage': 4,
+            })
+        self.assertEqual(response.status_code, 200)
+
+        with self.app.app_context():
+            self.assertTrue(activate_demo_run(run_id))
+            submission = Submission.query.filter_by(
+                student_id='demo_s_001',
+                assignment_id=assignment_id,
+            ).filter(Submission.code.like('/* codesense-demo-guided-session:%')).one()
+            self.assertEqual(submission.status, 'evaluated')
+            self.assertGreaterEqual(submission.score, 0)
+            self.assertLessEqual(submission.score, 5)
+
+        with self.app.app_context():
+            self.assertEqual(Submission.query.count(), 0)
 
 
 if __name__ == '__main__':

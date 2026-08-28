@@ -1,8 +1,12 @@
 import os
 import sqlite3
 import unittest
+from datetime import datetime, timedelta
 
+import services.demo_database as demo_database
 from services.demo_database import (
+    DEMO_IDLE_TIMEOUT,
+    cleanup_expired_demo_runs,
     create_demo_run,
     destroy_demo_run,
     is_demo_login_id,
@@ -68,6 +72,17 @@ class DemoDatabaseLifecycleTestCase(unittest.TestCase):
             self.assertFalse(destroy_demo_run(first.run_id))
 
             destroy_demo_run(second.run_id)
+
+    def test_cleanup_removes_idle_run_and_its_metadata(self):
+        with self.app.app_context():
+            run = create_demo_run('student')
+            stale_at = datetime.utcnow() - DEMO_IDLE_TIMEOUT - timedelta(seconds=1)
+            with demo_database._LOCK:
+                demo_database._RUN_LAST_ACCESS[run.run_id] = stale_at
+
+            self.assertEqual(cleanup_expired_demo_runs(datetime.utcnow()), 1)
+            self.assertFalse(os.path.exists(run.db_path))
+            self.assertFalse(os.path.exists(f'{run.db_path}.meta'))
 
 
 if __name__ == '__main__':

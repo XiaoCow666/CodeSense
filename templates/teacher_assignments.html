@@ -269,19 +269,18 @@
                 <table class="table table-hover">
                     <thead>
                         <tr>
-                        <tr>
                             <th width="60">ID</th>
                             <th>作业标题</th>
                             <th width="120">发布日期</th>
                             <th width="150">截止倒计时</th>
                             <th>已布置给我的班级</th>
-                            <th width="100">提交/平均分</th>
+                            <th width="100">提交/平均分（0–5）</th>
                             <th width="150">操作</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for assignment in assignments %}
-                        <tr>
+                        <tr data-assignment-id="{{ assignment.id }}">
                             <td>{{ assignment.id }}</td>
                             <td>
                                 <a href="{{ url_for('assignments.view_assignment', assignment_id=assignment.id) }}"
@@ -330,7 +329,7 @@
             </td>
             <td>
                 <small class="text-muted">提交: {{ assignment.count }}</small><br>
-                <small class="text-info">平均: {{ "%.2f"|format(assignment.average_score) }}</small>
+                        <small class="text-info">平均: {{ "%.1f"|format(assignment.average_score|float) }}/5</small>
             </td>
             <td>
                 <div class="btn-group">

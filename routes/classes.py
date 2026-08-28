@@ -6,7 +6,7 @@ from flask_login import login_required, current_user
 from sqlalchemy import func, desc
 import pandas as pd
 from models import db, Class, StudentRoster, User, Assignment, Submission
-from services.demo_experience import ensure_demo_experience
+from services.demo_experience import seed_legacy_demo_experience
 from services.teacher_analytics import build_assignment_completion_matrix, build_class_learning_rows
 from utils.auth import admin_required, admin_or_teacher_required
 
@@ -770,7 +770,7 @@ def seed_demo_data():
 
     # 兼容旧的开发入口，但统一使用不会删除体验记录的幂等服务。
     try:
-        ensure_demo_experience()
+        seed_legacy_demo_experience()
         flash('演示数据已准备好：学生可直接体验三阶段学习，教师可查看完整班级数据。', 'success')
     except Exception as e:
         db.session.rollback()

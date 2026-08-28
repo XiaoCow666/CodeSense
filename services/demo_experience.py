@@ -738,7 +738,14 @@ def ensure_demo_experience():
         student_id=student.student_id,
         class_id=demo_class.id,
         assignment_id=guided_assignment.id,
+        second_assignment_id=second_assignment.id,
     )
+
+
+# This explicit development/test-only seeder remains available for the legacy
+# ``/classes/seed-demo-data`` and ``/sandbox-login`` workflow. Public visitors
+# never call it; ``/demo-login`` always uses ``seed_demo_experience`` below.
+seed_legacy_demo_experience = ensure_demo_experience
 
 
 def is_demo_guided_session(thinking_session):
@@ -753,7 +760,10 @@ def is_demo_guided_assignment(assignment):
     """判断作业是否属于公开演示的三阶段引导作业。"""
     return bool(
         assignment
-        and assignment.title == DEMO_ASSIGNMENT_TITLE
+        and assignment.title in {
+            DEMO_ASSIGNMENT_TITLE,
+            DEMO_SECOND_ASSIGNMENT_TITLE,
+        }
         and assignment.creator_id == DEMO_TEACHER_ID
         and DEMO_CLASS_NAME in assignment.get_target_class_list()
     )
@@ -1057,8 +1067,8 @@ def seed_demo_experience(run: DemoRun) -> DemoExperience:
         _ensure_roster(student.student_id, student.full_name, demo_class, student.student_id)
     # Keep a couple of pending roster entries so class management also shows
     # the registration workflow without creating fake users for them.
-    _ensure_roster('demo_r_013', '何十三（待注册）', demo_class)
-    _ensure_roster('demo_r_014', '吕十四（待注册）', demo_class)
+    _ensure_roster('demo_r_013', '李四（未注册）', demo_class)
+    _ensure_roster('demo_r_014', '何十三（待注册）', demo_class)
 
     assignments = {}
     now = dt.utcnow()
@@ -1165,3 +1175,20 @@ def get_demo_assignment_id(run_id: str, key: str = 'guided_fibonacci') -> int:
     if assignment is None:
         raise LookupError(f'演示作业尚未初始化: {key}')
     return assignment.id
+
+
+def ensure_demo_guided_preset(assignment):
+    """Repair a known demo preset in the active temporary database.
+
+    Guided-demo presets are deterministic teaching material. If an old worker
+    marked one as generating/failed, restore it locally instead of enqueueing
+    a task that would use the formal database.
+    """
+    if not is_demo_guided_assignment(assignment):
+        return None
+    if assignment.title == DEMO_SECOND_ASSIGNMENT_TITLE:
+        preset = _ensure_tree_preset(assignment)
+    else:
+        preset = _ensure_preset(assignment)
+    db.session.flush()
+    return preset

@@ -22,7 +22,16 @@ def _normalise_score(score) -> int:
     """Keep every persisted submission score inside the product's 0–5 scale."""
 
     try:
-        return max(0, min(5, int(round(float(score)))))
+        raw_score = float(score)
+        # The current heuristic evaluator already returns 0–5. The LLM and
+        # legacy evaluator paths return 0–100, while a few older integrations
+        # used 0–10. Normalize those representations before rounding instead
+        # of clipping every value above 5 to a false perfect score.
+        if raw_score > 10:
+            raw_score /= 20.0
+        elif raw_score > 5:
+            raw_score /= 2.0
+        return max(0, min(5, int(round(raw_score))))
     except (TypeError, ValueError):
         raise ValueError("评测器未返回有效分数")
 

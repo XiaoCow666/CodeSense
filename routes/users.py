@@ -3,7 +3,7 @@
 """
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, send_file, current_app, jsonify
 from itsdangerous import URLSafeTimedSerializer
-from models import db, User, Submission, SystemLog, Class, AbilityTrend
+from models import db, User, Submission, SystemLog, Class, AbilityTrend, KnowledgePointScore
 from utils.auth import login_required, admin_required, admin_or_teacher_required
 from tasks.ability_analysis import trigger_analysis_if_needed
 from services.demo_database import current_demo_run_id
@@ -223,6 +223,17 @@ def view_submissions():
                 'algorithm': 70, 'style': 70, 'functionality': 70, 'efficiency': 70, 'readability': 70
             })
         }
+
+        knowledge_profile = KnowledgePointScore.get_student_profile(student_id)
+        knowledge_profile_rows = []
+        for key, name in KnowledgePointScore.KNOWLEDGE_POINTS.items():
+            item = dict(knowledge_profile.get(key) or {})
+            item.setdefault('score', 0)
+            item.setdefault('total_attempts', 0)
+            item.setdefault('correct_attempts', 0)
+            item.setdefault('accuracy', 0)
+            item.setdefault('average_difficulty', 0)
+            knowledge_profile_rows.append({'key': key, 'name': name, **item})
         
         # 5. 获取 AI 能力趋势分析
         ability_trend = AbilityTrend.query.filter_by(student_id=student_id).first()
@@ -239,6 +250,8 @@ def view_submissions():
                             user=user, 
                             chart_data=chart_data,
                             ability_data=ability_data,
+                            knowledge_profile=knowledge_profile,
+                            knowledge_profile_rows=knowledge_profile_rows,
                             ability_trend=ability_trend,
                             comprehensive_score=comprehensive_score,
                             strongest_dim=strongest_dim)

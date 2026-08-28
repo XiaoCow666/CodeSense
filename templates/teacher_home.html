@@ -279,7 +279,7 @@
         </div>
         <div class="row">
             <div class="col-md-12">
-                <p class="text-muted small">基于各个班级本周的提交率、低分率、活跃趋势及能力分析，AI 自动生成点对点教学对策：</p>
+                <p class="text-muted small">基于各个班级本周的提交率、低分率、活跃趋势及能力分析，AI 自动生成点对点教学对策。提交评分 0–5 分，知识点画像 0–100 分。</p>
                 <div class="row">
                     {% for card in class_cards %}
                         {% set sug = ai_suggestions.get(card['class'].id) %}
@@ -290,14 +290,14 @@
                                         <span class="fs-6 text-dark"><i class="bi bi-folder2-open me-2 text-primary"></i>{{ card['class'].name }}</span>
                                         {% if sug %}
                                             {% if sug.status == 'completed' %}
-                                                <span class="badge bg-success-soft text-success"><i class="bi bi-check-circle me-1"></i>建议已生成</span>
+                                                <span class="badge bg-success-soft text-success" data-ai-status="{{ sug.status }}"><i class="bi bi-check-circle me-1"></i>建议已生成</span>
                                             {% elif sug.status == 'processing' or sug.status == 'pending' %}
-                                                <span class="badge bg-warning-soft text-warning"><i class="bi bi-arrow-repeat spin me-1"></i>分析中...</span>
+                                                <span class="badge bg-warning-soft text-warning" data-ai-status="{{ sug.status }}"><i class="bi bi-arrow-repeat spin me-1"></i>AI 建议状态：分析中</span>
                                             {% else %}
-                                                <span class="badge bg-danger-soft text-danger"><i class="bi bi-exclamation-circle me-1"></i>分析失败</span>
+                                                <span class="badge bg-danger-soft text-danger" data-ai-status="{{ sug.status }}"><i class="bi bi-exclamation-circle me-1"></i>AI 建议状态：分析失败</span>
                                             {% endif %}
                                         {% else %}
-                                            <span class="badge bg-secondary-soft text-secondary"><i class="bi bi-hourglass me-1"></i>待分析</span>
+                                            <span class="badge bg-secondary-soft text-secondary" data-ai-status="pending"><i class="bi bi-hourglass me-1"></i>AI 建议状态：待分析</span>
                                         {% endif %}
                                     </h6>
                                     
@@ -325,7 +325,7 @@
                                         </div>
                                     {% else %}
                                         <div class="text-muted small mt-2">
-                                            <i class="bi bi-info-circle me-1"></i>暂无本周分析建议，点击右上角进入建议落地页，即可自动触发生成。
+                                            <i class="bi bi-info-circle me-1"></i>当前显示实时学情摘要；进入建议落地页后，系统会在本次会话中调用 AI 生成完整报告。
                                         </div>
                                     {% endif %}
                                 </div>
@@ -343,13 +343,61 @@
             <div class="section-title mb-0">
                 <span><i class="bi bi-activity text-primary me-2"></i>近 14 天提交趋势</span>
             </div>
-            <div class="trend-total">
-                共 {{ submission_trend|sum(attribute='count') }} 次提交
+            <div class="trend-total" data-trend-points="{{ submission_trend|length }}">
+                共 {{ submission_trend|sum(attribute='count') }} 次提交 · {{ submission_trend|length }} 个趋势点
             </div>
         </div>
         <div style="height: 260px;">
             <canvas id="submissionTrendChart"></canvas>
         </div>
+    </div>
+
+    <!-- 学生画像快照 -->
+    <div class="dashboard-section">
+        <div class="section-title">
+            <span><i class="bi bi-people text-primary me-2"></i>学生画像快照</span>
+            <span class="text-muted small">共 {{ student_rows|length }} 位学生 · 综合分 0–5</span>
+        </div>
+        {% if student_rows %}
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>学生</th>
+                        <th>综合分（0–5）</th>
+                        <th>最近提交（0–5）</th>
+                        <th>提交次数</th>
+                        <th>学习状态</th>
+                        <th>风险提示</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in student_rows %}
+                    <tr data-student-id="{{ row.student.student_id }}">
+                        <td>
+                            <a class="text-decoration-none fw-semibold" href="{{ url_for('users.view_student_details', student_id=row.student.student_id) }}">
+                                {{ row.student.full_name or row.student.username }}
+                            </a>
+                        </td>
+                        <td><span class="badge bg-light text-primary">{{ "%.1f"|format(row.student.user_ascore|float) }}/5</span></td>
+                        <td>
+                            {% if row.latest_score is not none %}{{ "%.1f"|format(row.latest_score|float) }}/5{% else %}未提交{% endif %}
+                        </td>
+                        <td>{{ row.submit_count }}</td>
+                        <td>{{ row.status }}</td>
+                        <td>
+                            {% if row.risk_tags %}
+                                {% for tag in row.risk_tags %}<span class="badge bg-warning-subtle text-dark me-1">{{ tag }}</span>{% endfor %}
+                            {% else %}<span class="text-muted">正常</span>{% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-center text-muted mb-0">暂无学生数据。</p>
+        {% endif %}
     </div>
 
     <div class="row">
@@ -366,7 +414,7 @@
         <div class="col-md-6">
             <div class="dashboard-section">
                 <div class="section-title">
-                    <span><i class="bi bi-bar-chart text-primary me-2"></i>各班级平均分对比</span>
+                    <span><i class="bi bi-bar-chart text-primary me-2"></i>各班级平均分对比（0–5）</span>
                 </div>
                 <div style="height: 300px;">
                     <canvas id="classScoreChart"></canvas>
@@ -446,7 +494,7 @@
                                 <th>学生</th>
                                 <th>作业</th>
                                 <th>提交时间</th>
-                                <th>分数</th>
+                                <th>分数（0–5）</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -461,8 +509,8 @@
                                 <td>{{ sub.submitted_at.strftime('%Y-%m-%d %H:%M') }}</td>
                                 <td>
                                     <span
-                                        class="badge {% if sub.score >= 4 %}bg-success{% elif sub.score == 3 %}bg-warning{% else %}bg-danger{% endif %}">
-                                        {{ sub.score if sub.score is not none else '待评分' }}
+                                        class="badge {% if sub.score is not none and sub.score >= 4 %}bg-success{% elif sub.score is not none and sub.score == 3 %}bg-warning{% else %}bg-danger{% endif %}">
+                                        {% if sub.score is not none %}{{ "%.1f"|format(sub.score|float) }}/5{% else %}待评分{% endif %}
                                     </span>
                                 </td>
                             </tr>
@@ -585,7 +633,7 @@
             data: {
                 labels: chartData.labels,
                 datasets: [{
-                    label: '平均分',
+                    label: '平均分（0–5）',
                     data: chartData.scores,
                     backgroundColor: '#4e73df',
                     hoverBackgroundColor: '#2e59d9',

@@ -338,6 +338,15 @@ def create_app(config_name='default'):
         app.logger.info("开始初始化数据库...")
         init_db(app)
         app.logger.info("数据库初始化完成")
+        try:
+            from services.demo_database import cleanup_expired_demo_runs
+            removed_demo_runs = cleanup_expired_demo_runs()
+            if removed_demo_runs:
+                app.logger.info("启动清理了 %s 个过期体验临时库", removed_demo_runs)
+        except Exception:
+            # Demo cleanup is maintenance and must not prevent the formal
+            # application from starting when a stale file is locked.
+            app.logger.exception("启动清理体验临时库失败")
         
     # 预加载机器学习模型 - 添加错误处理和内存优化
     load_local_model = os.getenv('LOAD_LOCAL_MODEL', 'False').lower() == 'true'

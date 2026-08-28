@@ -32,6 +32,8 @@ _LOCK = threading.RLock()
 _ENGINES = {}
 _RUN_CREATED_AT = {}
 _RUN_LAST_ACCESS = {}
+_LAST_CLEANUP_AT = None
+_CLEANUP_INTERVAL = timedelta(minutes=1)
 
 
 def _demo_root() -> Path:
@@ -55,8 +57,66 @@ def _db_path(run_id: str) -> Path:
     return path
 
 
+def _metadata_path(run_id: str) -> Path:
+    """Return the validated lifecycle metadata path beside a run database."""
+
+    database_path = _db_path(run_id)
+    metadata_path = Path(f"{database_path}.meta").resolve()
+    if metadata_path.parent != database_path.parent:
+        raise ValueError("体验数据库元数据路径越界")
+    return metadata_path
+
+
 def _sqlite_uri(path: Path) -> str:
     return f"sqlite:///{path.as_posix()}"
+
+
+def _write_run_metadata(run_id: str, created_at: datetime) -> None:
+    """Persist creation time so max lifetime survives a process restart."""
+
+    _metadata_path(run_id).write_text(created_at.isoformat(), encoding="ascii")
+
+
+def _read_run_created_at(run_id: str, database_path: Path) -> datetime:
+    """Read creation time, with a filesystem fallback for old run files."""
+
+    with _LOCK:
+        created_at = _RUN_CREATED_AT.get(run_id)
+    if created_at is not None:
+        return created_at
+
+    try:
+        raw_value = _metadata_path(run_id).read_text(encoding="ascii").strip()
+        return datetime.fromisoformat(raw_value)
+    except (OSError, ValueError):
+        stat = database_path.stat()
+        birth_timestamp = getattr(stat, "st_birthtime", None)
+        if birth_timestamp is None:
+            birth_timestamp = stat.st_ctime
+        return datetime.utcfromtimestamp(birth_timestamp)
+
+
+def _run_last_access(run_id: str, database_path: Path) -> datetime:
+    with _LOCK:
+        last_access = _RUN_LAST_ACCESS.get(run_id)
+    if last_access is not None:
+        return last_access
+    return datetime.utcfromtimestamp(database_path.stat().st_mtime)
+
+
+def _is_expired(run_id: str, now: datetime) -> bool:
+    database_path = _db_path(run_id)
+    if not database_path.exists():
+        return True
+    try:
+        created_at = _read_run_created_at(run_id, database_path)
+        last_access = _run_last_access(run_id, database_path)
+    except FileNotFoundError:
+        return True
+    return (
+        now - last_access > DEMO_IDLE_TIMEOUT
+        or now - created_at > DEMO_MAX_LIFETIME
+    )
 
 
 @dataclass(frozen=True)
@@ -189,7 +249,20 @@ def create_demo_run(role: str) -> DemoRun:
 
     # The model metadata is used only with this newly-created engine. The
     # application's configured engine is never passed to create_all here.
-    db.metadata.create_all(bind=engine)
+    try:
+        db.metadata.create_all(bind=engine)
+        _write_run_metadata(run_id, created_at)
+    except Exception:
+        try:
+            engine.dispose(close=True)
+        except TypeError:
+            engine.dispose()
+        for candidate in (path, _metadata_path(run_id)):
+            try:
+                candidate.unlink()
+            except FileNotFoundError:
+                pass
+        raise
 
     with _LOCK:
         _ENGINES[run_id] = engine
@@ -251,7 +324,22 @@ def activate_demo_request_database() -> bool:
     run_id = current_demo_run_id()
     if not run_id:
         return False
+    if _is_expired(run_id, datetime.utcnow()):
+        # An expired browser cookie must not be allowed to query a newly
+        # created formal session. The run is best-effort deleted here and the
+        # signed session markers are removed below regardless of cleanup I/O.
+        try:
+            destroy_demo_run(run_id)
+        except Exception:
+            pass
+        finally:
+            session.pop(DEMO_SESSION_KEY, None)
+            session.pop(DEMO_ROLE_SESSION_KEY, None)
+            session.pop("_user_id", None)
+            session.pop("login", None)
+        return False
     if activate_demo_run(run_id):
+        _maybe_cleanup_expired_demo_runs(datetime.utcnow())
         return True
 
     # A stale browser session must never fall back to the formal database.
@@ -280,6 +368,7 @@ def destroy_demo_run(run_id: str) -> bool:
     existed = False
     for candidate in (
         path,
+        _metadata_path(run_id),
         Path(f"{path}-wal"),
         Path(f"{path}-shm"),
         Path(f"{path}-journal"),
@@ -306,18 +395,36 @@ def cleanup_expired_demo_runs(now: datetime | None = None) -> int:
     removed = 0
     root = _demo_root()
     for path in root.glob("*.sqlite3"):
-        try:
-            modified_at = datetime.utcfromtimestamp(path.stat().st_mtime)
-        except FileNotFoundError:
-            continue
-        if now - modified_at <= DEMO_IDLE_TIMEOUT:
-            continue
         run_id = path.stem
         if not _RUN_ID_PATTERN.fullmatch(run_id):
             continue
-        if destroy_demo_run(run_id):
+        try:
+            expired = _is_expired(run_id, now)
+        except FileNotFoundError:
+            continue
+        if expired and destroy_demo_run(run_id):
             removed += 1
     return removed
+
+
+def _maybe_cleanup_expired_demo_runs(now: datetime) -> None:
+    """Throttle cross-session cleanup while checking the current run eagerly."""
+
+    global _LAST_CLEANUP_AT
+    with _LOCK:
+        if (
+            _LAST_CLEANUP_AT is not None
+            and now - _LAST_CLEANUP_AT < _CLEANUP_INTERVAL
+        ):
+            return
+        _LAST_CLEANUP_AT = now
+    try:
+        cleanup_expired_demo_runs(now)
+    except Exception:
+        # Cleanup is maintenance; a locked sidecar must not break an active
+        # visitor request. The next interval will retry it.
+        with _LOCK:
+            _LAST_CLEANUP_AT = None
 
 
 def destroy_all_demo_runs() -> int:
