@@ -6,6 +6,7 @@ from flask_login import login_required, current_user
 from sqlalchemy import func, desc
 import pandas as pd
 from models import db, Class, StudentRoster, User, Assignment, Submission
+from services.demo_experience import seed_legacy_demo_experience
 from services.teacher_analytics import build_assignment_completion_matrix, build_class_learning_rows
 from utils.auth import admin_required, admin_or_teacher_required
 
@@ -761,175 +762,18 @@ def import_classes():
 
 @classes.route('/seed-demo-data', methods=['POST'])
 def seed_demo_data():
-    """一键装载演示环境沙箱数据（仅在测试或开发模式下允许）"""
+    """兼容旧的演示数据装载入口（仅在测试或开发模式下允许）。"""
     from flask import current_app
     if not (current_app.config.get('DEBUG') or current_app.config.get('TESTING')):
         current_app.logger.warning(f"拒绝数据装载尝试：非开发或测试模式。IP: {request.remote_addr}")
         return "Forbidden", 403
 
+    # 兼容旧的开发入口，但统一使用不会删除体验记录的幂等服务。
     try:
-        from models import (
-            User, Class, StudentRoster, Assignment, Submission,
-            KnowledgePointScore, AssignmentKnowledgePoint, ThinkingSession,
-            TeacherAISuggestion, db
-        )
-        
-        # 1. 彻底清除之前的 demo 账号和数据，保证重新导入时的幂等性与干净环境
-        student_demo_ids = ['demo_s_001', 'demo_s_002', 'demo_s_003', 'demo_s_004']
-        User.query.filter(User.student_id.in_(student_demo_ids + ['demo_t_001'])).delete(synchronize_session=False)
-        StudentRoster.query.filter(StudentRoster.student_id.in_(student_demo_ids)).delete(synchronize_session=False)
-        KnowledgePointScore.query.filter(KnowledgePointScore.student_id.in_(student_demo_ids)).delete(synchronize_session=False)
-        Submission.query.filter(Submission.student_id.in_(student_demo_ids)).delete(synchronize_session=False)
-        ThinkingSession.query.filter(ThinkingSession.student_id.in_(student_demo_ids)).delete(synchronize_session=False)
-        
-        old_class = Class.query.filter_by(name='软件工程24-演示班').first()
-        if old_class:
-            TeacherAISuggestion.query.filter_by(class_id=old_class.id).delete(synchronize_session=False)
-            db.session.delete(old_class)
-            
-        old_assignments = Assignment.query.filter(Assignment.creator_id == 'demo_t_001').all()
-        for oa in old_assignments:
-            AssignmentKnowledgePoint.query.filter_by(assignment_id=oa.id).delete(synchronize_session=False)
-            db.session.delete(oa)
-            
-        db.session.commit()
-
-        # 2. 创建演示教师
-        demo_teacher = User(
-            student_id='demo_t_001',
-            username='teacher_demo',
-            usertype='教师',
-            full_name='李老师（演示）',
-            email='teacher_demo@codesense.edu'
-        )
-        demo_teacher.password = '123456'
-        db.session.add(demo_teacher)
-
-        # 3. 创建演示班级
-        demo_class = Class(
-            name='软件工程24-演示班',
-            school='酷森思大学',
-            college='计算机学院',
-            major='软件工程',
-            grade='2024',
-            teacher_id='demo_t_001'
-        )
-        db.session.add(demo_class)
-        db.session.flush() # 获得 class ID
-
-        # 4. 创建学生账号
-        s1 = User(
-            student_id='demo_s_001',
-            username='student_demo_good',
-            usertype='学生',
-            full_name='赵一（优秀）',
-            class_id=demo_class.id,
-            class_name=demo_class.name,
-            user_ascore=4.8,
-            submit_count=12
-        )
-        s1.password = '123456'
-        
-        s2 = User(
-            student_id='demo_s_002',
-            username='student_demo_mid',
-            usertype='学生',
-            full_name='钱二（中等）',
-            class_id=demo_class.id,
-            class_name=demo_class.name,
-            user_ascore=3.5,
-            submit_count=7
-        )
-        s2.password = '123456'
-        
-        s3 = User(
-            student_id='demo_s_003',
-            username='student_demo_risk',
-            usertype='学生',
-            full_name='孙三（风险）',
-            class_id=demo_class.id,
-            class_name=demo_class.name,
-            user_ascore=1.8,
-            submit_count=2
-        )
-        s3.password = '123456'
-        db.session.add_all([s1, s2, s3])
-
-        # 5. 创建花名册（含未注册的李四）
-        r1 = StudentRoster(student_id='demo_s_001', full_name='赵一（优秀）', class_id=demo_class.id, class_name_snapshot=demo_class.name, is_registered=True, registered_user_id='demo_s_001')
-        r2 = StudentRoster(student_id='demo_s_002', full_name='钱二（中等）', class_id=demo_class.id, class_name_snapshot=demo_class.name, is_registered=True, registered_user_id='demo_s_002')
-        r3 = StudentRoster(student_id='demo_s_003', full_name='孙三（风险）', class_id=demo_class.id, class_name_snapshot=demo_class.name, is_registered=True, registered_user_id='demo_s_003')
-        r4 = StudentRoster(student_id='demo_s_004', full_name='李四（未注册）', class_id=demo_class.id, class_name_snapshot=demo_class.name, is_registered=False)
-        db.session.add_all([r1, r2, r3, r4])
-
-        # 6. 创建测试作业
-        a1 = Assignment(
-            title='演示作业一：循环与斐波那契数列',
-            description='使用循环计算斐波那契数列的前 N 项，并进行复杂度分析。',
-            target_classes='软件工程24-演示班',
-            difficulty_level=2,
-            creator_id='demo_t_001'
-        )
-        a2 = Assignment(
-            title='演示作业二：二叉树遍历与归并算法',
-            description='实现二叉树的中序和后续遍历算法，并将其归并输出。',
-            target_classes='软件工程24-演示班',
-            difficulty_level=4,
-            creator_id='demo_t_001'
-        )
-        db.session.add_all([a1, a2])
-        db.session.flush() # 获得 assignment ID
-
-        # 7. 绑定作业与知识点关系
-        kp1 = AssignmentKnowledgePoint(assignment_id=a1.id, knowledge_point='循环控制', weight=1.0, difficulty=2)
-        kp2 = AssignmentKnowledgePoint(assignment_id=a2.id, knowledge_point='二叉树', weight=1.0, difficulty=4)
-        db.session.add_all([kp1, kp2])
-
-        # 8. 填充学生各知识点得分状况以供图表渲染
-        # 赵一（优秀）
-        kps_s1_1 = KnowledgePointScore(student_id='demo_s_001', knowledge_point='循环控制', score=95.0, total_attempts=5, correct_attempts=5, average_difficulty=2.0)
-        kps_s1_2 = KnowledgePointScore(student_id='demo_s_001', knowledge_point='二叉树', score=88.0, total_attempts=4, correct_attempts=3, average_difficulty=4.0)
-        # 钱二（中等）
-        kps_s2_1 = KnowledgePointScore(student_id='demo_s_002', knowledge_point='循环控制', score=78.0, total_attempts=6, correct_attempts=4, average_difficulty=2.0)
-        kps_s2_2 = KnowledgePointScore(student_id='demo_s_002', knowledge_point='二叉树', score=65.0, total_attempts=5, correct_attempts=2, average_difficulty=4.0)
-        # 孙三（风险）
-        kps_s3_1 = KnowledgePointScore(student_id='demo_s_003', knowledge_point='循环控制', score=42.0, total_attempts=3, correct_attempts=1, average_difficulty=2.0)
-        kps_s3_2 = KnowledgePointScore(student_id='demo_s_003', knowledge_point='二叉树', score=20.0, total_attempts=4, correct_attempts=0, average_difficulty=4.0)
-        db.session.add_all([kps_s1_1, kps_s1_2, kps_s2_1, kps_s2_2, kps_s3_1, kps_s3_2])
-
-        # 9. 创建答题提交记录
-        sub1 = Submission(student_id='demo_s_001', assignment_id=a1.id, code='// Fibonacci solution\nint main() {}', score=100.0, status='accepted')
-        sub2 = Submission(student_id='demo_s_002', assignment_id=a1.id, code='// Mid solution\nint main() {}', score=80.0, status='accepted')
-        sub3 = Submission(student_id='demo_s_003', assignment_id=a1.id, code='// WA solution\nint main() {}', score=40.0, status='wrong_answer')
-        db.session.add_all([sub1, sub2, sub3])
-
-        # 10. 创建 Feynman 学习进度会话
-        ts1 = ThinkingSession(student_id='demo_s_003', assignment_id=a1.id, current_stage=1, stage1_score=40.0, stage2_completed=False, stage3_completed=False, status='in_progress')
-        db.session.add(ts1)
-
-        # 11. 预生成静态教师 AI 个性化建议以避免调大模型时网络延迟或没有 API Key 的尴尬
-        sug = TeacherAISuggestion.get_or_create(class_id=demo_class.id, teacher_id='demo_t_001')
-        sug.status = 'completed'
-        sug.suggestion_markdown = """# 软件工程24-演示班 学情建议报告
-
-## 📌 本周重点关注学生
-1. **孙三 (风险生)**：平均能力分仅 1.8，且最近提交由于“循环控制”逻辑错误得分仅为 40 分，急需点对点约谈。
-2. **李四 (未注册)**：花名册中的同学尚未注册系统，建议提醒其尽快注册账号。
-
-## 📖 建议课堂讲解知识点
-1. **循环控制 (中等严重度)**：全班平均分 71.6，孙三在此概念上理解极其薄弱，建议课堂进行基础代码脚手架填空演示。
-2. **二叉树 (高难度)**：全班通过率偏低，属于普遍概念难点。
-
-## 📝 建议补练作业
-- 针对知识点 **循环控制** 推荐：`演示作业一：循环与斐波那契数列`
-"""
-        db.session.add(sug)
-
-        db.session.commit()
-        flash('演示数据导入成功！预设了李老师（教师）、赵一（优秀生）、孙三（风险生）等账号。', 'success')
+        seed_legacy_demo_experience()
+        flash('演示数据已准备好：学生可直接体验三阶段学习，教师可查看完整班级数据。', 'success')
     except Exception as e:
         db.session.rollback()
-        current_app.logger.error(f"装载演示数据失败: {str(e)}", exc_info=True)
-        flash(f'装载演示数据失败: {str(e)}', 'danger')
-
+        current_app.logger.error(f'装载演示数据失败: {str(e)}', exc_info=True)
+        flash('演示数据准备失败，请稍后重试。', 'danger')
     return redirect(url_for('main.home'))

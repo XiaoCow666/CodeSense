@@ -73,6 +73,28 @@
                 justify-content: center;
             }
         }
+
+        .navbar-demo-notice {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-right: 14px;
+            padding: 5px 10px;
+            border: 1px solid rgba(59, 130, 246, 0.25);
+            border-radius: 999px;
+            color: #2563eb;
+            background: rgba(239, 246, 255, 0.86);
+            font-size: 0.78rem;
+            white-space: nowrap;
+        }
+
+        @media (max-width: 768px) {
+            .navbar-demo-notice {
+                margin: 8px 0 0;
+                white-space: normal;
+                text-align: center;
+            }
+        }
     </style>
 </head>
 
@@ -142,6 +164,11 @@
                 </ul>
 
                 <div class="navbar-user">
+                    {% if session.get('demo_run_id') %}
+                    <span class="navbar-demo-notice" title="退出后，本次体验数据会自动清除">
+                        <i class="bi bi-shield-check"></i>演示模式 · 数据只保留在本次会话
+                    </span>
+                    {% endif %}
                     {% if session.get('login') %}
                     <span class="badge 
                         {% if session.get('usertype') == '管理员' %}
@@ -459,102 +486,6 @@
             }
         });
     </script>
-
-    {% if config.DEBUG or config.TESTING %}
-    <!-- Sandbox Switcher Panel -->
-    <div id="sandboxSwitcher" class="sandbox-switcher">
-        <button id="sandboxToggle" class="btn btn-warning rounded-circle shadow" title="沙箱角色免密切换">
-            <i class="bi bi-lightning-charge-fill text-dark"></i>
-        </button>
-        <div id="sandboxPanel" class="card border-0 shadow sandbox-panel" style="display: none;">
-            <div class="card-header bg-warning text-dark fw-bold d-flex justify-content-between align-items-center">
-                <span><i class="bi bi-cpu"></i> 沙箱体验助手</span>
-                <button type="button" class="btn-close" id="sandboxClose"></button>
-            </div>
-            <div class="card-body p-3">
-                <div class="mb-3">
-                    <form action="{{ url_for('classes.seed_demo_data') }}" method="POST" onsubmit="return confirm('确定重置并导入全新的演示数据吗？已有的数据将被清理。');">
-                        <button type="submit" class="btn btn-sm btn-outline-danger w-100 fw-bold">
-                            <i class="bi bi-cloud-arrow-down-fill"></i> 一键装载/重置演示数据
-                        </button>
-                    </form>
-                </div>
-                <h6 class="small fw-bold text-muted mb-2">免密快捷身份切换：</h6>
-                <div class="d-grid gap-2">
-                    <a href="{{ url_for('auth.sandbox_login', student_id='demo_t_001') }}" class="btn btn-sm btn-outline-primary text-start">
-                        <i class="bi bi-person-badge-fill me-1"></i> 李老师 (教师 - 看板/AI建议)
-                    </a>
-                    <a href="{{ url_for('auth.sandbox_login', student_id='demo_s_001') }}" class="btn btn-sm btn-outline-success text-start">
-                        <i class="bi bi-mortarboard-fill me-1"></i> 赵一 (优秀学生 - 答题/代码分析)
-                    </a>
-                    <a href="{{ url_for('auth.sandbox_login', student_id='demo_s_003') }}" class="btn btn-sm btn-outline-warning text-start text-dark">
-                        <i class="bi bi-exclamation-triangle-fill me-1"></i> 孙三 (风险学生 - Feynman室/求助)
-                    </a>
-                </div>
-                <div class="mt-2 text-center text-muted" style="font-size: 0.75rem;">
-                    * 切换角色后自动登录，前台无感重定向。
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <style>
-    .sandbox-switcher {
-        position: fixed;
-        bottom: 80px;
-        right: 20px;
-        z-index: 10050;
-    }
-    #sandboxToggle {
-        width: 48px;
-        height: 48px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.25rem;
-        transition: transform 0.2s ease;
-    }
-    #sandboxToggle:hover {
-        transform: scale(1.1);
-    }
-    .sandbox-panel {
-        position: absolute;
-        bottom: 60px;
-        right: 0;
-        width: 280px;
-        border-radius: 0.5rem;
-        overflow: hidden;
-    }
-    </style>
-
-    <script>
-    document.addEventListener('DOMContentLoaded', function () {
-        const toggle = document.getElementById('sandboxToggle');
-        const panel = document.getElementById('sandboxPanel');
-        const close = document.getElementById('sandboxClose');
-
-        if (toggle && panel) {
-            toggle.addEventListener('click', function (e) {
-                e.stopPropagation();
-                panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
-            });
-
-            if (close) {
-                close.addEventListener('click', function (e) {
-                    e.stopPropagation();
-                    panel.style.display = 'none';
-                });
-            }
-
-            document.addEventListener('click', function (e) {
-                if (!panel.contains(e.target) && e.target !== toggle) {
-                    panel.style.display = 'none';
-                }
-            });
-        }
-    });
-    </script>
-    {% endif %}
 
     <!-- 页面特定的JavaScript -->
     {% block extra_js %}{% endblock %}

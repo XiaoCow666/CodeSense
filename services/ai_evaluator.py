@@ -467,11 +467,12 @@ class AIEvaluator:
                             except json.JSONDecodeError:
                                 continue
             else:
-                yield "\n\n【能力发展趋势】\n从您的提交记录来看，编程能力呈现稳步提升的趋势。\n\n"
-                yield "【改进建议】\n1. 加强算法基础\n2. 提高代码规范性\n3. 增加测试用例\n"
+                raise RuntimeError(
+                    f"能力分析 API 请求失败: HTTP {response.status_code}"
+                )
         except Exception as e:
             print(f"流式分析出错: {str(e)}")
-            yield f"\n\n分析过程中出现错误: {str(e)}\n请稍后重试。"
+            raise RuntimeError("能力分析 AI 服务调用失败") from e
 
     def detect_code_knowledge_points(self, code: str, assignment_title: str) -> List[Dict]:
         """使用AI自动检测代码涉及的C语言知识点"""
@@ -554,4 +555,3 @@ dynamic_memory, linked_list, tree, sorting, searching, recursion
             knowledge_points.append({'knowledge_point': 'basic_syntax', 'weight': 1.0, 'difficulty': 1.0})
         return knowledge_points
 
-                

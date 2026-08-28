@@ -20,7 +20,7 @@
 {% endblock %}
 
 {% block content %}
-<div class="arena-container" id="arena-container" data-assignment-id="{{ assignment.id }}" data-preset-status="{{ preset_status }}">
+<div class="arena-container" id="arena-container" data-assignment-id="{{ assignment.id }}" data-preset-status="{{ preset_status }}" data-demo-experience="{{ '1' if is_demo_experience else '0' }}">
 
     <!-- ========== Header: Progress + Timer ========== -->
     <div class="arena-header">

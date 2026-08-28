@@ -8,12 +8,53 @@ import json  # 添加json模块导入
 from flask import Blueprint, render_template, redirect, url_for, flash, session, request, jsonify, Response
 from flask_login import login_required, current_user
 from sqlalchemy import func
-from models import db, User, Assignment, Submission, SystemLog, SystemConfig
+from models import (
+    db,
+    User,
+    Assignment,
+    Submission,
+    SystemLog,
+    SystemConfig,
+    AbilityTrend,
+    KnowledgePointScore,
+)
 from services.teacher_analytics import build_teacher_dashboard_data
+from services.demo_database import current_demo_run_id
 from utils.auth import admin_required
 from utils.maturity_calculator import calculate_maturity_components
 
 main = Blueprint('main', __name__)
+
+
+_ANALYSIS_STATUS_LABELS = {
+    'pending': '等待分析',
+    'processing': '分析中',
+    'completed': '已完成',
+    'failed': '分析失败',
+    'outdated': '等待刷新',
+}
+
+
+def _knowledge_profile_rows(profile):
+    """Return the complete, stable-order C-language profile for templates."""
+    rows = []
+    for key, name in KnowledgePointScore.KNOWLEDGE_POINTS.items():
+        item = dict(profile.get(key) or {})
+        item.setdefault('score', 0)
+        item.setdefault('total_attempts', 0)
+        item.setdefault('correct_attempts', 0)
+        item.setdefault('accuracy', 0)
+        item.setdefault('average_difficulty', 0)
+        rows.append({
+            'key': key,
+            'name': name,
+            **item,
+        })
+    return rows
+
+
+def _analysis_status_label(status):
+    return _ANALYSIS_STATUS_LABELS.get(status, '等待分析')
 
 # 添加编辑器测试路由
 @main.route('/test_editor')
@@ -184,10 +225,17 @@ def home():
         
         # 获取最近的作业
         class_name = current_user.class_name
+        recent_assignments = []
         if class_name:
             recent_assignments = Assignment.query.filter(
                 Assignment.target_classes.like(f'%{class_name}%')
             ).order_by(Assignment.created_time.desc()).limit(4).all()
+
+        # 首页直接渲染完整画像，前端 SSE 连接成功后再用同一份数据刷新，
+        # 这样首屏不会只显示“加载中”，网络较慢时也能看到真实的演示数据。
+        knowledge_profile = KnowledgePointScore.get_student_profile(student_id)
+        knowledge_profile_rows = _knowledge_profile_rows(knowledge_profile)
+        analysis_status = trend_record.status or 'pending'
         # 1. 通过统一的能力引擎获取雷达图数据
         ability_scores = current_user.get_ability_scores()
         algorithm_score = ability_scores.get('algorithm', 60)
@@ -272,6 +320,11 @@ def home():
             'phi_grad': round(phi_grad, 1),
             'recent_assignments': recent_assignments,
             'submissions': submissions,
+            'knowledge_profile': knowledge_profile,
+            'knowledge_profile_rows': knowledge_profile_rows,
+            'ability_trend': trend_record,
+            'analysis_status': analysis_status,
+            'analysis_status_label': _analysis_status_label(analysis_status),
             'submitted_assignments': submitted_assignments,
             # 雷达图数据
             'algorithm_score': float(algorithm_score),
@@ -570,6 +623,7 @@ def teacher_dashboard():
                            dashboard=dashboard,
                            managed_classes=dashboard['managed_classes'],
                            student_count=dashboard['student_count'],
+                           student_rows=dashboard['student_rows'],
                            total_submissions=dashboard['total_submissions'],
                            recent_submissions=dashboard['recent_submissions'],
                            submission_trend=dashboard['submission_trend'],
@@ -601,7 +655,12 @@ def teacher_ai_suggestions():
             # 异步触发生成
             from services.teacher_ai_advisor import generate_class_suggestions_async
             from flask import current_app
-            generate_class_suggestions_async(cls.id, teacher.student_id, current_app._get_current_object())
+            generate_class_suggestions_async(
+                cls.id,
+                teacher.student_id,
+                current_app._get_current_object(),
+                demo_run_id=current_demo_run_id(),
+            )
             
         class_suggestions.append({
             'class': cls,
@@ -639,7 +698,12 @@ def api_generate_teacher_suggestions():
     sug.status = 'pending'
     db.session.commit()
     
-    generate_class_suggestions_async(cls.id, current_user.student_id, current_app._get_current_object())
+    generate_class_suggestions_async(
+        cls.id,
+        current_user.student_id,
+        current_app._get_current_object(),
+        demo_run_id=current_demo_run_id(),
+    )
     
     return jsonify({'success': True, 'message': 'AI 建议生成任务已启动'})
 
@@ -688,7 +752,13 @@ def api_stream_teacher_suggestions():
     from flask import Response, stream_with_context
 
     return Response(
-        stream_with_context(generate_class_suggestions_stream(cls.id, current_user.student_id)),
+        stream_with_context(
+            generate_class_suggestions_stream(
+                cls.id,
+                current_user.student_id,
+                demo_run_id=current_demo_run_id(),
+            )
+        ),
         mimetype='text/event-stream',
         headers={
             'Cache-Control': 'no-cache',
@@ -807,8 +877,8 @@ def profile():
         managed_classes = user.managed_classes.all()
         return render_template('teacher_profile.html', user=user, managed_classes=managed_classes)
     else:
-        # 学生用户使用原有模板
-        return render_template('profile.html', user=user)
+        # 学生资料页统一进入能力进化视图，避免导航入口落到只有基础资料的旧页面。
+        return redirect(url_for('main.user_profile', user_username=user.username))
 
 @main.route('/user_profile/<string:user_username>')
 @login_required
@@ -872,7 +942,21 @@ def user_profile(user_username):
         recent_all = sorted(all_student_subs, key=lambda x: x.submitted_at)[-10:]
         # 为了让图表好看，我们将 0-5 分映射到 20-100
         maturity_history = [max(20, s.score * 20) for s in recent_all]
-    
+
+    knowledge_profile = KnowledgePointScore.get_student_profile(user.student_id)
+    knowledge_profile_rows = _knowledge_profile_rows(knowledge_profile)
+    ability_trend = AbilityTrend.query.filter_by(student_id=user.student_id).first()
+    if (
+        user.student_id == current_user.student_id
+        and ability_trend
+        and ability_trend.status in ('pending', 'outdated', 'failed')
+    ):
+        from tasks.ability_analysis import trigger_analysis_if_needed
+        trigger_analysis_if_needed(
+            user.student_id,
+            demo_run_id=current_demo_run_id(),
+        )
+
     return render_template('sprofile.html', 
                           user=user, 
                           recent_submissions=recent_submissions,
@@ -882,7 +966,14 @@ def user_profile(user_username):
                           phi_std=round(phi_std, 1),
                           phi_grad=round(phi_grad, 1),
                           maturity_history=maturity_history,
-                          skills_data_json=json.dumps(skills_data))
+                          skills_data_json=json.dumps(skills_data),
+                          knowledge_profile=knowledge_profile,
+                          knowledge_profile_rows=knowledge_profile_rows,
+                          ability_trend=ability_trend,
+                          analysis_status=(ability_trend.status if ability_trend else 'pending'),
+                          analysis_status_label=_analysis_status_label(
+                              ability_trend.status if ability_trend else 'pending'
+                          ))
 
 @main.route('/debug_session')
 def debug_session():

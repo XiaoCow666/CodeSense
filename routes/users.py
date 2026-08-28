@@ -3,9 +3,10 @@
 """
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, send_file, current_app, jsonify
 from itsdangerous import URLSafeTimedSerializer
-from models import db, User, Submission, SystemLog, Class, AbilityTrend
+from models import db, User, Submission, SystemLog, Class, AbilityTrend, KnowledgePointScore
 from utils.auth import login_required, admin_required, admin_or_teacher_required
 from tasks.ability_analysis import trigger_analysis_if_needed
+from services.demo_database import current_demo_run_id
 from sqlalchemy import desc
 from forms import ChangePasswordForm, EditProfileForm
 from werkzeug.utils import secure_filename
@@ -222,19 +223,35 @@ def view_submissions():
                 'algorithm': 70, 'style': 70, 'functionality': 70, 'efficiency': 70, 'readability': 70
             })
         }
+
+        knowledge_profile = KnowledgePointScore.get_student_profile(student_id)
+        knowledge_profile_rows = []
+        for key, name in KnowledgePointScore.KNOWLEDGE_POINTS.items():
+            item = dict(knowledge_profile.get(key) or {})
+            item.setdefault('score', 0)
+            item.setdefault('total_attempts', 0)
+            item.setdefault('correct_attempts', 0)
+            item.setdefault('accuracy', 0)
+            item.setdefault('average_difficulty', 0)
+            knowledge_profile_rows.append({'key': key, 'name': name, **item})
         
         # 5. 获取 AI 能力趋势分析
         ability_trend = AbilityTrend.query.filter_by(student_id=student_id).first()
         
         # 如果没有分析或者已过期，尝试触发异步生成
         if not ability_trend or ability_trend.status in ['pending', 'outdated', 'failed']:
-            trigger_analysis_if_needed(student_id)
+            trigger_analysis_if_needed(
+                student_id,
+                demo_run_id=current_demo_run_id(),
+            )
         
         return render_template('submissions.html', 
                             submissions=submissions, 
                             user=user, 
                             chart_data=chart_data,
                             ability_data=ability_data,
+                            knowledge_profile=knowledge_profile,
+                            knowledge_profile_rows=knowledge_profile_rows,
                             ability_trend=ability_trend,
                             comprehensive_score=comprehensive_score,
                             strongest_dim=strongest_dim)
@@ -255,7 +272,11 @@ def refresh_analysis():
         return jsonify({'status': 'error', 'message': '未找到学生 ID'}), 401
     
     # 强制触发重新分析
-    triggered = trigger_analysis_if_needed(student_id, force=True)
+    triggered = trigger_analysis_if_needed(
+        student_id,
+        force=True,
+        demo_run_id=current_demo_run_id(),
+    )
     
     if triggered:
         return jsonify({'status': 'success', 'message': '已启动深度能力分析分析，请稍后刷新页面查看结果'})

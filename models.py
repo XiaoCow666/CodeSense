@@ -5,6 +5,7 @@ import json  # 添加json导入
 import secrets
 from datetime import datetime as dt
 from flask_sqlalchemy import SQLAlchemy
+from flask_sqlalchemy.session import Session as FlaskSQLAlchemySession
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_login import UserMixin  # 添加UserMixin导入
 
@@ -12,7 +13,17 @@ from flask_login import UserMixin  # 添加UserMixin导入
 DEFAULT_GRADE = '2024'
 DEFAULT_MAJOR = '计算机相关专业'
 
-db = SQLAlchemy()
+class CodeSenseSession(FlaskSQLAlchemySession):
+    """Allow a request-scoped demo engine without changing app configuration."""
+
+    def get_bind(self, mapper=None, clause=None, bind=None, **kwargs):
+        demo_bind = getattr(self, '_codesense_demo_bind', None)
+        if demo_bind is not None and bind is None:
+            return demo_bind
+        return super().get_bind(mapper=mapper, clause=clause, bind=bind, **kwargs)
+
+
+db = SQLAlchemy(session_options={'class_': CodeSenseSession})
 
 
 class Class(db.Model):
