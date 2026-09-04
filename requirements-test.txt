@@ -1,0 +1,3 @@
+-r requirements.txt
+pytest>=8.0,<9
+fakeredis[lua]==2.31.3

@@ -71,6 +71,29 @@ class Config(object):
     PRESET_SCAN_ENABLED = _env_bool('PRESET_SCAN_ENABLED', True)
     PRESET_SCAN_BATCH_SIZE = _env_int('PRESET_SCAN_BATCH_SIZE', 20, minimum=1, maximum=200)
 
+    # Formal-account ability analysis can be moved to an external RQ worker.
+    # The legacy thread backend remains the default until worker deployment is
+    # reviewed.  Demo sessions intentionally keep their isolated thread path.
+    ABILITY_ANALYSIS_QUEUE_BACKEND = os.environ.get(
+        'ABILITY_ANALYSIS_QUEUE_BACKEND', 'thread'
+    ).strip().lower()
+    ABILITY_ANALYSIS_REDIS_URL = os.environ.get('ABILITY_ANALYSIS_REDIS_URL', '')
+    ABILITY_ANALYSIS_QUEUE_NAME = os.environ.get(
+        'ABILITY_ANALYSIS_QUEUE_NAME', 'ability-analysis'
+    )
+    ABILITY_ANALYSIS_JOB_TIMEOUT = _env_int(
+        'ABILITY_ANALYSIS_JOB_TIMEOUT', 180, minimum=30, maximum=900
+    )
+    ABILITY_ANALYSIS_QUEUE_TTL = _env_int(
+        'ABILITY_ANALYSIS_QUEUE_TTL', 300, minimum=30, maximum=86400
+    )
+    ABILITY_ANALYSIS_RESULT_TTL = _env_int(
+        'ABILITY_ANALYSIS_RESULT_TTL', 3600, minimum=60, maximum=604800
+    )
+    ABILITY_ANALYSIS_FAILURE_TTL = _env_int(
+        'ABILITY_ANALYSIS_FAILURE_TTL', 86400, minimum=300, maximum=2592000
+    )
+
     # 请求与静态文件运行参数
     ACCESS_LOG_ENABLED = _env_bool('ACCESS_LOG_ENABLED', True)
     SLOW_REQUEST_MS = _env_int('SLOW_REQUEST_MS', 800, minimum=50, maximum=60000)
@@ -91,7 +114,18 @@ class Config(object):
     @staticmethod
     def init_app(app):
         """初始化应用配置"""
-        pass
+        if app.config.get('ABILITY_ANALYSIS_QUEUE_BACKEND') not in {'thread', 'rq'}:
+            raise RuntimeError(
+                'ABILITY_ANALYSIS_QUEUE_BACKEND must be either thread or rq'
+            )
+
+        if (
+            app.config.get('ABILITY_ANALYSIS_QUEUE_BACKEND') == 'rq'
+            and not app.config.get('ABILITY_ANALYSIS_REDIS_URL')
+        ):
+            raise RuntimeError(
+                'ABILITY_ANALYSIS_REDIS_URL is required when the RQ backend is enabled'
+            )
 
 
 class DevelopmentConfig(Config):

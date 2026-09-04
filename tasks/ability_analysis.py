@@ -7,9 +7,9 @@
 from __future__ import annotations
 
 import threading
-import traceback
 from datetime import datetime
 
+from sqlalchemy import update
 from sqlalchemy.orm import joinedload
 
 from models import AbilityTrend, Submission, db
@@ -44,13 +44,143 @@ def _mark_analysis_failed(student_id: str) -> None:
     db.session.commit()
 
 
-def generate_ability_analysis_async(app, student_id, demo_run_id=None):
-    """异步生成学生能力分析。
+def _mark_analysis_queued(trend_id: int, previous_status: str, previous_updated) -> bool:
+    """Reserve the DB state before enqueueing, guarded by the observed version."""
 
-    ``demo_run_id`` 为空时保持正式账户的原有行为；传入时，线程启动后
-    会先绑定对应的临时数据库，若会话已经退出或过期则直接结束，不触碰
-    正式数据库。
-    """
+    if previous_status not in {"pending", "outdated", "failed", "completed"}:
+        return False
+
+    updated_guard = (
+        AbilityTrend.last_updated.is_(None)
+        if previous_updated is None
+        else AbilityTrend.last_updated == previous_updated
+    )
+
+    result = db.session.execute(
+        update(AbilityTrend)
+        .where(
+            AbilityTrend.id == int(trend_id),
+            AbilityTrend.status == previous_status,
+            updated_guard,
+        )
+        .values(status="processing", last_updated=datetime.utcnow())
+    )
+    db.session.commit()
+    return bool(result.rowcount)
+
+
+def _run_analysis(student_id, demo_run_id=None, *, propagate_failure=False):
+    """Run one analysis in the already-selected application/database context."""
+
+    if demo_run_id and not activate_demo_run(demo_run_id):
+        return "expired"
+
+    try:
+        # Any business query happens only after a demo database has been bound.
+        if not _demo_database_is_available(demo_run_id):
+            return "expired"
+
+        AbilityTrend.mark_as_processing(student_id)
+        submissions = (
+            Submission.query.options(joinedload(Submission.assignment))
+            .filter_by(student_id=student_id)
+            .order_by(Submission.submitted_at.desc())
+            .limit(20)
+            .all()
+        )
+
+        if not submissions:
+            if _demo_database_is_available(demo_run_id):
+                AbilityTrend.update_analysis(
+                    student_id=student_id,
+                    analysis_markdown="暂无提交记录，请先完成一些作业。",
+                    submissions_count=0,
+                )
+            return "completed"
+
+        submission_data = []
+        for submission in submissions:
+            if submission.code and submission.assignment:
+                submission_data.append(
+                    {
+                        "assignment_title": submission.assignment.title,
+                        "code": submission.code[:500],
+                        "score": submission.score,
+                        "submitted_at": (
+                            submission.submitted_at.strftime("%Y-%m-%d %H:%M")
+                            if submission.submitted_at
+                            else "未知时间"
+                        ),
+                    }
+                )
+
+        if not submission_data:
+            raise RuntimeError("no valid submissions for ability analysis")
+
+        api_key = api_keys.zhipu_key or api_keys.openai_key
+        if not api_key:
+            raise RuntimeError("AI service unavailable")
+
+        # Formal jobs use the shared provider router.  Demo tests / temporary
+        # databases retain their injected evaluator contract and never enter
+        # the external durable queue.
+        if not demo_run_id:
+            from services.llm_client import SharedLLMClient
+
+            if not SharedLLMClient().is_available():
+                raise RuntimeError("AI service unavailable")
+
+        ai_evaluator = AIEvaluator(api_key)
+        analysis_markdown = ""
+        print("开始后台生成能力分析")
+
+        # Provider retry/fallback stays in SharedLLMClient.  RQ deliberately
+        # has no whole-job retry because a worker crash after provider success
+        # cannot prove that replaying the model call is safe or free.
+        for chunk in ai_evaluator.analyze_ability_trend_stream(submission_data):
+            if chunk:
+                analysis_markdown += chunk
+
+        if not analysis_markdown.strip():
+            raise RuntimeError("AI returned an empty ability analysis")
+
+        if not _demo_database_is_available(demo_run_id):
+            return "expired"
+
+        AbilityTrend.update_analysis(
+            student_id=student_id,
+            analysis_markdown=analysis_markdown.strip(),
+            submissions_count=len(submissions),
+        )
+        print("能力分析生成完成")
+        return "completed"
+    except Exception as error:
+        # Do not copy provider error bodies, student ids, prompts, or code to
+        # logs / RQ failure records.
+        print(f"生成能力分析失败: {type(error).__name__}")
+        if not _demo_database_is_available(demo_run_id):
+            return "expired"
+        try:
+            db.session.rollback()
+            _mark_analysis_failed(student_id)
+        except Exception:
+            db.session.rollback()
+        if propagate_failure:
+            raise RuntimeError("ability analysis failed") from None
+        return "failed"
+
+
+def run_formal_ability_analysis(trend_id):
+    """RQ entry point; the standalone worker supplies the Flask app context."""
+
+    trend = db.session.get(AbilityTrend, int(trend_id))
+    if trend is None:
+        raise RuntimeError("ability trend no longer exists")
+    return _run_analysis(trend.student_id, propagate_failure=True)
+
+
+def generate_ability_analysis_async(app, student_id, demo_run_id=None):
+    """Keep the legacy thread runner for demo isolation and safe rollback."""
 
     key = _analysis_key(student_id, demo_run_id)
     with _ACTIVE_ANALYSES_LOCK:
@@ -61,102 +191,7 @@ def generate_ability_analysis_async(app, student_id, demo_run_id=None):
     def _generate():
         try:
             with app.app_context():
-                if demo_run_id and not activate_demo_run(demo_run_id):
-                    print(f"公开体验会话已失效，跳过能力分析任务: {demo_run_id}")
-                    return
-
-                try:
-                    # 任何业务查询前都再次确认临时库仍然存在。退出体验时，
-                    # destroy_demo_run 会把运行从缓存移除，避免后台线程继续写入。
-                    if not _demo_database_is_available(demo_run_id):
-                        return
-
-                    AbilityTrend.mark_as_processing(student_id)
-                    submissions = (
-                        Submission.query.options(joinedload(Submission.assignment))
-                        .filter_by(student_id=student_id)
-                        .order_by(Submission.submitted_at.desc())
-                        .limit(20)
-                        .all()
-                    )
-
-                    if not submissions:
-                        if _demo_database_is_available(demo_run_id):
-                            AbilityTrend.update_analysis(
-                                student_id=student_id,
-                                analysis_markdown="暂无提交记录，请先完成一些作业。",
-                                submissions_count=0,
-                            )
-                        return
-
-                    submission_data = []
-                    for submission in submissions:
-                        if submission.code and submission.assignment:
-                            submission_data.append(
-                                {
-                                    "assignment_title": submission.assignment.title,
-                                    "code": submission.code[:500],
-                                    "score": submission.score,
-                                    "submitted_at": (
-                                        submission.submitted_at.strftime("%Y-%m-%d %H:%M")
-                                        if submission.submitted_at
-                                        else "未知时间"
-                                    ),
-                                }
-                            )
-
-                    if not submission_data:
-                        raise RuntimeError("没有可供 AI 分析的有效提交内容")
-
-                    from services.llm_client import SharedLLMClient
-                    api_key = api_keys.zhipu_key or api_keys.openai_key
-                    if not api_key or not SharedLLMClient().is_available():
-                        raise RuntimeError("AI 服务未配置或暂时不可用")
-
-                    # 保留旧版 AIEvaluator(api_key) 的兼容签名；实际 provider
-                    # 选择、重试和熔断统一由 SharedLLMClient 负责。
-                    ai_evaluator = AIEvaluator(api_key)
-                    analysis_markdown = ""
-                    print(f"开始后台生成能力分析 - 学生 {student_id}")
-
-                    # SharedLLMClient 已经负责有限重试、provider 故障切换和
-                    # 流中断保护，这里不再额外重放整段分析。
-                    for chunk in ai_evaluator.analyze_ability_trend_stream(
-                        submission_data
-                    ):
-                        if chunk:
-                            analysis_markdown += chunk
-
-                    if not analysis_markdown.strip():
-                        raise RuntimeError("AI 未返回有效分析内容")
-
-                    if not _demo_database_is_available(demo_run_id):
-                        return
-
-                    AbilityTrend.update_analysis(
-                        student_id=student_id,
-                        analysis_markdown=analysis_markdown.strip(),
-                        submissions_count=len(submissions),
-                    )
-                    print(
-                        f"能力分析生成完成 - 学生 {student_id}, "
-                        f"长度: {len(analysis_markdown)} 字符"
-                    )
-
-                except Exception as error:
-                    print(f"生成能力分析失败 - 学生 {student_id}: {error}")
-                    traceback.print_exc()
-
-                    # 失败处理仍在已经绑定的会话中执行。临时库被销毁时，
-                    # 直接结束，绝不重新打开默认正式数据库。
-                    if not _demo_database_is_available(demo_run_id):
-                        return
-                    try:
-                        db.session.rollback()
-                        _mark_analysis_failed(student_id)
-                    except Exception:
-                        db.session.rollback()
-                        traceback.print_exc()
+                _run_analysis(student_id, demo_run_id)
         finally:
             with _ACTIVE_ANALYSES_LOCK:
                 _ACTIVE_ANALYSES.discard(key)
@@ -164,7 +199,7 @@ def generate_ability_analysis_async(app, student_id, demo_run_id=None):
     thread = threading.Thread(target=_generate)
     thread.daemon = True
     thread.start()
-    print(f"已启动后台分析任务 - 学生 {student_id}")
+    print("已启动后台分析任务")
     return thread
 
 
@@ -180,12 +215,69 @@ def trigger_analysis_if_needed(student_id, force=False, demo_run_id=None):
     if demo_run_id and not _demo_database_is_available(demo_run_id):
         return False
 
+    trend = AbilityTrend.query.filter_by(student_id=student_id).first()
+
+    if not demo_run_id and current_app.config.get(
+        "ABILITY_ANALYSIS_QUEUE_BACKEND", "thread"
+    ) == "rq":
+        from tasks.ability_queue import (
+            AbilityQueueUnavailable,
+            enqueue_formal_ability_analysis,
+            get_formal_ability_job_status,
+        )
+        app = current_app._get_current_object()
+
+        if trend and trend.status == "processing":
+            try:
+                job_status = get_formal_ability_job_status(app, trend.id)
+            except AbilityQueueUnavailable:
+                job_status = "failed"
+            if job_status in {"created", "queued", "started", "deferred", "scheduled"}:
+                return False
+            _mark_analysis_failed(student_id)
+            if not force:
+                return False
+
+        should_enqueue = (
+            force
+            or not trend
+            or trend.status in ["pending", "outdated"]
+        )
+        # A failed provider/worker attempt requires the explicit refresh action.
+        # Normal page loads must not replay a paid model call automatically.
+        if trend and trend.status == "failed" and not force:
+            should_enqueue = False
+
+        if should_enqueue:
+            trend = trend or AbilityTrend.get_or_create(student_id)
+            previous_status = trend.status
+            previous_updated = trend.last_updated
+            # Reserve the domain state before the job can run.  A conditional
+            # update prevents a stale request from enqueueing after another
+            # process has already published a newer result.  Doing this before
+            # enqueue also avoids MySQL DATETIME precision races where a fast
+            # completion can share the same rounded timestamp.
+            if not _mark_analysis_queued(
+                trend.id,
+                previous_status=previous_status,
+                previous_updated=previous_updated,
+            ):
+                return False
+            try:
+                job = enqueue_formal_ability_analysis(app, trend.id)
+            except AbilityQueueUnavailable:
+                current_app.logger.warning(
+                    "正式账号能力分析队列不可用；未回退到 Web 进程线程"
+                )
+                _mark_analysis_failed(student_id)
+                return False
+            return job.created
+        return False
+
     key = _analysis_key(student_id, demo_run_id)
     with _ACTIVE_ANALYSES_LOCK:
         if key in _ACTIVE_ANALYSES:
             return False
-
-    trend = AbilityTrend.query.filter_by(student_id=student_id).first()
 
     if force or not trend or trend.status in ["pending", "outdated", "failed"]:
         thread = generate_ability_analysis_async(

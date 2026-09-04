@@ -267,6 +267,12 @@ def refresh_analysis():
     if triggered:
         return jsonify({'status': 'success', 'message': '已启动深度能力分析分析，请稍后刷新页面查看结果'})
     else:
+        trend = AbilityTrend.query.filter_by(student_id=student_id).first()
+        if trend and trend.status == 'failed':
+            return jsonify({
+                'status': 'error',
+                'message': '能力分析服务暂时不可用，请稍后再试',
+            }), 503
         return jsonify({'status': 'info', 'message': '分析任务正在处理中，请稍候'})
 
 @users.route('/edit_profile', methods=['GET', 'POST'])

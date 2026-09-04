@@ -1225,10 +1225,24 @@ def stream_ability_analysis():
             # 如果没有缓存或需要更新，触发后台生成
             if not ability_trend or ability_trend.status in ['pending', 'outdated', 'failed']:
                 # 触发后台任务
-                trigger_analysis_if_needed(
+                triggered = trigger_analysis_if_needed(
                     student_id,
                     demo_run_id=demo_run_id,
                 )
+
+                if not triggered:
+                    ability_trend = AbilityTrend.query.filter_by(
+                        student_id=student_id
+                    ).first()
+                    if ability_trend and ability_trend.status == 'failed':
+                        yield f"data: {json.dumps({'type': 'analysis_start'})}\n\n"
+                        content = (
+                            '### 分析暂时不可用\n\n'
+                            '本次没有自动重试，避免重复调用。请稍后点击刷新分析重试。'
+                        )
+                        yield f"data: {json.dumps({'type': 'analysis_chunk', 'content': content})}\n\n"
+                        yield f"data: {json.dumps({'type': 'complete'})}\n\n"
+                        return
 
                 # 返回提示信息
                 yield f"data: {json.dumps({'type': 'analysis_start'})}\n\n"

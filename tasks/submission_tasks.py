@@ -252,9 +252,9 @@ def evaluate_submission_async(app, submission_id, assignment_title, demo_run_id=
                     trigger_analysis_if_needed(
                         student_id, demo_run_id=demo_run_id
                     )
-                    print(f"已触发学生 {student_id} 的能力分析刷新")
+                    print("已触发能力分析刷新")
                 except Exception as ability_error:
-                    print(f"触发能力分析失败: {ability_error}")
+                    print(f"触发能力分析失败: {type(ability_error).__name__}")
                     if demo_run_id:
                         raise RuntimeError("能力分析任务启动失败") from ability_error
 

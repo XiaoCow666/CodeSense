@@ -27,5 +27,6 @@ Markdown>=3.4.0
 
 # 高并发会话与缓存优化
 redis>=5.0.0
+rq==2.11.0
 
 # 标准版不需要 torch / transformers；代码评估使用启发式规则和已配置的 AI 服务
