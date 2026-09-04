@@ -77,6 +77,14 @@
 - Interaction Reviewer：approve。
 - Test Reviewer：approve（仅限本先导切片）。
 
+### 续跑与并入 main
+
+- 候选已 rebase 到最新 `origin/main`（`dc5bda8`），随后以 fast-forward 方式并入 `main`，当前 main 提交为 `d4087ce`；没有 stash 覆盖或冲掉主 checkout 的既有修改。
+- rebase 后候选 worktree 完整回归：`373 passed`，154.67 秒。
+- 合并后候选精确回归：`23 passed`，30.59 秒。
+- 合并后主 checkout 的 646 项可收集测试（明确排除一个被忽略但引用缺失脚本的 `test_guided_learning_paper_docx.py`）：`634 passed / 12 failed`。12 项均落在候选未修改的 class-detail CSRF 模板或 research/simulation 冻结文件/缺失资源；没有候选队列、worker、ability-analysis 或 SSE 回归失败。
+- 若不排除该被忽略测试，收集阶段会因缺失 `scripts.build_guided_learning_paper_docx` 直接中断；该文件不在 Git 跟踪范围内。
+
 ## 失败分类与修正记录
 
 - `test_harness_dependency`：fakeredis 基础安装不支持 RQ unique/lock 的 Lua；固定 `fakeredis[lua]` 后通过。
