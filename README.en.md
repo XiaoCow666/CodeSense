@@ -49,7 +49,8 @@ The project calls this execution path **Causal Sandbox**. The current implementa
 
 - Compiles student code with `g++` using the C++17 standard;
 - Uses a 15-second compilation timeout and a 5-second timeout for each test case;
-- Limits standard output and normalizes it before comparison;
+- Reads each child-process stdout/stderr stream with a 4096-byte runtime bound; exceeding the limit terminates the child and returns an explicit failure instead of comparing a truncated prefix;
+- Normalizes normal output for line endings, trailing whitespace, and trailing blank lines before comparison;
 - Uses a temporary working directory for build artifacts and cleans it up after execution;
 - Returns compilation errors, runtime errors, timeouts, and per-test results to the assessment and guidance flows.
 
