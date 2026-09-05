@@ -57,7 +57,10 @@ AGENTS.md
 CLAUDE.md
 DESIGN.md
 DEPLOYMENT_GUIDE.md
-docs/
+# README brand assets are public; keep the rest of docs internal by default.
+docs/*
+!docs/assets/
+!docs/assets/**
 research/
 research_eval/
 research_exports/

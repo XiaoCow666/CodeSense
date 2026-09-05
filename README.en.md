@@ -1,29 +1,83 @@
-# CodeSense
+<p align="center">
+  <img src="docs/assets/caifusi-logo-wordmark-v1.png" alt="Caifusi existing brand logo" width="480">
+</p>
 
-> An AI-assisted assessment and learning platform for university programming courses.
+<h1 align="center">CodeSense</h1>
 
-[简体中文](README.md) · [Open an issue](https://github.com/XiaoCow666/CodeSense/issues)
+<p align="center">
+  <strong>Make Coding Intelligent</strong><br>
+  An AI-assisted assessment and learning platform for university programming courses.<br>
+  Turn every submission into a step toward deeper understanding.
+</p>
 
-[![Python](https://img.shields.io/badge/Python-3.8%2B-3776ab?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
-[![Flask](https://img.shields.io/badge/Flask-2.2.3-000000?style=flat-square&logo=flask&logoColor=white)](https://flask.palletsprojects.com/)
-[![License](https://img.shields.io/badge/License-MIT-22c55e?style=flat-square)](LICENSE)
+<p align="center">
+  <a href="https://saucodesense.com">Live demo</a> ·
+  <a href="#public-demo">Student / teacher demo</a> ·
+  <a href="#getting-started">Run locally</a> ·
+  <a href="DEPLOYMENT.md">Deployment</a> ·
+  <a href="https://github.com/XiaoCow666/CodeSense/issues">Open an issue</a> ·
+  <a href="README.md">简体中文</a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/XiaoCow666/CodeSense/stargazers"><img src="https://img.shields.io/github/stars/XiaoCow666/CodeSense?style=flat-square&logo=github" alt="GitHub stars"></a>
+  <a href="https://github.com/XiaoCow666/CodeSense/network/members"><img src="https://img.shields.io/github/forks/XiaoCow666/CodeSense?style=flat-square&logo=github" alt="GitHub forks"></a>
+  <a href="https://github.com/XiaoCow666/CodeSense/blob/main/LICENSE"><img src="https://img.shields.io/github/license/XiaoCow666/CodeSense?style=flat-square" alt="License"></a>
+  <img src="https://img.shields.io/badge/version-v1.0.0-2563eb?style=flat-square" alt="v1.0.0">
+  <img src="https://img.shields.io/badge/Python-3.8%2B-3776ab?style=flat-square&logo=python&logoColor=white" alt="Python 3.8+">
+  <img src="https://img.shields.io/badge/Flask-2.2.3-000000?style=flat-square&logo=flask&logoColor=white" alt="Flask 2.2.3">
+</p>
 
 > **Release status: formal release** · **Current version: `v1.0.0`**
 >
-> `v1.0.0` is the first formal release of the CodeSense Standard Edition. The version is intentionally kept out of the project title. Future releases use `vMAJOR.MINOR.PATCH` and are tracked in GitHub Releases/Tags and [CHANGELOG.md](CHANGELOG.md).
+> `v1.0.0` is the first formal release of the CodeSense Standard Edition. Future releases use `vMAJOR.MINOR.PATCH` and are tracked in GitHub Releases/Tags and [CHANGELOG.md](CHANGELOG.md).
 
 ## Contents
 
+- [Product preview](#product-preview)
+- [Public demo](#public-demo)
 - [Background](#background)
 - [Project scope](#project-scope)
 - [Core capabilities](#core-capabilities)
 - [System architecture](#system-architecture)
 - [Getting started](#getting-started)
+- [Deployment guide](DEPLOYMENT.md)
 - [Configuration](#configuration)
 - [API entry points](#api-entry-points)
 - [Security boundaries and limitations](#security-boundaries-and-limitations)
 - [Releases and versioning](#releases-and-versioning)
+- [Star History](#star-history)
 - [Contributing](#contributing)
+
+## Product preview
+
+These screenshots are from the runnable pages in the repository, not concept mockups:
+
+<p align="center">
+  <img src="docs/assets/codesense-login.png" alt="CodeSense login page and demo entry points" width="100%">
+</p>
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <p align="center"><strong>Student: guided learning</strong></p>
+      <img src="docs/assets/codesense-student-demo.png" alt="CodeSense student demo: idea description stage" width="100%">
+    </td>
+    <td width="50%" valign="top">
+      <p align="center"><strong>Teacher: class analytics</strong></p>
+      <img src="docs/assets/codesense-teacher-dashboard.png" alt="CodeSense teacher dashboard" width="100%">
+    </td>
+  </tr>
+</table>
+
+## Public demo
+
+Visit the [live demo site](https://saucodesense.com), or start the local server and open `/login`. The login page provides two no-registration entry points:
+
+- **Student demo**: explore the three stages—idea description, step assembly, and Feynman-style explanation.
+- **Teacher demo**: inspect a sample class, student learning states, assignment completion, and AI-assisted learning suggestions.
+
+Each demo session uses isolated temporary data. AI responses are shown as failed/retry states when the configured provider is unavailable; preset text is not presented as a real AI result.
 
 ## Background
 
@@ -293,9 +347,18 @@ CodeSense follows semantic versioning:
 
 The current version is **`v1.0.0`**, the first formal release of the CodeSense Standard Edition. Every future release should update [CHANGELOG.md](CHANGELOG.md) and use a matching Git tag and GitHub Release. Published release records should not be silently rewritten.
 
+## Star History
+
+The badge above shows the repository's current star count. We are not embedding a historical chart for now: GitHub has restricted the public stargazers timeline API, and Star History notes that hosted charts may return an error page as a result. To keep this README reliable, we do not present that error page as a chart; a future trend view should be generated and stored by this repository's own Actions workflow.
+
+- [View the CodeSense repository](https://github.com/XiaoCow666/CodeSense)
+- [Star History's explanation](https://www.star-history.com/blog/github-stargazer-api-restriction/)
+
 ## Contributing
 
 Issues and pull requests are welcome. Put changes on an independent branch and describe the changes, test results, and notes in the pull request. Merges into `main` are made after maintainer review.
+
+See [`DEPLOYMENT.md`](DEPLOYMENT.md) for Linux, Gunicorn, Systemd, Nginx, HTTPS, MySQL, Redis, and release checks.
 
 ## License
 

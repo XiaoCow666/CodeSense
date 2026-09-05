@@ -50,7 +50,8 @@ class DemoAIRefreshTestCase(unittest.TestCase):
     def test_demo_analysis_is_real_refreshable_and_stays_out_of_formal_db(self):
         with patch('tasks.ability_analysis.threading.Thread', ImmediateThread), \
                 patch('tasks.ability_analysis.AIEvaluator', RecordingEvaluator), \
-                patch.object(api_keys, '_zhipu_key', 'demo-test-key'):
+                patch.object(api_keys, '_zhipu_key', 'demo-test-key'), \
+                patch('services.llm_client.SharedLLMClient.is_available', return_value=True):
             generate_ability_analysis_async(self.app, DEMO_STUDENT_ID, demo_run_id=self.run_id)
 
             with self.app.app_context():
@@ -80,7 +81,8 @@ class DemoAIRefreshTestCase(unittest.TestCase):
         RecordingEvaluator.should_fail = True
         with patch('tasks.ability_analysis.threading.Thread', ImmediateThread), \
                 patch('tasks.ability_analysis.AIEvaluator', RecordingEvaluator), \
-                patch.object(api_keys, '_zhipu_key', 'demo-test-key'):
+                patch.object(api_keys, '_zhipu_key', 'demo-test-key'), \
+                patch('services.llm_client.SharedLLMClient.is_available', return_value=True):
             generate_ability_analysis_async(self.app, DEMO_STUDENT_ID, demo_run_id=self.run_id)
 
         with self.app.app_context():
