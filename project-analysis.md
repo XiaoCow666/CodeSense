@@ -10,6 +10,32 @@
 
 ---
 
+## 分析说明（PR 说明）
+
+> 本节记录本次分析的方法与范围，供评审核对。
+
+**分析工具（AI 工具）**：本分析由 Claude Code（Anthropic）完成，仅使用只读的文件读取（Read）、内容检索（Grep）、路径匹配（Glob）以及 `wc -l`、`ls`、`find` 等只读 shell 命令。未使用 Web 搜索、未引用外部文档、未运行 `pytest` 或应用服务器、未执行任何会修改仓库的操作。
+
+**阅读范围**：
+
+- 全文通读：`app.py`、`config.py`、`models.py`、`run.py`、`wsgi.py`、`database_maintenance.py`、`gunicorn_config.py`、`requirements.txt`、`.env.example`、`utils/sandbox_runner.py`、`utils/code_evaluator.py`、`utils/async_tasks.py`、`utils/thinking_ai.py`、`services/llm_client.py`、`services/demo_database.py`、`tasks/submission_tasks.py`。
+- 部分阅读（关键片段）：`routes/api.py`、`routes/thinking.py`、`services/demo_experience.py`、`utils/agents/orchestrator.py`、`tasks/ability_analysis.py`。
+- 仅目录/引用检索（未逐行通读）：`routes/`、`services/`、`utils/agents/` 其余文件、`templates/`、`static/`、`tests/`。
+
+**验证命令与结果**：
+
+| 命令（只读） | 结果 |
+| --- | --- |
+| `find . -type f …` | 枚举仓库文件，确定目录结构 |
+| `wc -l app.py config.py models.py …` | 各模块行数：app.py 631、config.py 193、models.py 1471、routes 8474、services 4437、utils 13355、tasks 499 |
+| `ls tests/test_*.py \| wc -l` | **43**（`tests/` 下另有 `__init__.py` 与 `demo_test_utils.py`） |
+| `grep submit_code / evaluate_submission_async` | 确认两条提交入口：`routes/assignments.py:546`（异步沙箱）vs `routes/api.py:271` + `static/js/code_submission.js:40`（同步） |
+| `grep teacher_agent_chat / student_agent_chat` | 确认二者无调用点（死代码）；`student_agent_write_code`/`evaluate_feynman_code_fix` 被 `utils/agents/tools.py` 复用 |
+
+**未验证事项与风险**：详见下文【推断】的「未知项 / 待确认」小节（两条提交路径取舍意图、生产库实际 schema 与数据规模、线上沙箱隔离拓扑、语音转文字实现范围、课程评分模块完整接线）。主要风险已列于【建议】高优先级第 1–3 条（双提交路径不一致、评分口径不统一、公网沙箱隔离不足）。
+
+---
+
 ## 【事实】
 
 ### 一、项目定位与主要用户流程
@@ -95,7 +121,7 @@ CodeSense-main/
 │   ├── submission_tasks.py   # 提交评测
 │   └── ability_analysis.py   # 能力趋势分析
 ├── templates/  static/       # 前端页面与 JS/CSS
-└── tests/                    # 60+ 测试文件
+└── tests/                    # 43 个 test_*.py
 ```
 
 **顶层入口/配置**：
@@ -177,7 +203,7 @@ CodeSense-main/
 | `submission_tasks.py` | `evaluate_submission_async`：后台线程评测提交 |
 | `ability_analysis.py` | 异步生成能力趋势分析，带 `_ACTIVE_ANALYSES` 去重 |
 
-**测试**：`tests/` 含 60+ 测试文件，覆盖 demo 隔离、三阶段、SSE、沙箱、评分、性能等；无 `pytest.ini`/`pyproject.toml`/`conftest.py`（已核实）。
+**测试**：`tests/` 下按 `test_*.py` 统计为 **43 个**测试文件（另有 `__init__.py` 与 `demo_test_utils.py` 测试辅助模块），覆盖 demo 隔离、三阶段、SSE、沙箱、评分、性能等；无 `pytest.ini`/`pyproject.toml`/`conftest.py`（已核实）。
 
 ### 四、关键请求 / 任务 / 数据流
 
