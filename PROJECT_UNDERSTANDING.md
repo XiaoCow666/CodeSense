@@ -2,19 +2,30 @@
 
 > 本文是对当前仓库实现的维护者视角梳理，目标是建立后续开发、评审和部署前排查的共同上下文。
 >
-> 观察基线：`main` 分支 HEAD `5bd66e7`（2026-09-02）。本阶段只新增文档，不修改业务代码、数据库模型或运行逻辑。
+> 观察基线：`main` 分支 HEAD `950c233`（2026-09-06，提交 `chore: harden codesense systemd services`）。本阶段只新增文档，不修改业务代码、数据库模型或运行逻辑。
 
 ## 1. 文档范围与结论口径
 
-本文结论主要来自以下入口和实现：
+本文结论主要来自以下入口和实现（阅读范围）：
 
 - 应用装配：`app.py`、`config.py`、`run.py`、`wsgi.py`、`gunicorn_config.py`；
 - 数据模型：`models.py`；
 - HTTP 路由：`routes/` 下的认证、作业、用户、班级、API、三阶段学习和成绩路由；
 - 业务服务与后台任务：`services/`、`tasks/`；
 - 代码评测、SSE、提示词和阶段三 Agent：`utils/`；
-- 运行与容量说明：`README.md`、`README.en.md`、`PERFORMANCE_CAPACITY.md`；
+- 运行与容量说明：`README.md`、`README.en.md`、`PERFORMANCE_CAPACITY.md`、`DEPLOYMENT.md`、`CHANGELOG.md`；
 - 回归测试：`tests/`。
+
+### 1.1 使用的 AI 工具与协作方式
+
+本次梳理与文档撰写在 Trae IDE 中完成，使用模型 `GLM-5.2` 作为辅助 Agent。具体用法：
+
+- 通过语义检索/文件读取工具阅读仓库代码、配置和已有文档；
+- 通过 PowerShell 终端执行 `git`、`python -m compileall`、版本与依赖检查命令并记录输出；
+- 所有事实性结论以代码或命令输出为准；模型仅负责汇总、归类和措辞，不替代码或命令的结果做判断；
+- 未在写作过程中调用任何外部 LLM provider API（智谱/OpenAI 均未触发）。
+
+### 1.2 结论口径
 
 文中使用“已确认”表示可以直接从当前代码或配置读到；使用“推断”表示根据调用关系得到的架构判断；使用“未知/待验证”表示仓库本身没有足够证据，需要在目标部署环境或后续需求中确认。
 
@@ -22,7 +33,7 @@
 
 CodeSense 是一个以 Flask 单体应用为核心的高校编程教学平台：学生提交 C++ 作业后，系统进行受限编译运行、AI 反馈和学习记录；学生还可以通过“思路描述 → 步骤组装 → 费曼教学”的三阶段流程完成引导式练习；教师通过作业、班级、花名册、提交记录和能力分析页面观察学习情况。
 
-它目前不是拆分后的微服务系统，而是“Flask 路由 + SQLAlchemy 模型 + 业务服务 + 进程内异步任务 + 外部数据库/Redis/LLM”的组合。评测和 AI 功能已经有一定容错设计，但任务队列和 C++ 执行仍然依赖当前 Web 进程与主机边界，这是部署时最需要优先确认的部分。
+它目前不是拆分后的微服务系统，而是“Flask 路由 + SQLAlchemy 模型 + 业务服务 + 异步任务 + 外部数据库/Redis/LLM”的组合。评测和 AI 功能已经有一定容错设计。任务系统存在两种形态（已确认）：**默认配置**下异步任务在 Web 进程内以线程运行，C++ 编译执行也发生在 Web 进程所在主机；代码同时内置了**可选的 RQ 外部队列形态**——`config.py` 暴露队列后端开关，仓库提供独立 worker 进程（`tasks/submission_worker.py`、`tasks/ability_worker.py`）和对应的 systemd 单元，启用后提交评测（含 C++ 编译运行）移出 Web 进程。该形态默认不启用，且即使启用，沙箱仍是应用层 subprocess 而非强隔离。因此部署时最需要优先确认的是：生产采用哪种队列形态、worker 是否独立部署、以及代码执行节点的隔离边界。
 
 ## 3. 项目概况
 
@@ -112,8 +123,13 @@ flowchart TB
 | `wsgi.py` | WSGI 入口 | 默认将 `FLASK_CONFIG` 设为 production，导出对象名为 `application` |
 | `gunicorn_config.py` | Gunicorn 运行参数 | 默认 2 worker、每 worker 4 threads，绑定 `127.0.0.1:5000` |
 | `database_maintenance.py` | 生产部署前的一次性建表、补列和索引维护 | 不启动 Web 服务和后台 AI 任务 |
-| `.env.example` | 环境变量模板 | 包含数据库、AI、Redis、连接池和任务参数 |
-| `requirements.txt` | Python 依赖锁定/范围声明 | Flask、SQLAlchemy、AI SDK、Redis、数据导入导出等 |
+| `.env.example` | 环境变量模板 | 包含数据库、AI、连接池、进程内任务和安全参数；**当前未收录 `REDIS_URL` 与 RQ 外部队列相关变量（已确认）**，启用外部队列时需手动补齐 |
+| `requirements.txt` | Python 依赖锁定/范围声明 | Flask、SQLAlchemy、AI SDK、Redis、数据导入导出等；RQ 后端另需固定版本的 `rq` 依赖 |
+| `requirements-test.txt` | 测试依赖声明 | pytest 等回归测试所需依赖 |
+| `forms.py` | WTForms 表单定义 | 登录、注册、作业等表单的服务端校验 |
+| `deploy.sh`、`update.sh` | 部署/更新辅助脚本 | 服务器侧拉取、依赖安装与服务重启的封装 |
+| `codesense.service` | Web 服务 systemd 单元 | 以 `codesense` 用户运行 Gunicorn，含 `NoNewPrivileges`、`ProtectSystem=strict`、`PrivateTmp` 等硬化；`ExecStart` 显式 `--bind 127.0.0.1:8000` |
+| `codesense-submission-worker.service`、`codesense-ability-worker.service` | RQ worker 的 systemd 单元 | 分别运行 `python -m tasks.submission_worker`、`python -m tasks.ability_worker`；硬化配置与 Web 单元同级，`ReadWritePaths` 白名单限定可写目录 |
 
 ### 5.2 路由层
 
@@ -160,6 +176,8 @@ flowchart TB
 | `services/demo_experience.py` | 向已激活的临时库幂等填充学生/教师演示数据、作业、历史提交和预设 |
 | `tasks/submission_tasks.py` | 提交后的 AI 评估、C++ 测试、统计刷新、知识点评分和能力分析触发 |
 | `tasks/ability_analysis.py` | 按学生和 demo run 去重的异步能力趋势生成 |
+| `tasks/submission_queue.py`、`tasks/ability_queue.py` | 线程与 RQ 外部队列之间的分发：入队、作业状态查询、入队锁和 RQ 不可用时的失败标记；demo run 始终不进入外部队列 |
+| `tasks/submission_worker.py`、`tasks/ability_worker.py` | 独立 RQ worker 进程入口；启动时关闭进程内任务与预设扫描（`ASYNC_TASKS_ENABLED=0`、`PRESET_SCAN_ENABLED=0`），并校验对应后端必须为 `rq`，否则以退出码 2 终止 |
 | `utils/async_tasks.py` | 进程内有界队列和后台线程，处理能力趋势、批量趋势和阶段预设任务 |
 | `utils/sandbox_runner.py` | 查找 g++、C++17 编译、逐用例运行、超时和输出规范化 |
 | `utils/code_evaluator.py`、`utils/llm_evaluator.py` | 评测结果与 AI/启发式反馈的兼容层 |
@@ -196,9 +214,19 @@ gunicorn -c gunicorn_config.py wsgi:application
   -> wsgi.py 默认 production
   -> 每个 worker 独立初始化数据库连接、Redis 客户端和 AI 客户端
   -> 通常由 Nginx 终止 HTTPS，再转发到本机 Gunicorn
+
+# 可选：启用 RQ 外部队列时（两个 *_QUEUE_BACKEND=rq），另起独立 worker 进程
+python -m tasks.submission_worker
+python -m tasks.ability_worker
+  -> worker 读 CODESENSE_CONFIG（默认 production）并转设 FLASK_CONFIG
+  -> 启动时强制关闭进程内任务与预设扫描，避免与 Web 进程重复消费
+  -> 仓库提供 codesense-submission-worker.service / codesense-ability-worker.service
+  -> demo 公开体验始终走临时库线程路径，不进入外部队列
 ```
 
 部署后应先检查 `/healthz`（不访问数据库的存活检查）和 `/readyz`（执行 `SELECT 1` 的数据库就绪检查）。
+
+> 端口与入口口径差异（已确认，需在部署时核对）：`run.py` 默认监听 `0.0.0.0:5000`，`gunicorn_config.py` 默认 `bind = 127.0.0.1:5000`，而 `codesense.service` 的 `ExecStart` 通过命令行 `--bind 127.0.0.1:8000` 覆盖配置文件，`.env.example` 中 `PORT=8000`。实际对外口径以 systemd 单元和 Nginx upstream 为准；Web 单元使用 `app:app`，worker 单元不监听端口。
 
 ### 6.2 登录、会话与单点登录
 
@@ -255,6 +283,8 @@ POST /submit/<assignment_id> 或 /api/submit
 
 `utils/async_tasks.py` 另有一个进程内有界队列，当前支持能力趋势、批量趋势和思维预设生成。它与提交评测/能力分析中的直接线程不是同一个统一任务系统。
 
+> 关于外部队列的可选后端（已确认）：`config.py` 暴露了 `ABILITY_ANALYSIS_QUEUE_BACKEND` 与 `SUBMISSION_EVALUATION_QUEUE_BACKEND` 两个开关，默认 `thread`，可切换为基于 Redis 的外部队列（`ABILITY_ANALYSIS_REDIS_URL`、`SUBMISSION_EVALUATION_REDIS_URL`、对应 `*_QUEUE_NAME`、`*_JOB_TIMEOUT`、`*_QUEUE_TTL`、`*_RESULT_TTL`、`*_FAILURE_TTL`）。`tasks/ability_queue.py` 与 `tasks/submission_queue.py` 负责线程与外部队列之间的分发。Demo run 始终使用临时数据库的线程路径，不走外部队列。外部队列的消费侧是两个独立进程 `tasks/submission_worker.py` 与 `tasks/ability_worker.py`（RQ `Worker`，JSON 序列化），仓库提供对应的 systemd 单元；worker 进程启动时主动关闭进程内任务线程与预设扫描，避免与 Web 进程重复消费。这是当前主线相对早期“纯进程内任务”描述的重要更新；但后端开关默认为 `thread`，不配置 `rq`、不部署 worker 时，系统行为仍与纯进程内形态一致。
+
 ## 7. 运行方式
 
 ### 7.1 本地开发
@@ -288,38 +318,42 @@ python -m pytest tests -q
 3. 线上 HTTPS 打开 `SECURE_COOKIES=true`，Nginx 反向代理场景配置 `TRUST_PROXY_HEADERS=true` 并核对代理层数；
 4. 配置 Redis 会话/缓存或确认文件会话目录具备隔离、持久化和清理策略；
 5. 安装 `g++`，并为代码执行节点建立额外隔离；
-6. 通过 `gunicorn -c gunicorn_config.py wsgi:application` 启动，再由 Nginx 或其他反向代理对外提供服务；
-7. 持续监控 CPU、内存、数据库连接、任务队列、AI provider 配额、临时文件和日志磁盘。
+6. 通过 `gunicorn -c gunicorn_config.py wsgi:application` 启动（或使用 `codesense.service`），再由 Nginx 或其他反向代理对外提供服务；注意 systemd 单元的 `--bind 127.0.0.1:8000` 与配置文件默认 5000 端口径不同，Nginx upstream 需与实际监听端口一致；
+7. 若启用 RQ 外部队列（两个 `*_QUEUE_BACKEND=rq`）：在 `.env` 中补齐 `*_REDIS_URL` 等队列变量（`.env.example` 当前未收录），安装 `rq` 依赖，并独立部署/启用 `codesense-submission-worker.service` 与 `codesense-ability-worker.service`；worker 通过 `CODESENSE_CONFIG` 读取环境名（默认 production）；不启用时保持默认 `thread` 即可，无需 worker 进程；
+8. 持续监控 CPU、内存、数据库连接、任务队列（线程队列深度或 RQ 队列堆积）、AI provider 配额、临时文件和日志磁盘。
 
 ### 7.4 本次接管环境实测记录
 
-以下是 2026-09-03 在当前工作区的实际尝试，不代表目标生产环境结论：
+以下是 2026-09-06 在当前工作区的实际尝试，不代表目标生产环境结论：
 
 | 尝试 | 结果 |
 | --- | --- |
-| `python -m pip install -r requirements.txt` | 未执行安装；PowerShell 报错：`The term 'python' is not recognized as a name of a cmdlet, function, script file, or executable program.` |
-| `python run.py` | 未启动；同样因为系统找不到 `python` 失败 |
-| `python -m pytest tests -q` | 未执行测试；同样因为系统找不到 `python` 失败 |
-| 工作区内置 Python `--version` | 可用，版本为 `Python 3.12.13` |
-| 工作区内置 Python `-m pytest tests -q` | 失败：`No module named pytest` |
-| `g++` PATH 检查 | 失败：`g++ not found on PATH`；因此无法验证 C++ 沙箱的真实编译运行 |
-| 工作区内置 Python `-m compileall -q app.py routes services tasks utils` | 通过，退出码 `0`；这只是语法检查，不等价于应用启动或功能回归 |
+| `git clone https://github.com/XiaoCow666/CodeSense.git .` | 通过；2956 objects，28.29 MiB（绕过本地代理后） |
+| `git log -1 --pretty='%H %ci %s'` | 通过；输出 `950c233c8ff5c6ae8478bff0c64ed20c45e1f9a1 2026-09-06 13:39:26 +0800 chore: harden codesense systemd services` |
+| `(Get-Command python).Source` | 通过；输出 `D:\Python311\python.exe` |
+| `python --version` | 通过；输出 `Python 3.11.9` |
+| `python -m pytest --version` | 失败：`No module named pytest`（依赖未安装，无法运行回归） |
+| `(Get-Command g++).Source` | 失败：`g++ not found on PATH`；无法验证 C++ 沙箱真实编译运行 |
+| `python -m compileall -q app.py config.py run.py wsgi.py database_maintenance.py` | 通过，退出码 `0`；仅语法检查，不等价于应用启动或功能回归 |
+| 文档修订轮（同日，静态核查） | 按工作约束**未执行任何终端、git 或沙箱命令**；结论全部来自逐文件只读核对。本轮新确认：RQ 独立 worker 与三个 systemd 单元已在仓库中；`.env.example` 未收录 `REDIS_URL` 与队列变量；`codesense.service` 监听 8000 而 `gunicorn_config.py`/`run.py` 默认 5000 |
 
-本次没有创建 `.env`、没有填入任何密钥，也没有连接正式数据库。要完成可运行验证，需要提供可安装依赖的 Python 环境（或在工作区内安装 `requirements.txt`）、`pytest`、C++ 编译器，以及按环境选择的 SQLite/MySQL、Redis 和 AI provider 配置。
+本次未创建 `.env`、未填入任何密钥、未连接正式数据库、未运行 `requirements.txt` 安装。要完成可运行验证，仍需要：在当前 Python 3.11.9 环境中安装 `requirements.txt` 与 `pytest`、提供 `g++`、按环境选择 SQLite/MySQL、可选 Redis 以及 AI provider 配置。
+
+> 历史记录：2026-09-03 在另一工作区曾尝试运行 `python`，但当时 PATH 中没有 `python`，结论与本次不同。该次记录已随仓库历史归档，不再作为本次 PR 的事实依据。
 
 ## 8. 风险清单
 
 | 优先级 | 风险 | 影响 | 当前缓解/后续方向 |
 | --- | --- | --- | --- |
 | 高 | C++ 沙箱是应用层 subprocess 限制，不是强隔离 | 恶意代码可能利用宿主机权限、文件、网络或资源；公网开放存在高风险 | 上线前增加容器/虚拟机、低权限用户、网络禁用、CPU/内存/进程/磁盘配额，并单独部署评测 worker |
-| 高 | 后台任务主要在进程内运行 | 重启可能丢任务；多 worker 各自拥有队列、线程、缓存和去重状态，可能重复执行或任务不可见 | 迁移到持久化队列（如 Celery/RQ/消息队列），建立幂等键、重试、死信和可观测状态 |
+| 高（默认形态）/中（启用 RQ 后） | 后台任务默认在 Web 进程内以线程运行 | 默认 `thread` 后端下，重启可能丢任务；多 worker 各自拥有队列、线程、缓存和去重状态，可能重复执行或任务不可见 | 仓库已内置可选 RQ 持久化队列与独立 worker 进程（含 systemd 单元）：启用两个 `*_QUEUE_BACKEND=rq`、部署 worker 后，评测与能力分析移出 Web 进程，风险显著降低；仍需补充幂等键、重试/死信监控和队列堆积告警。demo 公开体验按设计始终走线程路径 |
 | 高 | AI 输出和 AI 生成预设不是确定性事实 | 评分、提示、能力画像和阶段三判定可能受 provider、提示注入、上下文截断或模型升级影响 | 保留沙箱作为程序事实来源；固定评测协议和模型版本；增加人工复核、敏感数据脱敏、提示注入测试和结果审计 |
 | 高 | 学生代码、对话、代码快照和 AI 结果包含学习隐私 | 数据库、日志、Redis、LLM provider 和导出文件都可能成为数据泄露面 | 明确数据保留/删除策略，限制日志内容和导出权限，生产密钥与数据库分离，核对第三方 AI 数据处理政策 |
 | 中 | 数据库结构演进依赖 `create_all`、补列和索引检查 | 复杂变更、回滚和多版本并行发布缺少清晰迁移轨迹 | 建立版本化迁移、备份/恢复演练和生产前升级验证；不要把启动期自动维护当成完整迁移方案 |
 | 中 | 授权逻辑分散在路由与查询组合中 | 新增 API 可能只做登录检查而漏掉对象归属、班级范围或角色边界 | 抽取可复用的角色/资源授权函数，补充越权矩阵测试 |
 | 中 | 公开体验使用临时 SQLite 与后台线程交互 | 浏览器退出、文件锁、worker 生命周期和清理时序可能造成残留或失败 | 保持 run id 显式传递；在多进程环境验证锁和清理；为失败清理提供告警和定期维护 |
 | 中 | 观测以日志和轻量探针为主 | 任务延迟、AI 首 token、熔断、队列堆积和沙箱资源消耗缺少完整指标 | 接入结构化指标、trace/request id、任务状态面板和 provider 用量监控 |
-| 低 | 文档存在运行参数口径差异的可能 | 开发者可能使用错误的 WSGI 对象名、端口或代理配置 | 以 `wsgi.py`、`gunicorn_config.py` 和实际部署清单为准，后续统一 README、脚本和运维配置 |
+| 低 | 运行参数口径存在已确认的不一致 | `gunicorn_config.py` 默认 bind 5000，`codesense.service` 命令行覆盖为 8000，`.env.example` 为 `PORT=8000`，`run.py` 默认 5000；`.env.example` 未收录 `REDIS_URL` 与 RQ 队列变量；Web 用 `FLASK_CONFIG`、worker 用 `CODESENSE_CONFIG` | 开发者可能使用错误端口、WSGI 入口或环境变量名。以 systemd 单元、`wsgi.py`、worker 脚本和实际 `.env` 为准；后续统一 README、`.env.example`、脚本和运维配置 |
 
 ## 9. 未知项与下一步核对项
 
@@ -328,6 +362,7 @@ python -m pytest tests -q
 | 问题 | 为什么未知 | 建议验证方式 |
 | --- | --- | --- |
 | 目标生产环境的 Nginx、HTTPS、进程管理和备份拓扑 | 仓库只提供应用侧配置，不能代表真实服务器 | 获取部署清单，验证 forwarded headers、Cookie、超时和优雅退出 |
+| 生产是否启用 RQ 后端、worker 单元是否已部署、Nginx upstream 用 8000 还是 5000 | 队列开关默认 `thread`，`.env.example` 未收录队列变量，systemd 与 gunicorn 配置端口不一致 | 在部署清单中确认两个 `*_QUEUE_BACKEND`、`*_REDIS_URL`、`CODESENSE_CONFIG`、worker 服务启用状态和 Nginx upstream 端口；启用 RQ 后做一次 worker 重启与 Redis 断连演练 |
 | 实际使用的数据库类型、版本、字符集和迁移历史 | 代码同时支持 SQLite/MySQL，历史库结构未随仓库提供 | 对脱敏数据库执行维护命令和升级演练，记录耗时与回滚方案 |
 | AI provider、模型版本、限额和数据留存策略 | 配置可选，provider 行为由外部服务决定 | 建立 provider 配置表、脱敏请求样本、限流/失败演练和成本上限 |
 | C++ 评测是否允许公网用户触发 | 代码提供公开体验和代码执行，但部署访问范围不在仓库内 | 在网络边界文档中明确“课程内受控”还是“公网可用”，并按威胁模型验收沙箱 |
@@ -344,7 +379,8 @@ python -m pytest tests -q
 - 学生主链路由引导式学习、代码提交、C++ 受限执行、AI 反馈和能力分析共同构成；
 - 阶段三已经从单纯文本对话扩展为带事件记忆、工具、覆盖度和完成条件的双 Agent 运行时；
 - 公开体验通过临时数据库和显式 run id 做业务数据隔离；
-- 当前小规模课堂/演示是较符合实现边界的使用场景，正式公网部署前必须优先补强沙箱和异步任务基础设施。
+- 异步任务存在“进程内线程（默认）”与“RQ 外部队列 + 独立 worker 进程（可选）”两种形态，后者已随代码和 systemd 单元提供，但开关默认 `thread`、不自动启用；
+- 当前小规模课堂/演示是较符合实现边界的使用场景，正式公网部署前必须优先补强沙箱隔离，并明确生产采用哪种队列形态。
 
 ### 本阶段明确不做
 
@@ -355,16 +391,29 @@ python -m pytest tests -q
 
 后续修改应以本文的模块边界和未知项为检查清单，先补可验证的测试/运行证据，再进入业务代码变更。
 
-## 11. 本次文档 PR 状态与阻塞
+## 11. 本次文档 PR 状态与协作请求
 
-本地已创建分支 `docs/project-understanding`；分支相对 `main` 只有本文档一个新增文件，当前本地提交可直接用于后续推送。
+### 11.1 PR 元信息
 
-尝试推送和创建远程分支时使用了以下操作：
+- 目标仓库：`XiaoCow666/CodeSense`
+- 目标分支：`main`
+- PR 来源分支：`docs/project-understanding-v2`（账号 `linxi123-A`）
+- 实际推送路径（已确认）：直接推送上游 `XiaoCow666/CodeSense` 返回 HTTP 403（该账号无上游写权限），改为推送到 fork `linxi123-A/CodeSense`，以跨仓库 PR 提交（head：`linxi123-A:docs/project-understanding-v2` → base：`XiaoCow666:main`）
+- PR 链接：https://github.com/XiaoCow666/CodeSense/pull/16
+- 改动范围：仅新增/更新 `PROJECT_UNDERSTANDING.md` 一个文档文件，不修改业务代码、数据库模型、配置、部署脚本或前端资源。
 
-```text
-git push -u origin docs/project-understanding
-```
+### 11.2 与上一轮尝试的关系
 
-GitHub 返回：`remote: Permission to XiaoCow666/CodeSense.git denied to ggboyxkw666.`，HTTP `403`。随后通过 GitHub 连接器创建同名远程分支，返回：`Resource not accessible by integration`，HTTP `403`。检查发现当前账号没有目标仓库 push 权限，且没有可用的 `ggboyxkw666/CodeSense` fork，因此当前环境无法生成 PR 链接。
+仓库历史上曾存在一次同主题文档尝试，使用账号 `ggboyxkw666` 推送 `docs/project-understanding` 时返回 `remote: Permission to XiaoCow666/CodeSense.git denied`（HTTP `403`）。本次为重新组织的 PR，使用账号 `linxi123-A` 重新建立分支、重写实测记录并补齐本节，不沿用上一次的远程分支与提交。
 
-所需协助：为当前账号授予目标仓库分支写权限，或提供一个当前账号可推送的 fork。权限到位后，推送现有分支并以 `main` 为目标分支创建 PR 即可；不需要重新编写本文档。
+### 11.3 请求项目负责人评审
+
+请 @XiaoCow666 作为项目负责人评审本 PR，重点关注：
+
+1. 第 2、3、4 节的项目定位、运行时架构与代码结构是否符合当前主线方向；
+2. 第 6 节关键流程描述与实际实现是否一致，尤其是阶段三双 Agent、临时数据库隔离与提交评测链路；
+3. 第 7.4 节实测记录是否需要在 CI 环境中追加验证；
+4. 第 8 节风险清单中标注为“高”的项（C++ 沙箱非强隔离、进程内任务、AI 不确定性、学习隐私）是否与项目路线图对齐；
+5. 第 9 节未知项是否需要在合并前补齐证据，或可在后续 issue 跟进。
+
+如评审过程中发现事实性错误，请直接在对应行下方评论，本 PR 在评审通过前不进行业务代码改动。
