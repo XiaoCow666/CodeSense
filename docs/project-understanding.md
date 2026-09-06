@@ -81,11 +81,11 @@ AI 服务不是评测事实的唯一来源：`evaluate_cpp_code()` 在 AI 不可
 
 ```powershell
 conda activate codesense
-cd D:\ProGram\CodeSense
+cd <仓库根目录>
 python run.py
 ```
 
-随后访问 `http://127.0.0.1:5000/login`。开发环境可不配置 AI Key；此时 AI 相关能力不可用，但基础页面和不依赖 AI 的功能仍可检查。C++ 评测还要求 `g++` 在 `PATH` 中。
+运行前需要先准备名为 `codesense` 的 Conda 环境，并在项目仓库根目录执行命令。随后访问 `http://127.0.0.1:5000/login`。开发环境可不配置 AI Key；此时 AI 相关能力不可用，但基础页面和不依赖 AI 的功能仍可检查。C++ 评测还要求 `g++` 在 `PATH` 中。
 
 ### 测试
 
