@@ -2,19 +2,30 @@
 
 > 本文是对当前仓库实现的维护者视角梳理，目标是建立后续开发、评审和部署前排查的共同上下文。
 >
-> 观察基线：`main` 分支 HEAD `5bd66e7`（2026-09-02）。本阶段只新增文档，不修改业务代码、数据库模型或运行逻辑。
+> 观察基线：`main` 分支 HEAD `950c233`（2026-09-06，提交 `chore: harden codesense systemd services`）。本阶段只新增文档，不修改业务代码、数据库模型或运行逻辑。
 
 ## 1. 文档范围与结论口径
 
-本文结论主要来自以下入口和实现：
+本文结论主要来自以下入口和实现（阅读范围）：
 
 - 应用装配：`app.py`、`config.py`、`run.py`、`wsgi.py`、`gunicorn_config.py`；
 - 数据模型：`models.py`；
 - HTTP 路由：`routes/` 下的认证、作业、用户、班级、API、三阶段学习和成绩路由；
 - 业务服务与后台任务：`services/`、`tasks/`；
 - 代码评测、SSE、提示词和阶段三 Agent：`utils/`；
-- 运行与容量说明：`README.md`、`README.en.md`、`PERFORMANCE_CAPACITY.md`；
+- 运行与容量说明：`README.md`、`README.en.md`、`PERFORMANCE_CAPACITY.md`、`DEPLOYMENT.md`、`CHANGELOG.md`；
 - 回归测试：`tests/`。
+
+### 1.1 使用的 AI 工具与协作方式
+
+本次梳理与文档撰写在 Trae IDE 中完成，使用模型 `GLM-5.2` 作为辅助 Agent。具体用法：
+
+- 通过语义检索/文件读取工具阅读仓库代码、配置和已有文档；
+- 通过 PowerShell 终端执行 `git`、`python -m compileall`、版本与依赖检查命令并记录输出；
+- 所有事实性结论以代码或命令输出为准；模型仅负责汇总、归类和措辞，不替代码或命令的结果做判断；
+- 未在写作过程中调用任何外部 LLM provider API（智谱/OpenAI 均未触发）。
+
+### 1.2 结论口径
 
 文中使用“已确认”表示可以直接从当前代码或配置读到；使用“推断”表示根据调用关系得到的架构判断；使用“未知/待验证”表示仓库本身没有足够证据，需要在目标部署环境或后续需求中确认。
 
@@ -255,6 +266,8 @@ POST /submit/<assignment_id> 或 /api/submit
 
 `utils/async_tasks.py` 另有一个进程内有界队列，当前支持能力趋势、批量趋势和思维预设生成。它与提交评测/能力分析中的直接线程不是同一个统一任务系统。
 
+> 关于外部队列的可选后端（已确认）：`config.py` 暴露了 `ABILITY_ANALYSIS_QUEUE_BACKEND` 与 `SUBMISSION_EVALUATION_QUEUE_BACKEND` 两个开关，默认 `thread`，可切换为基于 Redis 的外部队列（`ABILITY_ANALYSIS_REDIS_URL`、`SUBMISSION_EVALUATION_REDIS_URL`、对应 `*_QUEUE_NAME`、`*_JOB_TIMEOUT`、`*_QUEUE_TTL`、`*_RESULT_TTL`、`*_FAILURE_TTL`）。`tasks/ability_queue.py` 与 `tasks/submission_queue.py` 负责线程与外部队列之间的分发。Demo run 始终使用临时数据库的线程路径，不走外部队列。这是当前主线相对早期“纯进程内任务”描述的重要更新。
+
 ## 7. 运行方式
 
 ### 7.1 本地开发
@@ -293,19 +306,21 @@ python -m pytest tests -q
 
 ### 7.4 本次接管环境实测记录
 
-以下是 2026-09-03 在当前工作区的实际尝试，不代表目标生产环境结论：
+以下是 2026-09-06 在当前工作区的实际尝试，不代表目标生产环境结论：
 
 | 尝试 | 结果 |
 | --- | --- |
-| `python -m pip install -r requirements.txt` | 未执行安装；PowerShell 报错：`The term 'python' is not recognized as a name of a cmdlet, function, script file, or executable program.` |
-| `python run.py` | 未启动；同样因为系统找不到 `python` 失败 |
-| `python -m pytest tests -q` | 未执行测试；同样因为系统找不到 `python` 失败 |
-| 工作区内置 Python `--version` | 可用，版本为 `Python 3.12.13` |
-| 工作区内置 Python `-m pytest tests -q` | 失败：`No module named pytest` |
-| `g++` PATH 检查 | 失败：`g++ not found on PATH`；因此无法验证 C++ 沙箱的真实编译运行 |
-| 工作区内置 Python `-m compileall -q app.py routes services tasks utils` | 通过，退出码 `0`；这只是语法检查，不等价于应用启动或功能回归 |
+| `git clone https://github.com/XiaoCow666/CodeSense.git .` | 通过；2956 objects，28.29 MiB（绕过本地代理后） |
+| `git log -1 --pretty='%H %ci %s'` | 通过；输出 `950c233c8ff5c6ae8478bff0c64ed20c45e1f9a1 2026-09-06 13:39:26 +0800 chore: harden codesense systemd services` |
+| `(Get-Command python).Source` | 通过；输出 `D:\Python311\python.exe` |
+| `python --version` | 通过；输出 `Python 3.11.9` |
+| `python -m pytest --version` | 失败：`No module named pytest`（依赖未安装，无法运行回归） |
+| `(Get-Command g++).Source` | 失败：`g++ not found on PATH`；无法验证 C++ 沙箱真实编译运行 |
+| `python -m compileall -q app.py config.py run.py wsgi.py database_maintenance.py` | 通过，退出码 `0`；仅语法检查，不等价于应用启动或功能回归 |
 
-本次没有创建 `.env`、没有填入任何密钥，也没有连接正式数据库。要完成可运行验证，需要提供可安装依赖的 Python 环境（或在工作区内安装 `requirements.txt`）、`pytest`、C++ 编译器，以及按环境选择的 SQLite/MySQL、Redis 和 AI provider 配置。
+本次未创建 `.env`、未填入任何密钥、未连接正式数据库、未运行 `requirements.txt` 安装。要完成可运行验证，仍需要：在当前 Python 3.11.9 环境中安装 `requirements.txt` 与 `pytest`、提供 `g++`、按环境选择 SQLite/MySQL、可选 Redis 以及 AI provider 配置。
+
+> 历史记录：2026-09-03 在另一工作区曾尝试运行 `python`，但当时 PATH 中没有 `python`，结论与本次不同。该次记录已随仓库历史归档，不再作为本次 PR 的事实依据。
 
 ## 8. 风险清单
 
@@ -355,16 +370,28 @@ python -m pytest tests -q
 
 后续修改应以本文的模块边界和未知项为检查清单，先补可验证的测试/运行证据，再进入业务代码变更。
 
-## 11. 本次文档 PR 状态与阻塞
+## 11. 本次文档 PR 状态与协作请求
 
-本地已创建分支 `docs/project-understanding`；分支相对 `main` 只有本文档一个新增文件，当前本地提交可直接用于后续推送。
+### 11.1 PR 元信息
 
-尝试推送和创建远程分支时使用了以下操作：
+- 目标仓库：`XiaoCow666/CodeSense`
+- 目标分支：`main`
+- PR 来源分支：`docs/project-understanding-v2`（推送到 `XiaoCow666/CodeSense`，账号 `linxi123-A`）
+- PR 链接：<!-- PR_LINK_PLACEHOLDER -->（推送并在 GitHub 创建 PR 后回填此处）
+- 改动范围：仅新增/更新 `PROJECT_UNDERSTANDING.md` 一个文档文件，不修改业务代码、数据库模型、配置、部署脚本或前端资源。
 
-```text
-git push -u origin docs/project-understanding
-```
+### 11.2 与上一轮尝试的关系
 
-GitHub 返回：`remote: Permission to XiaoCow666/CodeSense.git denied to ggboyxkw666.`，HTTP `403`。随后通过 GitHub 连接器创建同名远程分支，返回：`Resource not accessible by integration`，HTTP `403`。检查发现当前账号没有目标仓库 push 权限，且没有可用的 `ggboyxkw666/CodeSense` fork，因此当前环境无法生成 PR 链接。
+仓库历史上曾存在一次同主题文档尝试，使用账号 `ggboyxkw666` 推送 `docs/project-understanding` 时返回 `remote: Permission to XiaoCow666/CodeSense.git denied`（HTTP `403`）。本次为重新组织的 PR，使用账号 `linxi123-A` 重新建立分支、重写实测记录并补齐本节，不沿用上一次的远程分支与提交。
 
-所需协助：为当前账号授予目标仓库分支写权限，或提供一个当前账号可推送的 fork。权限到位后，推送现有分支并以 `main` 为目标分支创建 PR 即可；不需要重新编写本文档。
+### 11.3 请求项目负责人评审
+
+请 @XiaoCow666 作为项目负责人评审本 PR，重点关注：
+
+1. 第 2、3、4 节的项目定位、运行时架构与代码结构是否符合当前主线方向；
+2. 第 6 节关键流程描述与实际实现是否一致，尤其是阶段三双 Agent、临时数据库隔离与提交评测链路；
+3. 第 7.4 节实测记录是否需要在 CI 环境中追加验证；
+4. 第 8 节风险清单中标注为“高”的项（C++ 沙箱非强隔离、进程内任务、AI 不确定性、学习隐私）是否与项目路线图对齐；
+5. 第 9 节未知项是否需要在合并前补齐证据，或可在后续 issue 跟进。
+
+如评审过程中发现事实性错误，请直接在对应行下方评论，本 PR 在评审通过前不进行业务代码改动。
