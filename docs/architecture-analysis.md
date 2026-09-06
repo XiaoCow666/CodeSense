@@ -50,7 +50,7 @@ utils/           工具层（15+ 模块 + agents/ 多 Agent 子系统）
     ↓
 tasks/           异步任务层（后台线程队列）
     ↓
-models.py        数据模型层（16 张表，SQLAlchemy ORM）
+models.py        数据模型层（18 个 db.Model，SQLAlchemy ORM）
     ↓
 SQLite / MySQL   数据存储
 ```
@@ -65,7 +65,7 @@ SQLite / MySQL   数据存储
 | `run.py` | 极小 | 开发启动入口，`python run.py` 即可启动 |
 | `wsgi.py` | 极小 | 生产 WSGI 入口，暴露 `application` 对象供 Gunicorn 调用 |
 | `config.py` | ~170 行 | 三套环境配置：`DevelopmentConfig` / `TestingConfig` / `ProductionConfig`，包含 30+ 配置项（数据库、AI、连接池、异步任务、安全等） |
-| `models.py` | ~1500 行 | **全部数据模型**，16 张表的 SQLAlchemy 定义，含 `init_db()` 和 `ensure_performance_indexes()` |
+| `models.py` | ~1500 行 | **全部数据模型**，18 个 db.Model 类的 SQLAlchemy 定义，含 `init_db()` 和 `ensure_performance_indexes()` |
 | `forms.py` | ~60 行 | WTForms 表单：登录、注册、作业、提交、编辑资料、改密码 |
 | `database_maintenance.py` | ~30 行 | 生产环境数据库维护脚本，强制使用 production 配置，执行建表和索引维护 |
 | `gunicorn_config.py` | ~90 行 | Gunicorn 生产配置，含 worker 数量、超时、生命周期钩子 |
@@ -140,7 +140,7 @@ SQLite / MySQL   数据存储
 
 ### 2.8 数据模型（models.py）
 
-16 张表，核心实体关系：
+共 18 个 `db.Model` 类，核心实体关系：
 
 - **User**（用户，含 usertype：学生/教师/管理员）
 - **Class**（班级）↔ **StudentRoster**（花名册）
@@ -159,25 +159,36 @@ SQLite / MySQL   数据存储
 
 ## 三、核心流程
 
-### 3.1 代码提交流程
+### 3.1 代码提交流程（POST /api/submit，异步）
+
+`/api/submit` 是**异步接口**：请求到达后立即创建 Submission 记录并返回 `submission_id`，不等待评测完成。实际的编译、运行和评分在后台线程中异步执行，前端通过轮询状态接口获取结果。
 
 ```
 学生在 submit_code.html 编辑代码并提交
     ↓
-routes/api.py → submit_code()
-    ↓ 创建 Submission 记录（status=evaluating）
-    ↓
-tasks/submission_tasks.py → evaluate_submission_async()  [后台线程]
+POST /api/submit  →  routes/api.py → submit_code()
+    ├── 参数校验（作业 ID、代码内容、登录态）
+    ├── 创建 Submission 记录（status="evaluating"）
+    ├── 提交后台任务 tasks/submission_tasks.py → evaluate_submission_async()
+    └── 立即返回 JSON：{ submission_id, status: "evaluating" }
+    ↓（HTTP 响应已返回，以下在后台线程异步执行）
+evaluate_submission_async(app, submission_id, ...)
     ├── utils/sandbox_runner.py → compile_cpp()     [g++ 编译，15s 超时]
     ├── utils/sandbox_runner.py → run_test_cases()  [逐用例运行，5s 超时]
     ├── utils/code_evaluator.py → evaluate_cpp_code()  [启发式+AI评分]
     ├── services/ai_evaluator.py → evaluate_code()     [AI五维度评估]
-    └── 更新 Submission 得分/反馈 → 刷新作业统计 + 用户统计
+    ├── 更新 Submission 得分/反馈（status="completed" 或 "failed"）
+    └── 刷新作业统计 + 用户统计
     ↓
-前端轮询 /api/submission/status 或 SSE 获取评测结果
+前端轮询 GET /api/submission/status/<submission_id> 获取评测结果
+（另有 GET /api/submission/<id> 获取完整详情）
 ```
 
-**关键设计**：提交不阻塞 HTTP 响应，评测在后台线程执行，前端通过状态轮询获取结果。沙箱使用临时工作目录，执行后清理。
+**关键设计**：
+- **异步非阻塞**：提交接口不等待评测完成，避免 HTTP 长连接阻塞
+- **后台线程执行**：评测通过 `utils/async_tasks.py` 的线程池任务队列执行
+- **状态轮询**：前端通过 `submission_id` 轮询状态接口，从 `evaluating` → `completed`/`failed`
+- **沙箱隔离**：编译运行使用临时工作目录，执行后清理
 
 ### 3.2 三阶段引导式学习流程
 
@@ -257,7 +268,7 @@ python run.py
 python -m pytest tests -q
 ```
 
-测试目录 `tests/` 包含 50+ 测试文件，覆盖：
+测试目录 `tests/` 包含 43 个 `test_*.py` 文件（另有 1 个 `demo_test_utils.py` 工具文件），覆盖：
 
 | 测试领域 | 代表文件 | 覆盖内容 |
 |----------|----------|----------|
