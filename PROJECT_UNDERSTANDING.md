@@ -397,8 +397,9 @@ python -m pytest tests -q
 
 - 目标仓库：`XiaoCow666/CodeSense`
 - 目标分支：`main`
-- PR 来源分支：`docs/project-understanding-v2`（推送到 `XiaoCow666/CodeSense`，账号 `linxi123-A`）
-- PR 链接：<!-- PR_LINK_PLACEHOLDER -->（推送并在 GitHub 创建 PR 后回填此处）
+- PR 来源分支：`docs/project-understanding-v2`（账号 `linxi123-A`）
+- 实际推送路径（已确认）：直接推送上游 `XiaoCow666/CodeSense` 返回 HTTP 403（该账号无上游写权限），改为推送到 fork `linxi123-A/CodeSense`，以跨仓库 PR 提交（head：`linxi123-A:docs/project-understanding-v2` → base：`XiaoCow666:main`）
+- PR 链接：https://github.com/XiaoCow666/CodeSense/pull/16
 - 改动范围：仅新增/更新 `PROJECT_UNDERSTANDING.md` 一个文档文件，不修改业务代码、数据库模型、配置、部署脚本或前端资源。
 
 ### 11.2 与上一轮尝试的关系
