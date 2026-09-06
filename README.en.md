@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/codesense-mark.svg" alt="CodeSense logo" width="112">
+  <img src="docs/assets/codesense-logo-final.png" alt="CodeSense logo" width="480">
 </p>
 
 <h1 align="center">CodeSense</h1>

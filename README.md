@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/codesense-mark.svg" alt="CodeSense 品牌标志" width="112">
+  <img src="docs/assets/codesense-logo-final.png" alt="CodeSense 品牌标志" width="480">
 </p>
 
 <h1 align="center">CodeSense 酷森思</h1>
