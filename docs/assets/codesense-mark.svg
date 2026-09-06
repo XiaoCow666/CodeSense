@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160" role="img" aria-labelledby="title desc">
+  <title id="title">CodeSense logo</title>
+  <desc id="desc">A code symbol inside a rounded dark square.</desc>
+  <defs>
+    <linearGradient id="accent" x1="24" y1="24" x2="136" y2="136" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2563EB"/>
+      <stop offset="1" stop-color="#38BDF8"/>
+    </linearGradient>
+  </defs>
+  <rect width="160" height="160" rx="36" fill="#0B1220"/>
+  <rect x="22" y="30" width="116" height="100" rx="22" fill="#111C32" stroke="url(#accent)" stroke-width="4"/>
+  <path d="M58 56 40 80l18 24" fill="none" stroke="#60A5FA" stroke-linecap="round" stroke-linejoin="round" stroke-width="9"/>
+  <path d="m102 56 18 24-18 24" fill="none" stroke="#38BDF8" stroke-linecap="round" stroke-linejoin="round" stroke-width="9"/>
+  <path d="m78 105 12-50" fill="none" stroke="#E0F2FE" stroke-linecap="round" stroke-width="8"/>
+  <circle cx="52" cy="42" r="4" fill="#38BDF8"/>
+  <circle cx="68" cy="42" r="4" fill="#60A5FA"/>
+</svg>

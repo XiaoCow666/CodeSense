@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/caifusi-logo-wordmark-v1.png" alt="Caifusi existing brand logo" width="480">
+  <img src="docs/assets/codesense-mark.svg" alt="CodeSense logo" width="112">
 </p>
 
 <h1 align="center">CodeSense</h1>
