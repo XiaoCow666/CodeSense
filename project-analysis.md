@@ -10,9 +10,11 @@
 
 ---
 
-## 分析说明（PR 说明）
+## 交付说明（PR Body）
 
-> 本节记录本次分析的方法与范围，供评审核对。
+> 本节为交付说明，可作为 PR 描述正文。核心交付物是本文档自【事实】起的完整分析；本节交代交付范围、分析方法、验证结果与风险，供评审核对。
+
+**交付内容**：对 CodeSense 酷森思（面向高校编程教学的代码评测与学习平台）做一次只读静态分析，产出结构化文档，严格区分【事实】（可验证、附文件定位）／【推断】（合理判断）／【建议】（行动项）三层，覆盖项目定位与主要用户流程、技术栈、目录与模块职责、关键请求/任务/数据流、运行与测试方式，以及当前风险与未知项、建议的下一步。
 
 **分析工具（AI 工具）**：本分析由 Claude Code（Anthropic）完成，仅使用只读的文件读取（Read）、内容检索（Grep）、路径匹配（Glob）以及 `wc -l`、`ls`、`find` 等只读 shell 命令。未使用 Web 搜索、未引用外部文档、未运行 `pytest` 或应用服务器、未执行任何会修改仓库的操作。
 
@@ -29,10 +31,10 @@
 | `find . -type f …` | 枚举仓库文件，确定目录结构 |
 | `wc -l app.py config.py models.py …` | 各模块行数：app.py 631、config.py 193、models.py 1471、routes 8474、services 4437、utils 13355、tasks 499 |
 | `ls tests/test_*.py \| wc -l` | **43**（`tests/` 下另有 `__init__.py` 与 `demo_test_utils.py`） |
-| `grep submit_code / evaluate_submission_async` | 确认两条提交入口：`routes/assignments.py:546`（异步沙箱）vs `routes/api.py:271` + `static/js/code_submission.js:40`（同步） |
+| `grep evaluate_submission_async / code_submission.js` | 确认默认提交主链唯一生产调用点：`routes/assignments.py:546` → `evaluate_submission_async`（异步沙箱）；`routes/api.py:271` `/api/submit` 为同步 `evaluate_cpp_code`（无沙箱、直接累加），其前端调用 `static/js/code_submission.js` 未被任何模板加载 |
 | `grep teacher_agent_chat / student_agent_chat` | 确认二者无调用点（死代码）；`student_agent_write_code`/`evaluate_feynman_code_fix` 被 `utils/agents/tools.py` 复用 |
 
-**未验证事项与风险**：详见下文【推断】的「未知项 / 待确认」小节（两条提交路径取舍意图、生产库实际 schema 与数据规模、线上沙箱隔离拓扑、语音转文字实现范围、课程评分模块完整接线）。主要风险已列于【建议】高优先级第 1–3 条（双提交路径不一致、评分口径不统一、公网沙箱隔离不足）。
+**未验证事项与风险**：详见下文【推断】的「未知项 / 待确认」小节（同步 `/api/submit` 接口取舍意图、生产库实际 schema 与数据规模、线上沙箱隔离拓扑、语音转文字实现范围、课程评分模块完整接线）。主要风险已列于【建议】高优先级第 1–3 条（同步 `/api/submit` 与异步主链口径不一致、评分口径不统一、公网沙箱隔离不足）。
 
 ---
 
@@ -54,7 +56,7 @@ CodeSense 是一个面向高校程序设计课程的代码评测与教学平台�
 
 **3. 主要用户流程（按角色，均以路由实现为据）**
 
-- **学生**：登录（`routes/auth.py`）→ 进入作业（`routes/assignments.py::submit_code`）→ 提交代码（表单 POST → `evaluate_submission_async` 后台沙箱评测）→ 查看分数/反馈（`submission_detail.html`）→ 能力画像/知识点刷新（`tasks/ability_analysis.py`）。另一条：`static/js/code_submission.js` 直接 `fetch('/api/submit')` 走同步 API。
+- **学生**：登录（`routes/auth.py`）→ 进入作业（`routes/assignments.py::submit_code`）→ 提交代码（表单 POST → `evaluate_submission_async` 后台沙箱评测）→ 查看分数/反馈（`submission_detail.html`）→ 能力画像/知识点刷新（`tasks/ability_analysis.py`）。默认前端即此一条链路；另有同步 REST API `POST /api/submit`（`routes/api.py::submit_code`，无沙箱、直接累加统计），但调用它的 `static/js/code_submission.js` 未被任何模板加载，属未接线的可选/遗留接口。
 - **教师**：创建/编辑作业并维护测试用例（`routes/assignments.py`）→ 管理班级与花名册导入（`routes/classes.py`、`routes/users.py`）→ 查看提交矩阵/班级统计（`routes/classes.py`）→ AI 学情建议（`services/teacher_ai_advisor.py`）。
 - **体验访客**：登录页体验入口 → 每次访问创建独立临时 SQLite 库（`services/demo_database.py::create_demo_run`）→ 体验学生/教师视图 → 退出或超时后清理（`cleanup_expired_demo_runs`）。
 
@@ -215,20 +217,21 @@ config[env] → create_app() → 配置代理头/引擎/会话(Redis→文件降
   → init_async_tasks(任务线程 + 预设扫描线程) → 服务就绪
 ```
 
-**2. 代码提交评测流（两条真实入口，均已核实）**
+**2. 代码提交评测流（默认主链为异步沙箱；`/api/submit` 为同步遗留 API）**
 
 ```
-入口 A（表单，异步沙箱）：routes/assignments.py::submit_code (POST)
+主链（默认，异步沙箱）：routes/assignments.py::submit_code (POST 表单)
   → 创建 Submission(pending) → 启动后台线程 evaluate_submission_async
       ├─ evaluate_cpp_code（启发式 + LLM）→ 归一化为 0-5
       ├─ run_test_cases（g++ 编译 + 逐用例运行）→ sandbox_score = passed/total × 5，覆盖 AI 分数
       ├─ _refresh_assignment_stats / _refresh_user_stats（从完整历史重算）
       ├─ 更新知识点评分 / 自动检测 AssignmentKnowledgePoint
       └─ AbilityTrend.mark_as_outdated → trigger_analysis_if_needed
-  → Submission.status = evaluated
+  → Submission.status = evaluated → 重定向到评估等待页
 
-入口 B（API，同步无沙箱）：static/js/code_submission.js fetch('/api/submit')
-  → routes/api.py::submit_code → evaluate_cpp_code（同步，直接累加 total_score/average_score）
+旁路 API（同步，无沙箱，默认前端未接线）：routes/api.py::submit_code (POST /api/submit)
+  → evaluate_cpp_code（同步，model=None，无沙箱）→ 直接累加 assignment.total_score / count / average_score
+  → 由 static/js/code_submission.js::submitCodeViaAPI 提供，但该 JS 未被任何模板加载（已核实）
 ```
 
 **3. 沙箱执行流（`utils/sandbox_runner.py`）**
@@ -328,7 +331,7 @@ gunicorn -c gunicorn_config.py wsgi:application
 
 ## 【推断】
 
-1. **两条提交评测路径并存会带来不一致风险**（事实是"两条入口都被使用"，风险是推断）：入口 A（`assignments.submit_code`→`evaluate_submission_async`）与入口 B（`/api/submit`→同步 `evaluate_cpp_code`）对分数的口径（0–5 vs 0–100）与统计方式（历史重算 vs 直接累加）不同，若同一用户先后经两条路径提交，可能出现"同一提交得分不一致"或"统计被重复累加/口径漂移"。
+1. **同步 `/api/submit` 与异步主链在评分口径/统计方式上不一致，存在潜在风险**：默认主链（`assignments.submit_code`→`evaluate_submission_async`）走沙箱 + 完整历史重算，而 `routes/api.py` 的 `/api/submit`（同步 `evaluate_cpp_code`，无沙箱）直接 `total_score += score` 累加，两者分数口径（0–5 vs 0–100）与统计方式不同。事实是 `/api/submit` 的调用脚本 `code_submission.js` 未被任何模板加载（默认前端不触发），因此默认流程实际只走异步主链一条；但该同步接口仍在 README 中对外公开，一旦有客户端直接调用，即可能产生"同一提交两种得分/统计漂移"。
 
 2. **评分口径存在三套并存**：作业提交 0–5 分、能力画像/知识点/贝叶斯权重 0–100 分；`code_evaluator.py` 启发式返回 0–5、LLM 路径返回 0–100、历史还有 0–10，靠 `submission_tasks._normalise_score` 事后归一。这种"入参口径不定 + 集中归一"是历史演进痕迹，也是未来出 bug 高发区。
 
@@ -348,7 +351,7 @@ gunicorn -c gunicorn_config.py wsgi:application
 
 > 以下问题在本次分析中无法仅凭仓库代码/README 完全确定，需进一步核对或由维护者确认：
 
-1. **两条提交路径的取舍意图**：`/api/submit`（同步旧路径）与表单后台评测（异步沙箱）是否刻意共存，还是旧路径待下线？前端 `code_submission.js` 与模板表单分别服务哪些页面，是否存在同一用户跨两条路径提交的真实场景。
+1. **`/api/submit` 的取舍意图**：该同步接口（无沙箱、直接累加统计）在 README 中仍被列为公开 API，但其唯一前端调用 `code_submission.js` 未被任何模板加载，默认前端走的是 `assignments.submit_code` 异步主链。`/api/submit` 是否仍被外部客户端/旧版本前端使用、是否应下线，需维护者确认。
 2. **生产数据库实际 schema 与数据规模**：仓库只体现 SQLAlchemy 模型，生产 MySQL 的实际表结构、数据量、是否有历史脏数据（如 0–10 分制残留）无法从代码确认。
 3. **在线站点部署拓扑**：saucodesense.com 是否已加容器/OS 级沙箱隔离、是否真用 Nginx→Gunicorn、Redis 是否启用，均只能依据 `config.py`/`gunicorn_config.py` 的注释推断，无法从仓库验证。
 4. **语音转文字的实现范围**：README 称"部分流程支持语音转文字与文本优化"，代码中 `routes/thinking.py`、`static/js/thinking.js`、`templates/thinking/arena.html` 含 speech/recognition 相关代码（已核实存在），但具体启用条件、降级策略未逐一核对。
@@ -362,7 +365,7 @@ gunicorn -c gunicorn_config.py wsgi:application
 
 ### 高优先级
 
-1. **统一提交评测路径**。将 `/api/submit` 也接入 `evaluate_submission_async` 的沙箱 + 历史重算链路，消除"同一提交两种评分/两种统计"的不一致；否则应在文档/接口上明确标注 `/api/submit` 为 legacy 并规划下线。
+1. **统一提交评测路径**。默认前端已只走 `assignments.submit_code`→`evaluate_submission_async` 异步主链；同步 `/api/submit`（无沙箱、直接累加）应要么接入同一沙箱 + 历史重算链路，要么在 README/接口上明确标注 legacy 并规划下线，消除"同一提交两种评分/两种统计"的隐患。
 
 2. **收敛评分口径**。在模块边界内强制单一分数制（如内部统一 0–100，仅落库时归一为 0–5），把 `_normalise_score` 这类"事后猜测量纲"的逻辑前移到评估器返回处，减少隐式 `×20`/`÷2` 的脆弱性。
 
