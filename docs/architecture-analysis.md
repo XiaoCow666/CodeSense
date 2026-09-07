@@ -218,13 +218,16 @@ _evaluate()  [submission_tasks.py 第96行]
 
 #### 默认配置与队列后端差异
 
-| 维度 | 默认配置（thread） | RQ 队列后端（如启用） |
-|------|-------------------|---------------------|
-| 实现方式 | `threading.Thread` daemon 线程 | Redis Queue 独立 worker 进程 |
-| 代码位置 | `tasks/submission_tasks.py` 第 291 行 | 需额外配置 `SUBMISSION_EVALUATION_QUEUE_BACKEND=RQ` |
-| 进程隔离 | 与 Flask 主进程同进程 | 独立 worker 进程，崩溃不影响主服务 |
-| 任务持久化 | 进程重启后丢失 | Redis 持久化，可重试 |
-| 当前状态 | **默认且唯一已实现路径** | 代码中未见实际 RQ 分支，属预留扩展点 |
+> **重要**：当前代码中**仅存在 thread 模式一种实现**。下表中 RQ 列描述的是未来可能的扩展方向，**当前不可通过配置启用**。代码中不存在 `SUBMISSION_EVALUATION_QUEUE_BACKEND` 配置项，也没有 RQ worker 的实现分支。
+
+| 维度 | 默认配置（thread，已实现） | RQ 队列后端（未来方案，未实现） |
+|------|---------------------------|--------------------------------|
+| 实现方式 | `threading.Thread` daemon 线程 | 需额外开发 Redis Queue worker 进程，当前代码无此分支 |
+| 代码位置 | `tasks/submission_tasks.py` 第 291 行 | 不存在，需新增 worker 入口与任务分发逻辑 |
+| 进程隔离 | 与 Flask 主进程同进程 | （规划中）独立 worker 进程，崩溃不影响主服务 |
+| 任务持久化 | 进程重启后丢失，无重试 | （规划中）需引入 Redis 持久化与失败重试机制 |
+| 配置方式 | 无需配置，默认启用 | （规划中）需新增配置项并实现条件分支 |
+| 当前状态 | **默认且唯一已实现路径** | **未实现**，不可通过环境变量启用 |
 
 > **验证结论修正**：此前文档将 `/api/submit` 误描述为异步主链。经核对 `routes/api.py` 第 303 行，该入口在请求内直接同步调用 `evaluate_cpp_code()`；异步后台线程仅由网页入口 `routes/assignments.py` 第 546 行触发。`utils/async_tasks.py` 的 `AsyncTaskManager` 是另一个独立的任务队列系统，用于能力趋势分析等耗时任务，不参与代码提交评测。
 
@@ -278,7 +281,9 @@ services/demo_experience.py → seed_demo_experience()  [播种完整模拟数�
 - g++（C++17 编译器，需在 PATH 中）
 - 智谱或 OpenAI API 密钥（可选，不配置时 AI 功能不可用但基础功能正常）
 
-**启动步骤**（依据 README "快速开始" 章节）：
+**支持的 Python 版本**：项目 `requirements.txt` 固定依赖（Flask 2.2.3 / Werkzeug 2.2.3 / Flask-Session 0.4.0）在 **Python 3.10 / 3.11** 上可直接安装运行。Python 3.12+ 因标准库移除 `ast.Str`，原始依赖会报 `AttributeError`，需额外升级（见下方 Python 3.14 兼容流程）。
+
+**快速开始（Python 3.10 / 3.11，原始依赖，已验证可直接运行）**：
 
 ```bash
 # 1. 创建虚拟环境
@@ -286,7 +291,7 @@ python -m venv .venv
 # Windows: .venv\Scripts\activate
 # macOS/Linux: source .venv/bin/activate
 
-# 2. 安装依赖
+# 2. 安装依赖（原始固定版本，无需额外升级）
 pip install -r requirements.txt
 
 # 3. 配置环境变量
@@ -298,7 +303,28 @@ python run.py
 # 打开 http://127.0.0.1:5000/login
 ```
 
-**实际运行验证**：在 Windows 11 + Python 3.14.7 环境下，完成依赖安装与 `.env` 配置后，`python run.py` 成功启动，`/login` 返回 HTTP 200（页面 21KB），`/about`、`/help`、`/contact` 均正常返回，`/` 未登录时正确 302 重定向。
+**Python 3.14 兼容验证流程（临时兼容方案，非项目官方支持配置）**：
+
+由于 Python 3.14 已移除 `ast.Str`，原始固定依赖无法直接导入。以下为本次分析实际验证时使用的覆盖安装顺序，仅用于在新 Python 版本上完成本地启动验证：
+
+```bash
+# 1. 创建虚拟环境
+python -m venv .venv
+.venv\Scripts\activate  # Windows
+
+# 2. 先安装原始依赖（安装 Flask 2.2.3 / Werkzeug 2.2.3 / Flask-Session 0.4.0）
+pip install -r requirements.txt
+
+# 3. 覆盖升级三个不兼容依赖（临时兼容，会修改 requirements.txt 锁定的版本）
+pip install Flask==2.3.3 Werkzeug==2.3.7 Flask-Session==0.8.0
+
+# 4. 配置 .env 并启动
+python run.py
+```
+
+> 注意：步骤 3 的升级仅为在 Python 3.14 上完成本地验证的临时手段，不属于项目官方支持的依赖组合。升级后未运行完整 pytest 套件，仅验证了应用启动和基础页面可访问。生产环境应使用 Python 3.10 / 3.11 + 原始依赖。
+
+**实际运行验证**：在 Windows 11 + Python 3.14.7 环境下，按上述 Python 3.14 兼容流程完成依赖安装与 `.env` 配置后，`python run.py` 成功启动，`/login` 返回 HTTP 200（页面 21KB），`/about`、`/help`、`/contact` 均正常返回，`/` 未登录时正确 302 重定向。
 
 ### 4.2 运行测试
 
@@ -350,9 +376,10 @@ python -m pytest tests -q
 
 **3. Python 版本兼容性**
 - `requirements.txt` 固定了 `Flask==2.2.3`、`Werkzeug==2.2.3`、`Flask-Session==0.4.0`
-- 这些版本在 Python 3.12+ 上存在 `ast.Str` 已移除等兼容性问题（实际验证：Python 3.14 上直接运行报 `AttributeError`）
-- **风险**：新环境部署可能遇到依赖冲突
-- **建议**：项目应考虑升级最低依赖版本，或明确声明支持的 Python 上限
+- 这些版本在 Python 3.10 / 3.11 上可正常运行；Python 3.12+ 因 `ast.Str` 已移除会报 `AttributeError`（实际验证：Python 3.14.7 上直接运行报错）
+- 本次分析在 Python 3.14 上通过临时升级 Flask 2.3.3 / Werkzeug 2.3.7 / Flask-Session 0.8.0 完成了启动验证，但这不属于项目官方支持配置
+- **风险**：新环境（Python 3.12+）部署可能遇到依赖冲突，项目未明确声明支持的 Python 版本上限
+- **建议**：项目应升级最低依赖版本以兼容 Python 3.12+，或在 README 中明确声明仅支持 Python 3.10 / 3.11
 
 **4. 单文件过大**
 - `routes/thinking.py` 97KB、`utils/thinking_ai.py` 62KB、`utils/agents/feynman.py` 59KB、`models.py` 62KB
