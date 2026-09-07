@@ -8,7 +8,7 @@
 
 ### 1.1 是什么
 
-CodeSense（酷森思）是一个**面向高校编程教学的代码评测与 AI 引导学习平台**。它不是传统意义上只给 AC/WA 判定的 OJ（Online Judge），而是把"代码提交 → 受限编译运行 → AI 辅导 → 三阶段引导式学习 → 学情分析"串联在同一条流程中，帮助学生从"写对代码"走向"理解代码"。
+CodeSense（酷森思）是一个**面向高校编程教学的代码评测与 AI 引导学习平台**。它不是传统意义上只给 AC/WA 判定的 OJ（Online Judge），而是把"代码提交 → AI 评分辅导 → 三阶段引导式学习 → 学情分析"串联在同一条流程中，帮助学生从"写对代码"走向"理解代码"。网页提交路径额外包含受限沙箱编译运行与测试用例评判（详见 §3.1）。
 
 项目当前版本为 **v1.0.0**（首个正式版），采用 MIT 许可证开源，在线体验站点为 saucodesense.com。
 
@@ -21,7 +21,7 @@ README 明确指出了传统 OJ 的痛点：
 CodeSense 的应对方式是：
 - **学生侧**：先写思路 → 再组装步骤 → 最后向 AI 解释代码（费曼教学法），AI 通过追问而非直接给答案来引导
 - **教师侧**：自动汇总班级完成情况、知识点得分、能力趋势，AI 生成学情建议
-- **评测侧**：受限沙箱编译运行 C++17 代码，给出编译错误、运行时错误、超时和测试结果
+- **评测侧**：网页提交路径包含受限沙箱编译运行 C++17 代码，给出编译错误、运行时错误、超时和测试用例结果；API 提交路径仅做 AI/启发式评分，不执行沙箱测试
 
 ### 1.3 适用对象
 
@@ -37,23 +37,22 @@ CodeSense 的应对方式是：
 
 ### 2.1 整体架构分层
 
-项目采用经典的 Flask 分层架构，从外到内依次为：
+项目采用经典的 Flask 分层架构。`models.py` 是路由、服务、任务三层共享的数据访问层；`tasks/` 为可选异步执行分支，路由可直接调用工具层同步执行，也可启动后台任务异步执行。
 
 ```
 浏览器 (HTTP/SSE)
     ↓
 routes/          路由层（8 个 Blueprint，处理 HTTP 请求）
-    ↓
-services/        服务层（8 个业务服务，封装核心逻辑）
-    ↓
-utils/           工具层（15+ 模块 + agents/ 多 Agent 子系统）
-    ↓
-tasks/           异步任务层（后台线程队列）
-    ↓
-models.py        数据模型层（18 个 db.Model，SQLAlchemy ORM）
-    ↓
-SQLite / MySQL   数据存储
+    ├──→ services/    服务层（8 个业务服务，封装核心逻辑）
+    ├──→ utils/       工具层（15+ 模块 + agents/ 多 Agent 子系统）
+    ├──→ tasks/       异步任务层（可选，后台线程队列）
+    │       └──→ utils/  （任务内部调用工具层执行评测/分析）
+    └──→ models.py    数据模型层（18 个 db.Model，SQLAlchemy ORM，各层共享）
+                ↓
+          SQLite / MySQL   数据存储
 ```
+
+> 注：API 提交入口（`routes/api.py`）直接同步调用 `utils/code_evaluator.py` 并写入 `models.py`，不经过 `tasks/`；网页提交入口（`routes/assignments.py`）启动 `tasks/submission_tasks.py` 后台线程异步执行。
 
 外部依赖包括：g++（C++17 编译执行）、智谱/OpenAI LLM 服务、Redis（可选，会话存储）。
 
@@ -183,7 +182,13 @@ POST /api/submit  →  routes/api.py → submit_code()  [第271行]
     └── 返回 JSON：{ submission_id, score, status: "evaluated" }  [第358行]
 ```
 
-**特点**：请求-响应周期内完成全部评测，无后台线程，无状态轮询。AI 调用耗时会直接体现在 HTTP 响应延迟上。
+**特点**：请求-响应周期内完成 AI 评分，无后台线程，无状态轮询。AI 调用耗时会直接体现在 HTTP 响应延迟上。
+
+**评分语义**：
+- **是否编译运行**：否。仅调用 `evaluate_cpp_code()` 做静态分析，不调用 g++ 编译，不执行沙箱测试
+- **评分依据**：启发式规则 + LLM 五维度评估（代码结构、逻辑正确性、风格、效率、可读性），分数范围 0-5
+- **`status="evaluated"` 含义**：AI/启发式评分已完成，**不代表代码经过编译或测试用例验证**
+- **与网页入口的差异**：API 入口不产生 `sandbox_status` / `sandbox_passed` / `sandbox_total` 字段
 
 #### 入口 B：网页提交 `POST /assignment/<id>/submit`（异步）
 
@@ -215,6 +220,12 @@ _evaluate()  [submission_tasks.py 第96行]
 ```
 
 **特点**：提交接口不阻塞，评测在 daemon 线程中执行；前端通过等待页面轮询或自动跳转获取结果。
+
+**评分语义**：
+- **是否编译运行**：是。后台线程先做 AI 评估，再调用 `run_test_cases()` 内部通过 g++ 编译并逐用例运行（5s 超时）
+- **评分依据**：先由 `evaluate_cpp_code()` 给出 AI 基础分；若作业配置了测试用例，则以沙箱通过率（passed/total × 5）覆盖 AI 分数，编译错误时最高 1 分
+- **`status="evaluated"` 含义**：AI 评估 + 沙箱测试均已完成，分数为最终成绩
+- **额外字段**：产生 `sandbox_status` / `sandbox_passed` / `sandbox_total` / `sandbox_detail`，记录编译运行结果
 
 #### 默认配置与队列后端差异
 
