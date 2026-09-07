@@ -24,7 +24,7 @@
   <a href="https://github.com/XiaoCow666/CodeSense/network/members"><img src="https://img.shields.io/github/forks/XiaoCow666/CodeSense?style=flat-square&logo=github" alt="GitHub forks"></a>
   <a href="https://github.com/XiaoCow666/CodeSense/blob/main/LICENSE"><img src="https://img.shields.io/github/license/XiaoCow666/CodeSense?style=flat-square" alt="License"></a>
   <img src="https://img.shields.io/badge/version-v1.0.0-2563eb?style=flat-square" alt="v1.0.0">
-  <img src="https://img.shields.io/badge/Python-3.8%2B-3776ab?style=flat-square&logo=python&logoColor=white" alt="Python 3.8+">
+  <img src="https://img.shields.io/badge/Python-3.8--3.13-3776ab?style=flat-square&logo=python&logoColor=white" alt="Python 3.8–3.13">
   <img src="https://img.shields.io/badge/Flask-2.2.3-000000?style=flat-square&logo=flask&logoColor=white" alt="Flask 2.2.3">
 </p>
 
@@ -223,7 +223,7 @@ flowchart LR
 
 ### Requirements
 
-- Python 3.8 or later;
+- Python 3.8–3.13; the currently pinned Flask/Werkzeug 2.2.3 combination has not been validated on Python 3.14.
 - An executable `g++` on `PATH` for C++ assessment;
 - SQLite for a simple development setup, or a configured `DATABASE_URL` for production;
 - A Zhipu or OpenAI API key for AI guidance, code advice, and selected learning analytics.
@@ -292,9 +292,17 @@ Open <http://127.0.0.1:5000/login>. Without an AI key, login, basic pages, and f
 
 ### 5. Run tests
 
+Install the test-only dependencies before running the test suite:
+
+```powershell
+python -m pip install -r requirements-test.txt
+```
+
 ```bash
 python -m pytest tests -q
 ```
+
+> Compatibility boundary: with Python 3.14, the currently pinned Flask/Werkzeug 2.2.3 combination fails during route initialization because of the removed `ast.Str` compatibility. This PR records the boundary without upgrading the framework dependencies; supporting Python 3.14 requires a separate Flask/Werkzeug upgrade review and full regression run.
 
 Tests involving C++ assessment require `g++`. Tests that call a real AI service also require the corresponding environment configuration.
 

@@ -22,7 +22,7 @@
   <a href="https://github.com/XiaoCow666/CodeSense/network/members"><img src="https://img.shields.io/github/forks/XiaoCow666/CodeSense?style=flat-square&logo=github" alt="GitHub forks"></a>
   <a href="https://github.com/XiaoCow666/CodeSense/blob/main/LICENSE"><img src="https://img.shields.io/github/license/XiaoCow666/CodeSense?style=flat-square" alt="License"></a>
   <img src="https://img.shields.io/badge/version-v1.0.0-2563eb?style=flat-square" alt="v1.0.0">
-  <img src="https://img.shields.io/badge/Python-3.8%2B-3776ab?style=flat-square&logo=python&logoColor=white" alt="Python 3.8+">
+  <img src="https://img.shields.io/badge/Python-3.8--3.13-3776ab?style=flat-square&logo=python&logoColor=white" alt="Python 3.8–3.13">
   <img src="https://img.shields.io/badge/Flask-2.2.3-000000?style=flat-square&logo=flask&logoColor=white" alt="Flask 2.2.3">
 </p>
 
@@ -212,7 +212,7 @@ flowchart LR
 
 ### 环境要求
 
-- Python 3.8 或更高版本；
+- Python 3.8–3.13；当前锁定的 Flask/Werkzeug 2.2.3 组合尚未兼容验证 Python 3.14。
 - C++ 评测需要可执行的 <code>g++</code>，并确保它在 <code>PATH</code> 中；
 - 开发环境可以使用 SQLite，生产环境需要配置 <code>DATABASE_URL</code>；
 - AI 引导、代码建议和部分学情分析需要智谱或 OpenAI API 密钥。
@@ -228,7 +228,7 @@ python -m venv .venv
 Windows PowerShell：
 
 ~~~powershell
-.venvScriptsActivate.ps1
+.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 Copy-Item .env.example .env
 ~~~
@@ -280,9 +280,17 @@ python run.py
 
 ### 5. 运行测试
 
+如果需要运行仓库测试，请额外安装测试依赖：
+
+~~~powershell
+python -m pip install -r requirements-test.txt
+~~~
+
 ~~~bash
 python -m pytest tests -q
 ~~~
+
+> 兼容性边界：在 Python 3.14 下，当前 Flask/Werkzeug 2.2.3 组合会在路由初始化阶段触发 `ast.Str` 兼容性错误。本次仅记录边界，不升级框架依赖；如需支持 Python 3.14，应单独评审 Flask/Werkzeug 升级并执行完整回归。
 
 涉及 C++ 评测的测试需要 <code>g++</code>；涉及真实 AI 服务的测试还需要相应环境变量。
 
