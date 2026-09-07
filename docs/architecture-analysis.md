@@ -277,7 +277,7 @@ services/demo_experience.py → seed_demo_experience()  [播种完整模拟数�
 ### 4.1 本地运行
 
 **环境要求**：
-- Python 3.8+（实际验证：Python 3.14 需升级 Flask 至 2.3.3、Werkzeug 至 2.3.7、Flask-Session 至 0.8.0）
+- Python：原始固定依赖（Flask 2.2.3 等）在 **3.10 / 3.11** 上可直接运行；Python 3.12+ 需按下方兼容流程升级依赖（本次验证使用 3.14.7）
 - g++（C++17 编译器，需在 PATH 中）
 - 智谱或 OpenAI API 密钥（可选，不配置时 AI 功能不可用但基础功能正常）
 
