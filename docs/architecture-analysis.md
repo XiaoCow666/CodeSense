@@ -207,9 +207,9 @@ POST /assignment/<id>/submit  →  routes/assignments.py → submit_code()  [第
     ↓（HTTP 响应已返回，以下在 daemon 后台线程异步执行）
 _evaluate()  [submission_tasks.py 第96行]
     ├── AI 基础评估：evaluate_cpp_code() → score/feedback  [第123行]
-    ├── 沙箱测试用例评判：run_test_cases() → sandbox_status/passed/total  [第159行]
-    │     └── 有用例时以沙箱结果覆盖 AI 分数（passed/total × 5）
-    ├── submission.status = "evaluated"
+    ├── 沙箱测试用例评判（仅当作业有测试用例时执行）：run_test_cases() → sandbox_status/passed/total  [第157-159行]
+    │     └── 有用例且 total>0 时以沙箱结果覆盖 AI 分数（passed/total × 5）
+    ├── submission.status = "evaluated"  [第193行，无论沙箱是否执行]
     ├── _refresh_assignment_stats() / _refresh_user_stats() 重新聚合统计
     ├── 知识点得分更新（KnowledgePointScore.update_score）
     ├── 能力分析刷新（trigger_analysis_if_needed）
@@ -222,10 +222,20 @@ _evaluate()  [submission_tasks.py 第96行]
 **特点**：提交接口不阻塞，评测在 daemon 线程中执行；前端通过等待页面轮询或自动跳转获取结果。
 
 **评分语义**：
-- **是否编译运行**：是。后台线程先做 AI 评估，再调用 `run_test_cases()` 内部通过 g++ 编译并逐用例运行（5s 超时）
-- **评分依据**：先由 `evaluate_cpp_code()` 给出 AI 基础分；若作业配置了测试用例，则以沙箱通过率（passed/total × 5）覆盖 AI 分数，编译错误时最高 1 分
-- **`status="evaluated"` 含义**：AI 评估 + 沙箱测试均已完成，分数为最终成绩
-- **额外字段**：产生 `sandbox_status` / `sandbox_passed` / `sandbox_total` / `sandbox_detail`，记录编译运行结果
+- **是否编译运行**：视作业配置而定。后台线程先做 AI 评估；仅当作业配置了测试用例时，才调用 `run_test_cases()` 内部通过 g++ 编译并逐用例运行（5s 超时）
+- **评分依据**：
+  - 无测试用例：分数为 `evaluate_cpp_code()` 的 AI 基础分（0-5），不执行沙箱
+  - 有测试用例且 `total > 0`：以沙箱通过率（passed/total × 5）覆盖 AI 分数
+  - 编译错误（`sandbox_status="compile_error"`）：分数受限（代码中判断 `status=="error"` 时最高 1 分，注：sandbox_runner 实际返回 `"compile_error"`，与判断值存在不一致）
+  - 沙箱异常：非 demo 模式下静默跳过，分数保持 AI 评分
+- **`status="evaluated"` 含义**：评测流程已结束（AI 评估已执行），**不代表沙箱测试一定执行了**。具体编译和测试执行情况以 `sandbox_status` 等字段为准
+- **沙箱字段含义**：
+  - `sandbox_status=None`：作业无测试用例，未执行沙箱测试，分数为 AI 评分
+  - `sandbox_status="passed"/"partial"/"failed"`：沙箱测试执行完成，分数为通过率
+  - `sandbox_status="compile_error"`：编译失败，未运行测试用例
+  - `sandbox_status="unavailable"`：沙箱不可用
+  - `sandbox_passed` / `sandbox_total`：通过用例数 / 总用例数（无测试用例时为 None）
+  - `sandbox_detail`：各用例执行详情的 JSON 字符串
 
 #### 默认配置与队列后端差异
 
