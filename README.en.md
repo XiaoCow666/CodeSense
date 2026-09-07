@@ -223,7 +223,7 @@ flowchart LR
 
 ### Requirements
 
-- Python 3.8–3.13; the currently pinned Flask/Werkzeug 2.2.3 combination has not been validated on Python 3.14.
+- Python 3.8–3.13; the currently pinned Flask/Werkzeug 2.2.3 combination has a known route-initialization compatibility error on Python 3.14.
 - An executable `g++` on `PATH` for C++ assessment;
 - SQLite for a simple development setup, or a configured `DATABASE_URL` for production;
 - A Zhipu or OpenAI API key for AI guidance, code advice, and selected learning analytics.

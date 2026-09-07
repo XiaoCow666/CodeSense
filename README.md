@@ -212,7 +212,7 @@ flowchart LR
 
 ### 环境要求
 
-- Python 3.8–3.13；当前锁定的 Flask/Werkzeug 2.2.3 组合尚未兼容验证 Python 3.14。
+- Python 3.8–3.13；当前锁定的 Flask/Werkzeug 2.2.3 组合在 Python 3.14 下存在已知的路由初始化兼容性错误。
 - C++ 评测需要可执行的 <code>g++</code>，并确保它在 <code>PATH</code> 中；
 - 开发环境可以使用 SQLite，生产环境需要配置 <code>DATABASE_URL</code>；
 - AI 引导、代码建议和部分学情分析需要智谱或 OpenAI API 密钥。
