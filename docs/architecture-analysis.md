@@ -159,36 +159,74 @@ SQLite / MySQL   数据存储
 
 ## 三、核心流程
 
-### 3.1 代码提交流程（POST /api/submit，异步）
+### 3.1 代码提交流程（两个入口：API 同步 / 网页异步）
 
-`/api/submit` 是**异步接口**：请求到达后立即创建 Submission 记录并返回 `submission_id`，不等待评测完成。实际的编译、运行和评分在后台线程中异步执行，前端通过轮询状态接口获取结果。
+项目存在**两个独立的代码提交入口**，执行模式不同，需明确区分：
+
+#### 入口 A：API 提交 `POST /api/submit`（同步）
+
+`routes/api.py::submit_code()`（第 271 行）在请求线程内**同步执行**评测，HTTP 响应返回时已包含评分结果。
 
 ```
-学生在 submit_code.html 编辑代码并提交
+前端发送 JSON { code, assignment_id, language }
     ↓
-POST /api/submit  →  routes/api.py → submit_code()
+POST /api/submit  →  routes/api.py → submit_code()  [第271行]
     ├── 参数校验（作业 ID、代码内容、登录态）
-    ├── 创建 Submission 记录（status="evaluating"）
-    ├── 提交后台任务 tasks/submission_tasks.py → evaluate_submission_async()
-    └── 立即返回 JSON：{ submission_id, status: "evaluating" }
-    ↓（HTTP 响应已返回，以下在后台线程异步执行）
-evaluate_submission_async(app, submission_id, ...)
-    ├── utils/sandbox_runner.py → compile_cpp()     [g++ 编译，15s 超时]
-    ├── utils/sandbox_runner.py → run_test_cases()  [逐用例运行，5s 超时]
-    ├── utils/code_evaluator.py → evaluate_cpp_code()  [启发式+AI评分]
-    ├── services/ai_evaluator.py → evaluate_code()     [AI五维度评估]
-    ├── 更新 Submission 得分/反馈（status="completed" 或 "failed"）
-    └── 刷新作业统计 + 用户统计
-    ↓
-前端轮询 GET /api/submission/status/<submission_id> 获取评测结果
-（另有 GET /api/submission/<id> 获取完整详情）
+    ├── 创建 Submission 记录（status="pending"）[第289行]
+    ├── db.session.commit() 保存获取 ID
+    ├── 同步调用 utils/code_evaluator.py → evaluate_cpp_code()  [第303行]
+    │     └── 启发式评分 + LLM 五维度评估（阻塞等待返回）
+    ├── 更新 submission.score / feedback / status="evaluated"  [第310-312行]
+    ├── 解析 AI 反馈 JSON，写入 submission.ai_feedback
+    ├── 累加更新作业统计（total_score / count / average_score）
+    ├── 触发能力分析刷新（trigger_analysis_if_needed）
+    └── 返回 JSON：{ submission_id, score, status: "evaluated" }  [第358行]
 ```
 
-**关键设计**：
-- **异步非阻塞**：提交接口不等待评测完成，避免 HTTP 长连接阻塞
-- **后台线程执行**：评测通过 `utils/async_tasks.py` 的线程池任务队列执行
-- **状态轮询**：前端通过 `submission_id` 轮询状态接口，从 `evaluating` → `completed`/`failed`
-- **沙箱隔离**：编译运行使用临时工作目录，执行后清理
+**特点**：请求-响应周期内完成全部评测，无后台线程，无状态轮询。AI 调用耗时会直接体现在 HTTP 响应延迟上。
+
+#### 入口 B：网页提交 `POST /assignment/<id>/submit`（异步）
+
+`routes/assignments.py::submit_code()`（第 483 行）通过后台线程**异步执行**评测，提交后立即重定向到等待页面。
+
+```
+学生在 submit_code.html 填写表单并提交（form.validate_on_submit）
+    ↓
+POST /assignment/<id>/submit  →  routes/assignments.py → submit_code()  [第483行]
+    ├── 参数校验（代码长度 ≥ 10 字符）
+    ├── 创建 Submission 记录（status="pending"）[第533行]
+    ├── db.session.commit()
+    ├── 调用 tasks/submission_tasks.py → evaluate_submission_async()  [第546行]
+    │     └── 内部 threading.Thread(target=_evaluate).start()  [第291行]
+    └── 立即重定向到 /submission/<id>/evaluating 等待页  [第555行]
+    ↓（HTTP 响应已返回，以下在 daemon 后台线程异步执行）
+_evaluate()  [submission_tasks.py 第96行]
+    ├── AI 基础评估：evaluate_cpp_code() → score/feedback  [第123行]
+    ├── 沙箱测试用例评判：run_test_cases() → sandbox_status/passed/total  [第159行]
+    │     └── 有用例时以沙箱结果覆盖 AI 分数（passed/total × 5）
+    ├── submission.status = "evaluated"
+    ├── _refresh_assignment_stats() / _refresh_user_stats() 重新聚合统计
+    ├── 知识点得分更新（KnowledgePointScore.update_score）
+    ├── 能力分析刷新（trigger_analysis_if_needed）
+    └── SystemLog.add_log("评测完成")（非 demo 模式）
+    ↓
+等待页 submission_evaluating.html 自动检测 status 变化，
+完成后跳转到 /submission/<id> 详情页
+```
+
+**特点**：提交接口不阻塞，评测在 daemon 线程中执行；前端通过等待页面轮询或自动跳转获取结果。
+
+#### 默认配置与队列后端差异
+
+| 维度 | 默认配置（thread） | RQ 队列后端（如启用） |
+|------|-------------------|---------------------|
+| 实现方式 | `threading.Thread` daemon 线程 | Redis Queue 独立 worker 进程 |
+| 代码位置 | `tasks/submission_tasks.py` 第 291 行 | 需额外配置 `SUBMISSION_EVALUATION_QUEUE_BACKEND=RQ` |
+| 进程隔离 | 与 Flask 主进程同进程 | 独立 worker 进程，崩溃不影响主服务 |
+| 任务持久化 | 进程重启后丢失 | Redis 持久化，可重试 |
+| 当前状态 | **默认且唯一已实现路径** | 代码中未见实际 RQ 分支，属预留扩展点 |
+
+> **验证结论修正**：此前文档将 `/api/submit` 误描述为异步主链。经核对 `routes/api.py` 第 303 行，该入口在请求内直接同步调用 `evaluate_cpp_code()`；异步后台线程仅由网页入口 `routes/assignments.py` 第 546 行触发。`utils/async_tasks.py` 的 `AsyncTaskManager` 是另一个独立的任务队列系统，用于能力趋势分析等耗时任务，不参与代码提交评测。
 
 ### 3.2 三阶段引导式学习流程
 
