@@ -277,11 +277,14 @@ services/demo_experience.py → seed_demo_experience()  [播种完整模拟数�
 ### 4.1 本地运行
 
 **环境要求**：
-- Python：原始固定依赖（Flask 2.2.3 等）在 **3.10 / 3.11** 上可直接运行；Python 3.12+ 需按下方兼容流程升级依赖（本次验证使用 3.14.7）
+- Python：原始固定依赖（Flask 2.2.3 等）在 **3.10 / 3.11** 上已验证可直接运行；**3.12 / 3.13 未验证**（`ast.Str` 仅被废弃未移除，可能可运行但会触发 deprecation warning）；**3.14 已验证需升级依赖**（本次验证使用 3.14.7）
 - g++（C++17 编译器，需在 PATH 中）
 - 智谱或 OpenAI API 密钥（可选，不配置时 AI 功能不可用但基础功能正常）
 
-**支持的 Python 版本**：项目 `requirements.txt` 固定依赖（Flask 2.2.3 / Werkzeug 2.2.3 / Flask-Session 0.4.0）在 **Python 3.10 / 3.11** 上可直接安装运行。Python 3.12+ 因标准库移除 `ast.Str`，原始依赖会报 `AttributeError`，需额外升级（见下方 Python 3.14 兼容流程）。
+**支持的 Python 版本**：项目 `requirements.txt` 固定依赖（Flask 2.2.3 / Werkzeug 2.2.3 / Flask-Session 0.4.0）在 **Python 3.10 / 3.11** 上已验证可直接安装运行。`ast.Str` 在 Python 3.12 中被废弃（deprecated）、在 Python 3.14 中才被移除（removed），因此：
+- **Python 3.14**：原始依赖导入时报 `AttributeError: module 'ast' has no attribute 'Str'`，必须升级依赖（见下方兼容流程）
+- **Python 3.12 / 3.13**：`ast.Str` 仍存在，理论上可能可直接运行，但会触发 deprecation warning；本次未实测验证，需使用者自行确认
+- **Python 3.10 / 3.11**：已验证可直接运行，推荐使用
 
 **快速开始（Python 3.10 / 3.11，原始依赖，已验证可直接运行）**：
 
@@ -303,9 +306,9 @@ python run.py
 # 打开 http://127.0.0.1:5000/login
 ```
 
-**Python 3.14 兼容验证流程（临时兼容方案，非项目官方支持配置）**：
+**Python 3.14 兼容验证流程（临时兼容方案，非项目官方支持配置，仅适用于 Python 3.14）**：
 
-由于 Python 3.14 已移除 `ast.Str`，原始固定依赖无法直接导入。以下为本次分析实际验证时使用的覆盖安装顺序，仅用于在新 Python 版本上完成本地启动验证：
+由于 Python 3.14 已移除 `ast.Str`（3.12 中仅废弃、3.14 中正式移除），原始固定依赖无法直接导入。以下为本次分析在 Python 3.14.7 上实际验证时使用的覆盖安装顺序，仅用于在 Python 3.14 上完成本地启动验证：
 
 ```bash
 # 1. 创建虚拟环境
@@ -322,7 +325,12 @@ pip install Flask==2.3.3 Werkzeug==2.3.7 Flask-Session==0.8.0
 python run.py
 ```
 
-> 注意：步骤 3 的升级仅为在 Python 3.14 上完成本地验证的临时手段，不属于项目官方支持的依赖组合。升级后未运行完整 pytest 套件，仅验证了应用启动和基础页面可访问。生产环境应使用 Python 3.10 / 3.11 + 原始依赖。
+> 注意：
+> - 上述升级仅为在 **Python 3.14** 上完成本地验证的临时手段，不属于项目官方支持的依赖组合
+> - 升级后未运行完整 pytest 套件，仅验证了应用启动和基础页面可访问
+> - **已验证可运行**：Python 3.10 / 3.11 + 原始依赖；Python 3.14 + 升级后依赖（仅启动验证）
+> - **未验证**：Python 3.12 / 3.13（ast.Str 仍存在但已废弃，可能可运行但需实测）
+> - **项目正式支持范围**：README 未明确声明，建议以 Python 3.10 / 3.11 + 原始依赖为准
 
 **实际运行验证**：在 Windows 11 + Python 3.14.7 环境下，按上述 Python 3.14 兼容流程完成依赖安装与 `.env` 配置后，`python run.py` 成功启动，`/login` 返回 HTTP 200（页面 21KB），`/about`、`/help`、`/contact` 均正常返回，`/` 未登录时正确 302 重定向。
 
@@ -376,10 +384,11 @@ python -m pytest tests -q
 
 **3. Python 版本兼容性**
 - `requirements.txt` 固定了 `Flask==2.2.3`、`Werkzeug==2.2.3`、`Flask-Session==0.4.0`
-- 这些版本在 Python 3.10 / 3.11 上可正常运行；Python 3.12+ 因 `ast.Str` 已移除会报 `AttributeError`（实际验证：Python 3.14.7 上直接运行报错）
-- 本次分析在 Python 3.14 上通过临时升级 Flask 2.3.3 / Werkzeug 2.3.7 / Flask-Session 0.8.0 完成了启动验证，但这不属于项目官方支持配置
-- **风险**：新环境（Python 3.12+）部署可能遇到依赖冲突，项目未明确声明支持的 Python 版本上限
-- **建议**：项目应升级最低依赖版本以兼容 Python 3.12+，或在 README 中明确声明仅支持 Python 3.10 / 3.11
+- `ast.Str` 在 Python 3.12 中被废弃（deprecated），在 Python 3.14 中才被移除（removed）
+- **已验证**：Python 3.10 / 3.11 + 原始依赖可正常运行；Python 3.14.7 上原始依赖报 `AttributeError: module 'ast' has no attribute 'Str'`，升级 Flask 2.3.3 / Werkzeug 2.3.7 / Flask-Session 0.8.0 后可启动（仅启动验证，未跑完整测试）
+- **未验证**：Python 3.12 / 3.13，`ast.Str` 仍存在但已废弃，可能可直接运行但会触发 deprecation warning，需实测确认
+- **风险**：项目未明确声明支持的 Python 版本范围；Python 3.14 用户必须手动升级依赖才能运行；3.12/3.13 兼容性未知
+- **建议**：项目应升级最低依赖版本以兼容 Python 3.14，或在 README 中明确声明已验证支持的 Python 版本（3.10 / 3.11），并将 3.12+ 标记为未验证/需额外配置
 
 **4. 单文件过大**
 - `routes/thinking.py` 97KB、`utils/thinking_ai.py` 62KB、`utils/agents/feynman.py` 59KB、`models.py` 62KB
@@ -420,7 +429,7 @@ CodeSense 最有价值的设计不是"又一个 OJ"，而是**把学习过程本
 
 ### 6.3 可以改进的方向
 
-1. **依赖版本升级**：将 Flask/Werkzeug/Flask-Session 升级到兼容 Python 3.12+ 的版本，降低新用户部署门槛
+1. **依赖版本升级**：将 Flask/Werkzeug/Flask-Session 升级到兼容 Python 3.14 的版本（当前固定版本在 3.14 上因 `ast.Str` 移除而报错），降低新用户部署门槛
 2. **大文件拆分**：`thinking.py` 和 `thinking_ai.py` 可以按阶段拆分为多个模块
 3. **沙箱容器化**：用 Docker 替代 subprocess，提升公网部署安全性
 4. **异步任务外部化**：用 Celery/RQ 替代进程内线程池，支持多 worker 部署
