@@ -12,29 +12,32 @@
 
 ## 交付说明（PR Body）
 
-> 本节为交付说明，可作为 PR 描述正文。核心交付物是本文档自【事实】起的完整分析；本节交代交付范围、分析方法、验证结果与风险，供评审核对。
+> 本节为 PR 描述正文，供评审进入前核对。
 
-**交付内容**：对 CodeSense 酷森思（面向高校编程教学的代码评测与学习平台）做一次只读静态分析，产出结构化文档，严格区分【事实】（可验证、附文件定位）／【推断】（合理判断）／【建议】（行动项）三层，覆盖项目定位与主要用户流程、技术栈、目录与模块职责、关键请求/任务/数据流、运行与测试方式，以及当前风险与未知项、建议的下一步。
+### 变更摘要
 
-**分析工具（AI 工具）**：本分析由 Claude Code（Anthropic）完成，仅使用只读的文件读取（Read）、内容检索（Grep）、路径匹配（Glob）以及 `wc -l`、`ls`、`find` 等只读 shell 命令。未使用 Web 搜索、未引用外部文档、未运行 `pytest` 或应用服务器、未执行任何会修改仓库的操作。
+本次 PR 新增 `docs/project-analysis.md`：对 CodeSense 酷森思（面向高校编程教学的代码评测与学习平台）做一次只读静态分析，产出结构化文档，严格区分【事实】（可验证、附文件定位）／【推断】（合理判断）／【建议】（行动项）三层，覆盖项目定位与主要用户流程、技术栈、目录与模块职责、关键请求/任务/数据流、运行与测试方式，以及当前风险与未知项、建议的下一步。未改动任何仓库代码。
 
-**阅读范围**：
+### 实际阅读/验证范围
 
-- 全文通读：`app.py`、`config.py`、`models.py`、`run.py`、`wsgi.py`、`database_maintenance.py`、`gunicorn_config.py`、`requirements.txt`、`.env.example`、`utils/sandbox_runner.py`、`utils/code_evaluator.py`、`utils/async_tasks.py`、`utils/thinking_ai.py`、`services/llm_client.py`、`services/demo_database.py`、`tasks/submission_tasks.py`。
-- 部分阅读（关键片段）：`routes/api.py`、`routes/thinking.py`、`services/demo_experience.py`、`utils/agents/orchestrator.py`、`tasks/ability_analysis.py`。
-- 仅目录/引用检索（未逐行通读）：`routes/`、`services/`、`utils/agents/` 其余文件、`templates/`、`static/`、`tests/`。
+- **分析工具（AI 工具）**：Claude Code（Anthropic）；仅用只读文件读取（Read）、内容检索（Grep）、路径匹配（Glob）及 `wc -l`、`ls`、`find` 等只读 shell 命令。未用 Web 搜索、未引用外部文档、未运行 `pytest` 或应用服务器、未执行任何写操作。
+- **全文通读**：`app.py`、`config.py`、`models.py`、`run.py`、`wsgi.py`、`database_maintenance.py`、`gunicorn_config.py`、`requirements.txt`、`.env.example`、`utils/sandbox_runner.py`、`utils/code_evaluator.py`、`utils/async_tasks.py`、`utils/thinking_ai.py`、`services/llm_client.py`、`services/demo_database.py`、`tasks/submission_tasks.py`。
+- **部分阅读（关键片段）**：`routes/api.py`、`routes/assignments.py`（提交评测片段）、`routes/thinking.py`、`services/demo_experience.py`、`utils/agents/orchestrator.py`、`tasks/ability_analysis.py`、`templates/submit_code.html`、`static/js/code_submission.js`。
+- **仅目录/引用检索（未逐行通读）**：`routes/`、`services/`、`utils/agents/` 其余文件、`templates/`、`static/`、`tests/`。
 
-**验证命令与结果**：
+### 命令及结果
 
 | 命令（只读） | 结果 |
 | --- | --- |
-| `find . -type f …` | 枚举仓库文件，确定目录结构 |
+| `find . -type f` | 枚举仓库文件，确定目录结构 |
 | `wc -l app.py config.py models.py …` | 各模块行数：app.py 631、config.py 193、models.py 1471、routes 8474、services 4437、utils 13355、tasks 499 |
 | `ls tests/test_*.py \| wc -l` | **43**（`tests/` 下另有 `__init__.py` 与 `demo_test_utils.py`） |
-| `grep evaluate_submission_async / code_submission.js` | 确认默认提交主链唯一生产调用点：`routes/assignments.py:546` → `evaluate_submission_async`（异步沙箱）；`routes/api.py:271` `/api/submit` 为同步 `evaluate_cpp_code`（无沙箱、直接累加），其前端调用 `static/js/code_submission.js` 未被任何模板加载 |
-| `grep teacher_agent_chat / student_agent_chat` | 确认二者无调用点（死代码）；`student_agent_write_code`/`evaluate_feynman_code_fix` 被 `utils/agents/tools.py` 复用 |
+| `grep evaluate_submission_async / code_submission.js` | 默认提交主链唯一生产调用点 `routes/assignments.py:546` → `evaluate_submission_async`（异步沙箱）；`routes/api.py:271` `/api/submit` 为同步 `evaluate_cpp_code`（无沙箱、直接累加），其前端调用 `static/js/code_submission.js` 未被任何模板加载 |
+| `grep teacher_agent_chat / student_agent_chat` | 二者无调用点（死代码）；`student_agent_write_code`/`evaluate_feynman_code_fix` 被 `utils/agents/tools.py` 复用 |
 
-**未验证事项与风险**：详见下文【推断】的「未知项 / 待确认」小节（同步 `/api/submit` 接口取舍意图、生产库实际 schema 与数据规模、线上沙箱隔离拓扑、语音转文字实现范围、课程评分模块完整接线）。主要风险已列于【建议】高优先级第 1–3 条（同步 `/api/submit` 与异步主链口径不一致、评分口径不统一、公网沙箱隔离不足）。
+### 未验证事项与风险
+
+详见正文【推断】「未知项 / 待确认」小节：同步 `/api/submit` 接口取舍意图、生产库实际 schema 与数据规模、线上沙箱隔离拓扑、语音转文字实现范围、课程评分模块完整接线。主要风险列于【建议】高优先级第 1–3 条（同步 `/api/submit` 与异步主链口径不一致、评分口径不统一、公网沙箱隔离不足）。
 
 ---
 
