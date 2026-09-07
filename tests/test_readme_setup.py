@@ -16,4 +16,9 @@ def test_readmes_document_windows_activation_and_test_dependencies():
 
 def test_test_requirements_include_runtime_requirements():
     content = (ROOT / "requirements-test.txt").read_text(encoding="utf-8")
-    assert "-r requirements.txt" in content
+    active_lines = [
+        line.strip()
+        for line in content.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    assert "-r requirements.txt" in active_lines
