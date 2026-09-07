@@ -135,7 +135,7 @@ SQLite / MySQL   数据存储
 
 | 模块 | 职责 |
 |------|------|
-| `submission_tasks.py` | 代码提交异步评测：编译→运行测试→AI 评估→更新得分→刷新统计 |
+| `submission_tasks.py` | 代码提交异步评测：AI 基础评估（evaluate_cpp_code）→ 沙箱测试（run_test_cases，内部含 g++ 编译）→ 按测试结果覆盖分数 → 更新得分 → 刷新统计 |
 | `ability_analysis.py` | 能力分析异步生成，按需触发避免重复计算 |
 
 ### 2.8 数据模型（models.py）
@@ -318,7 +318,7 @@ python -m venv .venv
 # 2. 先安装原始依赖（安装 Flask 2.2.3 / Werkzeug 2.2.3 / Flask-Session 0.4.0）
 pip install -r requirements.txt
 
-# 3. 覆盖升级三个不兼容依赖（临时兼容，会修改 requirements.txt 锁定的版本）
+# 3. 覆盖当前虚拟环境中的三个依赖版本（不修改 requirements.txt 文件；重建环境需重复此步骤）
 pip install Flask==2.3.3 Werkzeug==2.3.7 Flask-Session==0.8.0
 
 # 4. 配置 .env 并启动
