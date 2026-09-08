@@ -337,6 +337,8 @@ These are common entry points. The implementations under `routes/` are the sourc
 | `/thinking/api/stage2/verify` | `POST` | Verify Stage 2 step assembly. |
 | `/thinking/api/stage3/chat` | `POST` | Continue the Stage 3 conversation. |
 
+See [`STAGE1_VERIFICATION.md`](STAGE1_VERIFICATION.md) for the Stage 1 request example, local test command, and verification boundary.
+
 ## Security boundaries and limitations
 
 - Student code enters a constrained compile-and-run flow, but the current implementation should not be treated as a complete hostile-code isolation system; public deployments must add OS- or container-level isolation.

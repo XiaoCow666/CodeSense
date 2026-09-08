@@ -350,6 +350,8 @@ gunicorn -c gunicorn_config.py wsgi:application
 | <code>/thinking/api/stage2/verify</code> | <code>POST</code> | 验证阶段二步骤组装 |
 | <code>/thinking/api/stage3/chat</code> | <code>POST</code> | 进行阶段三对话 |
 
+阶段一接口的请求示例、本地测试命令和验证边界见 [`STAGE1_VERIFICATION.md`](STAGE1_VERIFICATION.md)。
+
 ## 安全边界与已知限制
 
 - 学生代码会进入受限编译和运行流程，但当前实现不是完整的恶意代码隔离系统。公网部署必须增加操作系统或容器级隔离。
