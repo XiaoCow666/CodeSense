@@ -41,8 +41,10 @@ def _app(**overrides):
     return SimpleNamespace(config=values)
 
 
-def test_default_thread_backends_pass_validation():
-    # The local development default: in-process threads, no Redis required.
+def test_explicit_thread_backends_pass_validation():
+    # An explicit all-thread / empty-URL combination (as used for local
+    # development) passes validation. This asserts the combination is accepted,
+    # not the class-level defaults read from the environment at import time.
     assert config.Config.init_app(_app()) is None
 
 
@@ -59,6 +61,40 @@ def test_rq_backend_without_redis_url_is_rejected(backend_key, url_key):
     with pytest.raises(
         RuntimeError, match="is required when the RQ backend is enabled"
     ):
+        config.Config.init_app(app)
+
+
+@pytest.mark.parametrize(
+    "empty_url_key,filled_url_key,expected_url_name",
+    (
+        (
+            "ABILITY_ANALYSIS_REDIS_URL",
+            "SUBMISSION_EVALUATION_REDIS_URL",
+            "ABILITY_ANALYSIS_REDIS_URL",
+        ),
+        (
+            "SUBMISSION_EVALUATION_REDIS_URL",
+            "ABILITY_ANALYSIS_REDIS_URL",
+            "SUBMISSION_EVALUATION_REDIS_URL",
+        ),
+    ),
+)
+def test_rq_without_url_does_not_reuse_other_queue_url(
+    empty_url_key, filled_url_key, expected_url_name
+):
+    # One queue runs on RQ with an empty URL while the other queue runs on RQ
+    # with a valid URL. The empty-URL queue must still be rejected and must not
+    # silently reuse the other queue's Redis URL. The error message must name
+    # the queue whose URL is actually missing.
+    app = _app(
+        ABILITY_ANALYSIS_QUEUE_BACKEND="rq",
+        SUBMISSION_EVALUATION_QUEUE_BACKEND="rq",
+        **{
+            empty_url_key: "",
+            filled_url_key: "redis://broker.example.invalid:6379/9",
+        },
+    )
+    with pytest.raises(RuntimeError, match=expected_url_name):
         config.Config.init_app(app)
 
 
