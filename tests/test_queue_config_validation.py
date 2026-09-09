@@ -13,6 +13,7 @@ open network connections, so a plain object exposing a ``config`` mapping is
 enough to exercise them.
 """
 
+import re
 from types import SimpleNamespace
 
 import pytest
@@ -58,8 +59,11 @@ def test_unknown_backend_value_is_rejected(backend_key):
 @pytest.mark.parametrize("backend_key,url_key", tuple(zip(_BACKEND_KEYS, _URL_KEYS)))
 def test_rq_backend_without_redis_url_is_rejected(backend_key, url_key):
     app = _app(**{backend_key: "rq", url_key: ""})
+    # The message must name the exact missing URL variable AND state the reason,
+    # so a future change that points the guard at the wrong queue's URL fails here.
     with pytest.raises(
-        RuntimeError, match="is required when the RQ backend is enabled"
+        RuntimeError,
+        match=re.escape(url_key) + r".*is required when the RQ backend is enabled",
     ):
         config.Config.init_app(app)
 
