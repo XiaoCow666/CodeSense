@@ -302,7 +302,11 @@ python -m pip install -r requirements-test.txt
 python -m pytest tests -q
 ```
 
-> Compatibility note: Flask/Werkzeug upgraded from 2.2.3 to 2.3.x, Flask-Session from 0.4.0 to 0.8.0, to support Python 3.12+ (ast.Str deprecated in 3.12, removed in 3.14; session_cookie_name renamed in newer Werkzeug). Python 3.10/3.11/3.14 verified to start; 3.12/3.13 theoretically compatible but not fully regression tested.
+> Compatibility note: Flask/Werkzeug upgraded from 2.2.3 to 2.3.x, Flask-Session from 0.4.0 to 0.8.0, to support Python 3.12+ (ast.Str deprecated in 3.12, removed in 3.14; Flask 2.3 removed the `session_cookie_name` app attribute, which Flask-Session 0.4.0 depended on during initialization).
+>
+> - **Declared support**: Python 3.8–3.14
+> - **Verified to start**: Python 3.10, 3.11, 3.14.7 (`python run.py` starts successfully, `/login` returns 200)
+> - **Full regression passed**: Not yet executed on any version; 3.12/3.13 theoretically compatible but unverified
 
 Tests involving C++ assessment require `g++`. Tests that call a real AI service also require the corresponding environment configuration.
 
