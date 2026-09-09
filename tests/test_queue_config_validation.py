@@ -52,7 +52,13 @@ def test_explicit_thread_backends_pass_validation():
 @pytest.mark.parametrize("backend_key", _BACKEND_KEYS)
 def test_unknown_backend_value_is_rejected(backend_key):
     app = _app(**{backend_key: "redis"})
-    with pytest.raises(RuntimeError, match="must be either thread or rq"):
+    # The message must name the exact backend key that is invalid AND state the
+    # allowed values, so a guard accidentally pointing at the other queue's
+    # backend variable fails here instead of silently passing.
+    with pytest.raises(
+        RuntimeError,
+        match=re.escape(backend_key) + r".*must be either thread or rq",
+    ):
         config.Config.init_app(app)
 
 
