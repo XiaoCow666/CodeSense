@@ -56,6 +56,9 @@ class Class(db.Model):
     teacher_id = db.Column(db.String(20), db.ForeignKey('users.student_id', ondelete='SET NULL'), nullable=True)
     teacher_bind_code = db.Column(db.String(20), unique=True, nullable=True)
     teacher_bind_code_updated_at = db.Column(db.DateTime, nullable=True)
+    # 学生加入码与教师绑定码分开，避免把“教师管理权限”和“学生入班权限”混在一起。
+    student_join_code = db.Column(db.String(20), unique=True, nullable=True)
+    student_join_code_updated_at = db.Column(db.DateTime, nullable=True)
     student_count = db.Column(db.Integer, default=0)  # 学生数量
     avg_score = db.Column(db.Float, default=0.0)  # 班级平均分
     total_submissions = db.Column(db.Integer, default=0)  # 班级总提交数
@@ -93,6 +96,31 @@ class Class(db.Model):
         self.teacher_bind_code = self._unique_bind_code()
         self.teacher_bind_code_updated_at = dt.utcnow()
         return self.teacher_bind_code
+
+    @staticmethod
+    def _generate_student_join_code():
+        """生成便于学生输入的班级加入码。"""
+        return 'J' + secrets.token_urlsafe(6).replace('-', '').replace('_', '')[:7].upper()
+
+    @classmethod
+    def _unique_student_join_code(cls):
+        while True:
+            code = cls._generate_student_join_code()
+            if not cls.query.filter_by(student_join_code=code).first():
+                return code
+
+    def ensure_student_join_code(self):
+        """确保班级存在学生加入码。"""
+        if not self.student_join_code:
+            self.student_join_code = self._unique_student_join_code()
+            self.student_join_code_updated_at = dt.utcnow()
+        return self.student_join_code
+
+    def reset_student_join_code(self):
+        """重置学生加入码，使旧加入码立即失效。"""
+        self.student_join_code = self._unique_student_join_code()
+        self.student_join_code_updated_at = dt.utcnow()
+        return self.student_join_code
     
     def get_statistics(self):
         """获取班级统计信息"""
@@ -243,6 +271,15 @@ class User(db.Model, UserMixin):  # 添加UserMixin继承
     """用户模型"""
     __tablename__ = 'users'
     student_id = db.Column(db.String(20), unique=True, nullable=False, primary_key=True)
+    # student_id 仍是历史系统内部主键；student_number 才表示可选的真实学号。
+    student_number = db.Column(db.String(20), nullable=True, index=True)
+    account_kind = db.Column(
+        db.String(20),
+        nullable=False,
+        default='academic',
+        server_default='academic',
+        index=True,
+    )
     username = db.Column(db.String(50), unique=True, nullable=False)
     password_hash = db.Column(db.String(128), nullable=False)
     usertype = db.Column(db.Enum('学生', '教师', '管理员'), nullable=False)
@@ -291,6 +328,11 @@ class User(db.Model, UserMixin):  # 添加UserMixin继承
     
     def verify_password(self, password):
         return check_password_hash(self.password_hash, password)
+
+    @property
+    def is_free_account(self):
+        """是否为不依赖教学班花名册的自由账号。"""
+        return self.account_kind == 'free'
     
     @property 
     def is_admin(self):
@@ -860,10 +902,14 @@ def init_db(app):
                 'email': 'ALTER TABLE users ADD COLUMN email VARCHAR(120) NULL',
                 'avatar_path': 'ALTER TABLE users ADD COLUMN avatar_path VARCHAR(255) NULL',
                 'password_changed_at': 'ALTER TABLE users ADD COLUMN password_changed_at DATETIME NULL',
+                'student_number': 'ALTER TABLE users ADD COLUMN student_number VARCHAR(20) NULL',
+                'account_kind': "ALTER TABLE users ADD COLUMN account_kind VARCHAR(20) NOT NULL DEFAULT 'academic'",
             },
             'classes': {
                 'teacher_bind_code': 'ALTER TABLE classes ADD COLUMN teacher_bind_code VARCHAR(20) NULL',
                 'teacher_bind_code_updated_at': 'ALTER TABLE classes ADD COLUMN teacher_bind_code_updated_at DATETIME NULL',
+                'student_join_code': 'ALTER TABLE classes ADD COLUMN student_join_code VARCHAR(20) NULL',
+                'student_join_code_updated_at': 'ALTER TABLE classes ADD COLUMN student_join_code_updated_at DATETIME NULL',
                 'school': "ALTER TABLE classes ADD COLUMN school VARCHAR(100) DEFAULT '酷森思大学'",
                 'college': "ALTER TABLE classes ADD COLUMN college VARCHAR(100) DEFAULT '计算机学院'",
             },
@@ -884,6 +930,18 @@ def init_db(app):
             # 生产部署使用显式 maintenance 命令；开发环境仍保留兼容性降级。
             print(f'自动迁移跳过: {type(e).__name__}: {e}')
 
+        # 历史学生账号的 student_id 就是当时的学号，因此回填到新字段；
+        # 教师和管理员不填，避免把内部工号误称为学生学号。
+        try:
+            with db.engine.begin() as conn:
+                conn.execute(db.text(
+                    "UPDATE users SET student_number = student_id "
+                    "WHERE usertype = '学生' "
+                    "AND (student_number IS NULL OR student_number = '')"
+                ))
+        except Exception as e:
+            print(f'历史学号回填跳过: {type(e).__name__}: {e}')
+
         if app.config.get('DB_ENSURE_INDEXES', True):
             ensure_performance_indexes(app)
 
@@ -891,7 +949,10 @@ def init_db(app):
             missing_bind_codes = Class.query.filter(Class.teacher_bind_code.is_(None)).all()
             for cls in missing_bind_codes:
                 cls.ensure_teacher_bind_code()
-            if missing_bind_codes:
+            missing_student_join_codes = Class.query.filter(Class.student_join_code.is_(None)).all()
+            for cls in missing_student_join_codes:
+                cls.ensure_student_join_code()
+            if missing_bind_codes or missing_student_join_codes:
                 db.session.commit()
         except Exception as e:
             db.session.rollback()

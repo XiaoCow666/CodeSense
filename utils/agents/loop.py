@@ -562,7 +562,7 @@ class AgentLoop:
         last_decision: str,
         input_kind: str,
     ) -> None:
-        if input_kind != "chat":
+        if input_kind not in {"chat", "teacher_help"}:
             return
         if self.role is AgentRole.TEACHER_AGENT:
             snapshot.state.teacher_rounds += 1

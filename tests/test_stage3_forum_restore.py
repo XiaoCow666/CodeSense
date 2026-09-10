@@ -383,6 +383,47 @@ def test_start_session_defaults_old_stage3_sessions_without_coverage(stage3_rest
     assert isinstance(response.json["student_history"], list)
 
 
+def test_start_session_restores_teacher_probe_intent_as_student_target(stage3_restore_context):
+    app, client, session_id, assignment_id = stage3_restore_context
+    with app.app_context():
+        db.session.add(ThinkingStageLog(
+            session_id=session_id,
+            stage=3,
+            event_type="state_snapshot",
+            role="teacher_agent",
+            content="",
+            metadata_json=json.dumps({
+                "state": {
+                    "phase": "student_dialogue",
+                    "student_probe_intent": {
+                        "concept": "循环边界",
+                        "dimension": "core",
+                    },
+                    "ready_for_code": False,
+                }
+            }, ensure_ascii=False),
+        ))
+        db.session.commit()
+
+    response = client.post("/thinking/api/start_session", json={"assignment_id": assignment_id})
+
+    assert response.status_code == 200
+    assert response.json["forum_state"] == {
+        "target_role": "student_agent",
+        "reply_to_event_id": None,
+        "coverage_summary": {
+            "coverage_score": 0.0,
+            "ready_for_code": False,
+            "unresolved_concepts": [],
+            "concept_coverage": [],
+            "student_probe_intent": {
+                "concept": "循环边界",
+                "dimension": "core",
+            },
+        },
+    }
+
+
 def test_start_session_returns_stable_empty_forum_restore_for_new_session(tmp_path, monkeypatch):
     database_path = tmp_path / "stage3_forum_restore_new.db"
     monkeypatch.setattr(_TestingConfig, "SQLALCHEMY_DATABASE_URI", f"sqlite:///{database_path}")

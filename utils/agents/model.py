@@ -101,6 +101,7 @@ class StructuredDecisionModel:
         fallback_message: str = "请继续说明你的思路。",
         temperature: float = 0.2,
         max_tokens: int = 1200,
+        request_kind: str = "interactive",
     ) -> None:
         if client is None:
             from services.llm_client import llm_client
@@ -110,6 +111,7 @@ class StructuredDecisionModel:
         self.fallback_decision = fallback_decision or AgentDecision(message=fallback_message)
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.request_kind = request_kind
         self.last_error: Optional[ModelError] = None
         self.fallback_used = False
 
@@ -128,11 +130,7 @@ class StructuredDecisionModel:
 
         messages = self._decision_messages(system_prompt, context, tool_specs, tool_results)
         try:
-            response = self.client.chat(
-                messages,
-                temperature=self.temperature,
-                max_tokens=self.max_tokens,
-            )
+            response = self._client_chat(messages)
             return parse_json_decision(response)
         except ModelError as error:
             if error.code not in _REPAIRABLE_ERRORS:
@@ -151,11 +149,7 @@ class StructuredDecisionModel:
             ),
         })
         try:
-            response = self.client.chat(
-                repair_messages,
-                temperature=self.temperature,
-                max_tokens=self.max_tokens,
-            )
+            response = self._client_chat(repair_messages)
             return parse_json_decision(response)
         except ModelError:
             return self._fallback("INVALID_DECISION")
@@ -167,6 +161,28 @@ class StructuredDecisionModel:
             return bool(self.client.is_available())
         except Exception:
             return False
+
+    def _client_chat(self, messages: List[Dict[str, str]]) -> Any:
+        """Pass request priority to the shared client without breaking fakes."""
+
+        try:
+            return self.client.chat(
+                messages,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                request_kind=self.request_kind,
+            )
+        except TypeError as error:
+            # A few integrations and older test doubles implement the
+            # historical chat signature.  Only retry for that specific
+            # compatibility failure; do not hide a provider TypeError.
+            if "request_kind" not in str(error):
+                raise
+            return self.client.chat(
+                messages,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+            )
 
     def _fallback(self, code: str) -> AgentDecision:
         self.last_error = ModelError(code)

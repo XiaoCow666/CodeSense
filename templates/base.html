@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}CodeSense 酷森思{% endblock %}</title>
     <link rel="icon" href="{{ url_for('static', filename='img/favicon.ico') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fonts/codesense-fonts.css') }}?v=5.3">
 
     <!-- 列表样式修复 -->
     <style type="text/css">
@@ -25,25 +26,25 @@
     <!-- 浏览器兼容性补丁脚本 - 在其他脚本之前加载 -->
     <script src="{{ url_for('static', filename='js/browser-compatibility.js') }}"></script>
 
-    <!-- Bootstrap 5 CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap 5 CSS（项目同源静态资源） -->
+    <link href="{{ url_for('static', filename='vendor/bootstrap/5.2.3/css/bootstrap.min.css') }}?v=5.2.3" rel="stylesheet">
 
-    <!-- Bootstrap Icons -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <!-- Bootstrap Icons（项目同源静态资源） -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap-icons/1.10.5/font/bootstrap-icons.min.css') }}?v=1.10.5">
 
     <!-- 自定义CSS -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 
-    <!-- Ace编辑器核心资源 -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.23.4/ace.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.23.4/ext-language_tools.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.23.4/ext-beautify.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.23.4/theme-tomorrow.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.23.4/theme-tomorrow_night.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.23.4/mode-python.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.23.4/mode-javascript.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.23.4/mode-java.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.23.4/mode-c_cpp.js"></script>
+    <!-- Ace编辑器核心资源（项目同源静态资源） -->
+    <script src="{{ url_for('static', filename='vendor/ace/1.23.4/ace.js') }}?v=1.23.4"></script>
+    <script src="{{ url_for('static', filename='vendor/ace/1.23.4/ext-language_tools.js') }}?v=1.23.4"></script>
+    <script src="{{ url_for('static', filename='vendor/ace/1.23.4/ext-beautify.js') }}?v=1.23.4"></script>
+    <script src="{{ url_for('static', filename='vendor/ace/1.23.4/theme-tomorrow.js') }}?v=1.23.4"></script>
+    <script src="{{ url_for('static', filename='vendor/ace/1.23.4/theme-tomorrow_night.js') }}?v=1.23.4"></script>
+    <script src="{{ url_for('static', filename='vendor/ace/1.23.4/mode-python.js') }}?v=1.23.4"></script>
+    <script src="{{ url_for('static', filename='vendor/ace/1.23.4/mode-javascript.js') }}?v=1.23.4"></script>
+    <script src="{{ url_for('static', filename='vendor/ace/1.23.4/mode-java.js') }}?v=1.23.4"></script>
+    <script src="{{ url_for('static', filename='vendor/ace/1.23.4/mode-c_cpp.js') }}?v=1.23.4"></script>
 
     <!-- 编辑器状态管理 -->
     <script>
@@ -61,7 +62,7 @@
                 window.editorStatus.aceLoaded = true;
 
                 // 配置Ace编辑器
-                ace.config.set('basePath', 'https://cdnjs.cloudflare.com/ajax/libs/ace/1.23.4/');
+                ace.config.set('basePath', '{{ url_for('static', filename='vendor/ace/1.23.4') }}/');
 
                 // 触发编辑器准备就绪事件
                 const event = new CustomEvent('editor-ready');
@@ -215,7 +216,8 @@
         </div>
     </footer>
 
-    <!-- Bootstrap JS is loaded via CDN in layout.html -->
+    <!-- Bootstrap JS（项目同源静态资源） -->
+    <script src="{{ url_for('static', filename='vendor/bootstrap/5.2.3/js/bootstrap.bundle.min.js') }}?v=5.2.3"></script>
 
     <!-- 自定义JS -->
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>

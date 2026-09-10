@@ -294,6 +294,34 @@
         padding: 0.9rem 1rem;
         background: #fbfdff;
     }
+
+    .free-account-card {
+        border: 1px solid #cfe2ff;
+        background: linear-gradient(135deg, #f5f9ff 0%, #ffffff 72%);
+    }
+
+    .free-account-card .join-code-form {
+        display: flex;
+        gap: 0.75rem;
+        align-items: center;
+        max-width: 620px;
+    }
+
+    .free-account-card .join-code-form .form-control {
+        flex: 1;
+        min-width: 0;
+    }
+
+    @media (max-width: 576px) {
+        .free-account-card .join-code-form {
+            display: block;
+        }
+
+        .free-account-card .join-code-form .btn {
+            width: 100%;
+            margin-top: 0.75rem;
+        }
+    }
 </style>
 {% endblock %}
 
@@ -302,6 +330,34 @@
     <h1 class="page-title">欢迎使用CodeSense 酷森思</h1>
     <p class="page-subtitle">通过完成编程作业提升您的代码能力，获取智能反馈和评分</p>
 </div>
+
+{% if user.is_free_account %}
+<div class="card free-account-card mb-4">
+    <div class="card-body" style="padding: 1.25rem 1.5rem;">
+        <div class="d-flex align-items-start gap-3">
+            <div class="text-primary" style="font-size: 1.5rem; line-height: 1;">
+                <i class="bi bi-person-plus"></i>
+            </div>
+            <div class="flex-grow-1">
+                <h5 class="card-title mb-2" style="margin-bottom: 0.5rem;">自由账号</h5>
+                {% if user.class_name %}
+                <p class="text-muted mb-0">当前已加入 <strong>{{ user.class_name }}</strong>。班级作业和学习数据会按该班级显示。</p>
+                {% else %}
+                <p class="text-muted mb-3">你可以先使用自由账号体验平台。收到教师邀请后，在这里输入班级加入码即可加入对应班级。</p>
+                <form class="join-code-form" action="{{ url_for('classes.join_class') }}" method="post">
+                    {% if csrf_token is defined %}{{ csrf_token() }}{% endif %}
+                    <input type="text" name="join_code" class="form-control" maxlength="20"
+                        placeholder="请输入教师提供的班级加入码" autocomplete="off" required>
+                    <button type="submit" class="btn btn-primary text-nowrap">
+                        <i class="bi bi-box-arrow-in-right"></i> 加入班级
+                    </button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
 
 <!-- 数据概览卡片 -->
 <div class="row" style="margin-bottom: 2rem;">
@@ -639,9 +695,7 @@
 
 {% block extra_js %}
 <!-- 引入Chart.js库 -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
-<!-- 引入marked.js用于Markdown渲染 -->
-<script src="https://cdn.jsdelivr.net/npm/marked@4.3.0/marked.min.js"></script>
+<script src="{{ url_for('static', filename='vendor/chart.js/3.9.1/chart.min.js') }}?v=3.9.1"></script>
 <script>
     // ==================== SSE流式架构 ====================
     let knowledgeRadarChart = null;
@@ -666,24 +720,9 @@
         'recursion': '递归'
     };
 
-    // 配置marked.js
-    marked.setOptions({
-        breaks: true,
-        gfm: true,
-        headerIds: false,
-        mangle: false
-    });
-
     // 页面加载完成后初始化SSE连接并渲染Markdown
     document.addEventListener('DOMContentLoaded', function () {
         console.log('🚀 SSE流式架构已加载，开始连接...');
-        // 渲染所有 data-markdown 元素
-        document.querySelectorAll('[data-markdown]').forEach(function (el) {
-            var raw = el.getAttribute('data-markdown');
-            if (raw && typeof marked !== 'undefined') {
-                el.innerHTML = marked.parse(raw, { breaks: true, gfm: true });
-            }
-        });
 
         // 提取并清洗作业题目描述预览（去除Markdown标签，仅保留“题目描述”内容作为简洁文本预览）
         document.querySelectorAll('[data-assignment-desc]').forEach(function (el) {
@@ -1034,7 +1073,10 @@
         // 如果还没有章节标题，显示原始文本流
         if (!markdownBuffer.includes('###')) {
             // 直接渲染Markdown（可能还没有章节标题）
-            outputDiv.innerHTML = marked.parse(markdownBuffer);
+            outputDiv.innerHTML = window.CodeSenseMarkdown
+                ? window.CodeSenseMarkdown.renderToString(markdownBuffer)
+                : escapeHtml(markdownBuffer).replace(/\n/g, '<br>');
+            outputDiv.classList.add('cs-markdown');
             addTypingCursor(outputDiv);  // 添加光标
             outputDiv.scrollTop = outputDiv.scrollHeight;
             return;
@@ -1083,7 +1125,7 @@
     // 创建章节元素
     function createSectionElement(section, container) {
         const sectionDiv = document.createElement('div');
-        sectionDiv.className = 'analysis-section';
+        sectionDiv.className = 'analysis-section cs-markdown';
 
         // 根据章节类型添加颜色标识
         if (section.title.includes('趋势') || section.title.includes('发展')) {
@@ -1101,7 +1143,9 @@
         else if (section.title.includes('趋势')) icon = 'bi-graph-up';
 
         // 渲染Markdown为HTML
-        const contentHtml = marked.parse(section.content);
+        const contentHtml = window.CodeSenseMarkdown
+            ? window.CodeSenseMarkdown.renderToString(section.content)
+            : escapeHtml(section.content).replace(/\n/g, '<br>');
 
         sectionDiv.innerHTML = `
         <h3><i class="bi ${icon}"></i> ${escapeHtml(section.title)}</h3>
@@ -1118,7 +1162,9 @@
 
         // 保留标题，更新内容
         const titleHtml = h3Element.outerHTML;
-        const contentHtml = marked.parse(section.content);
+        const contentHtml = window.CodeSenseMarkdown
+            ? window.CodeSenseMarkdown.renderToString(section.content)
+            : escapeHtml(section.content).replace(/\n/g, '<br>');
         sectionDiv.innerHTML = titleHtml + contentHtml;
     }
 

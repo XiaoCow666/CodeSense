@@ -17,7 +17,8 @@ class LoginForm(FlaskForm):
 class RegistrationForm(FlaskForm):
     """注册表单"""
     username = StringField('用户名', validators=[DataRequired(message='用户名不能为空'), Length(1, 50)])
-    student_id = StringField('学号', validators=[DataRequired(message='学号不能为空'), Length(1, 20)])
+    # 学号对教学班学生是必需的，但自由用户可以先注册，再凭教师加入码入班。
+    student_id = StringField('学号/教师工号', validators=[Optional(), Length(0, 20)])
     password = PasswordField('密码', validators=[DataRequired(message='密码不能为空'), Length(6, 20)])
     confirm_password = PasswordField('确认密码', validators=[
         DataRequired(message='确认密码不能为空'), 

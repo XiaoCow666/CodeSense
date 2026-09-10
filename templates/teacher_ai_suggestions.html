@@ -88,51 +88,11 @@
         to { transform: rotate(360deg); }
     }
 
-    .markdown-content h2 {
-        font-size: 1.4rem;
-        font-weight: 700;
-        margin-top: 1.5rem;
-        margin-bottom: 1rem;
-        color: #1e293b;
-        border-bottom: 2px solid #f1f5f9;
-        padding-bottom: 0.5rem;
-    }
-
-    .markdown-content h3 {
-        font-size: 1.15rem;
-        font-weight: 600;
-        margin-top: 1.25rem;
-        margin-bottom: 0.75rem;
-        color: #334155;
-    }
-
-    .markdown-content ul, .markdown-content ol {
-        padding-left: 1.5rem;
-        margin-bottom: 1rem;
-    }
-
-    .markdown-content li {
-        margin-bottom: 0.5rem;
-        color: #475569;
-    }
-
-    .markdown-content p {
-        color: #475569;
-        line-height: 1.6;
-        margin-bottom: 1rem;
-    }
-
-    .markdown-content blockquote {
-        border-left: 4px solid #e2e8f0;
-        padding-left: 1rem;
-        color: #64748b;
-        font-style: italic;
-        margin: 1rem 0;
-    }
-
-    /* Soft alert overrides inside Markdown */
-    .markdown-content blockquote p {
-        margin-bottom: 0;
+    /* Markdown 的排版由全局 CodeSense Markdown 组件统一处理。 */
+    .ai-report-content {
+        min-height: 400px;
+        max-height: 700px;
+        overflow-y: auto;
     }
 </style>
 {% endblock %}
@@ -316,9 +276,9 @@
                                         <!-- 右侧：AI 详细分析报告 -->
                                         <div class="col-lg-7 col-md-12">
                                             <h5 class="block-title text-slate-800"><i class="bi bi-card-text me-2 text-primary"></i>🤖 AI 深度教学诊断报告</h5>
-                                            <div class="border rounded-3 p-4 bg-light markdown-content text-slate-700 shadow-inner" style="min-height: 400px; max-height: 700px; overflow-y: auto;">
+                                            <div class="border rounded-3 p-4 bg-light markdown-content cs-markdown ai-report-content text-slate-700 shadow-inner">
                                                  {% if sug.suggestion_markdown %}
-                                                     <!-- 使用 marked.js 渲染 -->
+                                                     <!-- 由统一 Markdown 渲染器处理 -->
                                                      <div class="markdown-render-inline" data-markdown="{{ sug.suggestion_markdown | e }}"></div>
                                                  {% else %}
                                                     <p class="text-muted text-center pt-5">暂无详细建议报告内容</p>
@@ -345,14 +305,6 @@
 {% block extra_js %}
 <script>
     document.addEventListener('DOMContentLoaded', function () {
-        // 渲染已存在的 markdown 建议
-        document.querySelectorAll('.markdown-render-inline').forEach(el => {
-            const raw = el.getAttribute('data-markdown') || el.textContent || '';
-            if (raw.trim() && typeof marked !== 'undefined') {
-                el.innerHTML = marked.parse(raw);
-            }
-        });
-
         // 绑定刷新按钮事件
         document.querySelectorAll('.btn-refresh-sug').forEach(btn => {
             btn.addEventListener('click', function() {
@@ -426,14 +378,7 @@
                     }
                 }
                 markdownBuffer += data.content;
-                const reportContentDiv = document.querySelector(`.report-content-box-${classId}`);
-                if (reportContentDiv && typeof marked !== 'undefined') {
-                    // 使用 marked 渲染实时 Markdown
-                    reportContentDiv.innerHTML = marked.parse(markdownBuffer);
-                    
-                    // 滚动到底部以提升观感
-                    reportContentDiv.scrollTop = reportContentDiv.scrollHeight;
-                }
+                scheduleReportRender(classId, function () { return markdownBuffer; });
             } else if (data.type === 'complete') {
                 // 传输完成，断开流连接
                 source.close();
@@ -445,6 +390,7 @@
                     suggestion_json: data.suggestion_json,
                     last_updated: data.last_updated
                 };
+                clearSuggestionRenderTimer(classId);
                 updateSuggestionUI(classId, finalData);
                 
                 // 复位刷新按钮状态
@@ -456,6 +402,7 @@
             } else if (data.type === 'error') {
                 source.close();
                 delete window.suggestionEventSources[classId];
+                clearSuggestionRenderTimer(classId);
                 alert('流式生成 AI 建议失败: ' + (data.message || '系统繁忙'));
                 resetRefreshButton(classId, buttonElement);
             }
@@ -465,9 +412,33 @@
             console.error('SSE connection error:', err);
             source.close();
             delete window.suggestionEventSources[classId];
+            clearSuggestionRenderTimer(classId);
             alert('AI 诊断流连接异常中断，建议您刷新页面重试。');
             resetRefreshButton(classId, buttonElement);
         };
+    }
+
+    function clearSuggestionRenderTimer(classId) {
+        const renderTimers = window.suggestionReportRenderTimers || {};
+        if (renderTimers[classId]) {
+            window.clearTimeout(renderTimers[classId]);
+            delete renderTimers[classId];
+        }
+    }
+
+    // 流式输出时限制重排频率，避免每个 token 都重新解析整篇 Markdown。
+    function scheduleReportRender(classId, getMarkdown) {
+        const reportContentDiv = document.querySelector(`.report-content-box-${classId}`);
+        if (!reportContentDiv || !window.CodeSenseMarkdown) return;
+
+        if (!window.suggestionReportRenderTimers) window.suggestionReportRenderTimers = {};
+        const renderTimers = window.suggestionReportRenderTimers;
+        if (renderTimers[classId]) return;
+        renderTimers[classId] = window.setTimeout(function () {
+            delete renderTimers[classId];
+            window.CodeSenseMarkdown.render(reportContentDiv, getMarkdown(), { streaming: true });
+            reportContentDiv.scrollTop = reportContentDiv.scrollHeight;
+        }, 80);
     }
 
     // 复位按钮与布局
@@ -501,7 +472,7 @@
             <!-- 右侧：AI 详细诊断报告打字机流式呈现 -->
             <div class="col-lg-7 col-md-12">
                 <h5 class="block-title text-slate-800"><i class="bi bi-card-text me-2 text-primary"></i>🤖 AI 深度教学诊断报告</h5>
-                <div class="border rounded-3 p-4 bg-light markdown-content text-slate-700 shadow-inner report-content-box-${classId}" style="min-height: 400px; max-height: 700px; overflow-y: auto;">
+                <div class="border rounded-3 p-4 bg-light markdown-content cs-markdown ai-report-content text-slate-700 shadow-inner report-content-box-${classId}">
                     <p class="text-muted italic"><i class="bi bi-chat-left-dots me-2"></i>AI 助手正在为您编写本周教学周报...</p>
                 </div>
             </div>
@@ -573,9 +544,11 @@
         // 详细报告 Markdown 渲染
         htmlContent += '<div class="col-lg-7 col-md-12">';
         htmlContent += '  <h5 class="block-title text-slate-800"><i class="bi bi-card-text me-2 text-primary"></i>🤖 AI 深度教学诊断报告</h5>';
-        htmlContent += '  <div class="border rounded-3 p-4 bg-light markdown-content text-slate-700 shadow-inner markdown-body" style="min-height: 400px; max-height: 700px; overflow-y: auto;">';
+        htmlContent += '  <div class="border rounded-3 p-4 bg-light markdown-content cs-markdown ai-report-content text-slate-700 shadow-inner">';
         
-        const renderedMd = (typeof marked !== 'undefined') ? marked.parse(data.suggestion_markdown) : data.suggestion_markdown;
+        const renderedMd = window.CodeSenseMarkdown
+            ? window.CodeSenseMarkdown.renderToString(data.suggestion_markdown)
+            : '<p>' + String(data.suggestion_markdown || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</p>';
         htmlContent += `    <div>${renderedMd}</div>`;
         
         htmlContent += '  </div>';
@@ -589,6 +562,7 @@
         if (contentContainer) {
             contentContainer.innerHTML = htmlContent;
             contentContainer.classList.remove('d-none');
+            if (window.CodeSenseMarkdown) window.CodeSenseMarkdown.enhance(contentContainer);
         }
 
         // 复位按钮旋转

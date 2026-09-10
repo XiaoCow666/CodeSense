@@ -4,9 +4,9 @@
 
 {% block extra_css %}
 <!-- 引入Chart.js -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="{{ url_for('static', filename='vendor/chart.js/3.9.1/chart.min.js') }}?v=3.9.1"></script>
 <!-- 引入Animate.css -->
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css" />
+<link rel="stylesheet" href="{{ url_for('static', filename='vendor/animate.css/4.1.1/animate.min.css') }}?v=4.1.1" />
 
 <style>
     :root {

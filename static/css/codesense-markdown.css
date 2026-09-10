@@ -1,0 +1,443 @@
+/*
+ * CodeSense Markdown
+ *
+ * A quiet, block-based reading surface inspired by Feishu Docs.  The
+ * renderer adds .cs-markdown to AI-generated content so that the same visual
+ * language is shared by chat bubbles, reports, feedback and assignment text.
+ */
+
+:root {
+    --cs-md-ink: #1f2937;
+    --cs-md-muted: #64748b;
+    --cs-md-subtle: #94a3b8;
+    --cs-md-border: #e5eaf1;
+    --cs-md-border-strong: #d7dee9;
+    --cs-md-surface: #ffffff;
+    --cs-md-surface-soft: #f8fafc;
+    --cs-md-surface-blue: #f3f7ff;
+    --cs-md-accent: #2563eb;
+    --cs-md-accent-soft: #dbeafe;
+    --cs-md-success: #059669;
+    --cs-md-warning: #d97706;
+    --cs-md-danger: #dc2626;
+    --cs-md-code: #0f172a;
+    --cs-md-code-ink: #e2e8f0;
+    --cs-md-radius: 10px;
+}
+
+/* The class is intentionally also present on legacy markdown containers. */
+.cs-markdown,
+.markdown-content.cs-markdown,
+.markdown-body.cs-markdown {
+    box-sizing: border-box;
+    color: var(--cs-md-ink);
+    font-size: 0.96rem;
+    line-height: 1.78;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.cs-markdown > :first-child {
+    margin-top: 0;
+}
+
+.cs-markdown > :last-child {
+    margin-bottom: 0;
+}
+
+.cs-markdown p {
+    color: #334155;
+    margin: 0 0 0.9rem;
+}
+
+.cs-markdown strong {
+    color: #172033;
+    font-weight: 700;
+}
+
+.cs-markdown em {
+    color: #475569;
+}
+
+.cs-markdown del {
+    color: var(--cs-md-muted);
+}
+
+.cs-markdown a {
+    color: var(--cs-md-accent);
+    text-decoration: none;
+    text-underline-offset: 3px;
+}
+
+.cs-markdown a:hover {
+    text-decoration: underline;
+}
+
+.cs-markdown h1,
+.cs-markdown h2,
+.cs-markdown h3,
+.cs-markdown h4,
+.cs-markdown h5,
+.cs-markdown h6 {
+    color: #172033;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    line-height: 1.35;
+}
+
+.cs-markdown h1 {
+    border-bottom: 1px solid var(--cs-md-border);
+    font-size: 1.55rem;
+    margin: 0 0 1.25rem;
+    padding: 0 0 0.7rem;
+}
+
+.cs-markdown h2 {
+    background: linear-gradient(90deg, var(--cs-md-surface-blue), rgba(243, 247, 255, 0));
+    border-left: 3px solid var(--cs-md-accent);
+    border-radius: 0 6px 6px 0;
+    font-size: 1.2rem;
+    margin: 1.65rem 0 0.75rem;
+    padding: 0.42rem 0.7rem;
+}
+
+.cs-markdown h3 {
+    border-bottom: 1px solid var(--cs-md-border);
+    font-size: 1.04rem;
+    margin: 1.35rem 0 0.65rem;
+    padding-bottom: 0.35rem;
+}
+
+.cs-markdown h4,
+.cs-markdown h5,
+.cs-markdown h6 {
+    font-size: 0.98rem;
+    margin: 1rem 0 0.5rem;
+}
+
+.cs-markdown ul,
+.cs-markdown ol {
+    color: #334155;
+    margin: 0 0 1rem;
+    padding-left: 1.45rem;
+}
+
+.cs-markdown li {
+    margin: 0.28rem 0;
+    padding-left: 0.15rem;
+}
+
+.cs-markdown li > ul,
+.cs-markdown li > ol {
+    margin-bottom: 0.35rem;
+    margin-top: 0.35rem;
+}
+
+.cs-markdown li::marker {
+    color: #64748b;
+}
+
+.cs-markdown input[type="checkbox"] {
+    accent-color: var(--cs-md-accent);
+    height: 0.95rem;
+    margin: 0 0.4rem 0 0;
+    vertical-align: -0.08rem;
+    width: 0.95rem;
+}
+
+.cs-markdown blockquote {
+    background: var(--cs-md-surface-soft);
+    border-left: 3px solid var(--cs-md-border-strong);
+    border-radius: 0 8px 8px 0;
+    color: var(--cs-md-muted);
+    margin: 1rem 0;
+    padding: 0.75rem 0.95rem;
+}
+
+.cs-markdown blockquote p:last-child {
+    margin-bottom: 0;
+}
+
+/* GitHub/AI alert syntax: > [!NOTE], > [!TIP], etc. */
+.cs-markdown blockquote.cs-md-callout {
+    border-left-color: var(--cs-md-accent);
+    color: #334155;
+    font-style: normal;
+    padding: 0.8rem 1rem;
+}
+
+.cs-markdown blockquote.cs-md-callout-note,
+.cs-markdown blockquote.cs-md-callout-info {
+    background: #eff6ff;
+    border-left-color: #3b82f6;
+}
+
+.cs-markdown blockquote.cs-md-callout-tip,
+.cs-markdown blockquote.cs-md-callout-success {
+    background: #ecfdf5;
+    border-left-color: var(--cs-md-success);
+}
+
+.cs-markdown blockquote.cs-md-callout-warning,
+.cs-markdown blockquote.cs-md-callout-caution {
+    background: #fffbeb;
+    border-left-color: var(--cs-md-warning);
+}
+
+.cs-markdown blockquote.cs-md-callout-important,
+.cs-markdown blockquote.cs-md-callout-danger {
+    background: #fef2f2;
+    border-left-color: var(--cs-md-danger);
+}
+
+.cs-md-callout-label {
+    align-items: center;
+    color: #475569;
+    display: flex;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    margin: 0 0 0.25rem;
+    text-transform: uppercase;
+}
+
+.cs-md-callout-label::before {
+    background: currentColor;
+    border-radius: 999px;
+    content: "";
+    display: inline-block;
+    height: 0.42rem;
+    margin-right: 0.45rem;
+    width: 0.42rem;
+}
+
+.cs-markdown hr {
+    border: 0;
+    border-top: 1px solid var(--cs-md-border);
+    margin: 1.35rem 0;
+}
+
+.cs-markdown img {
+    border: 1px solid var(--cs-md-border);
+    border-radius: 8px;
+    display: block;
+    height: auto;
+    margin: 0.85rem 0;
+    max-width: 100%;
+}
+
+.cs-markdown code:not(pre code) {
+    background: #eef2f7;
+    border: 1px solid #e2e8f0;
+    border-radius: 5px;
+    color: #b4235a;
+    font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+    font-size: 0.86em;
+    padding: 0.13rem 0.34rem;
+}
+
+.cs-markdown .cs-code-frame,
+.cs-markdown .code-block-container {
+    background: var(--cs-md-code);
+    border: 1px solid #1e293b;
+    border-radius: var(--cs-md-radius);
+    box-shadow: 0 5px 16px rgba(15, 23, 42, 0.08);
+    margin: 1rem 0 1.15rem;
+    overflow: hidden;
+}
+
+.cs-code-toolbar,
+.cs-markdown .code-block-banner,
+.cs-markdown .code-block-banner-wrap {
+    align-items: center;
+    background: #172238;
+    color: #cbd5e1;
+    display: flex;
+    justify-content: space-between;
+    min-height: 2.25rem;
+}
+
+.cs-code-toolbar {
+    font-family: Inter, system-ui, sans-serif;
+    font-size: 0.72rem;
+    padding: 0.35rem 0.65rem 0.35rem 0.8rem;
+}
+
+.cs-code-language,
+.cs-markdown .code-block-infostring {
+    color: #cbd5e1;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.cs-code-copy,
+.cs-markdown .code-copy-button {
+    background: transparent;
+    border: 1px solid rgba(203, 213, 225, 0.28);
+    border-radius: 5px;
+    color: #cbd5e1;
+    cursor: pointer;
+    font-size: 0.72rem;
+    line-height: 1.3;
+    padding: 0.2rem 0.48rem;
+    transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+
+.cs-code-copy:hover,
+.cs-markdown .code-copy-button:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(203, 213, 225, 0.6);
+    color: #fff;
+}
+
+.cs-markdown pre,
+.cs-markdown .code-block {
+    background: var(--cs-md-code);
+    border: 0;
+    border-radius: 0;
+    color: var(--cs-md-code-ink);
+    margin: 0;
+    max-width: 100%;
+    overflow-x: auto;
+    padding: 1rem 1.05rem;
+    white-space: pre;
+}
+
+.cs-markdown pre code,
+.cs-markdown .code-block code {
+    background: transparent;
+    border: 0;
+    color: inherit;
+    display: block;
+    font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+    font-size: 0.84rem;
+    line-height: 1.65;
+    padding: 0;
+    white-space: inherit;
+}
+
+.cs-markdown .code-block-banner-wrap {
+    padding: 0;
+}
+
+.cs-markdown .code-block-banner {
+    flex: 1;
+    padding: 0.35rem 0.65rem 0.35rem 0.8rem;
+}
+
+.cs-markdown .code-block-action {
+    align-items: center;
+    display: flex;
+}
+
+.cs-markdown .cs-table-wrap {
+    border: 1px solid var(--cs-md-border);
+    border-radius: var(--cs-md-radius);
+    margin: 1rem 0 1.15rem;
+    overflow-x: auto;
+}
+
+.cs-markdown table {
+    border-collapse: collapse;
+    border-spacing: 0;
+    margin: 0;
+    min-width: 100%;
+    width: max-content;
+}
+
+.cs-markdown th,
+.cs-markdown td {
+    border-bottom: 1px solid var(--cs-md-border);
+    padding: 0.62rem 0.78rem;
+    text-align: left;
+    vertical-align: top;
+}
+
+.cs-markdown th {
+    background: var(--cs-md-surface-soft);
+    color: #334155;
+    font-size: 0.82rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.cs-markdown tr:last-child td {
+    border-bottom: 0;
+}
+
+.cs-markdown tr:nth-child(even) td {
+    background: rgba(248, 250, 252, 0.55);
+}
+
+.cs-markdown details.cs-md-details {
+    background: var(--cs-md-surface-soft);
+    border: 1px solid var(--cs-md-border);
+    border-radius: var(--cs-md-radius);
+    margin: 1rem 0;
+    padding: 0.7rem 0.9rem;
+}
+
+.cs-markdown details.cs-md-details > summary {
+    color: #334155;
+    cursor: pointer;
+    font-weight: 700;
+    list-style-position: inside;
+}
+
+.cs-markdown details.cs-md-details[open] > summary {
+    border-bottom: 1px solid var(--cs-md-border);
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.6rem;
+}
+
+/* Keep compact chat surfaces readable without turning every message into a card. */
+.chat-bubble.cs-markdown,
+.hint-bubble .cs-markdown {
+    font-size: 0.95rem;
+    line-height: 1.7;
+}
+
+.chat-bubble.cs-markdown > :last-child,
+.hint-bubble .cs-markdown > :last-child {
+    margin-bottom: 0;
+}
+
+.chat-bubble.cs-markdown h1,
+.chat-bubble.cs-markdown h2,
+.hint-bubble .cs-markdown h1,
+.hint-bubble .cs-markdown h2 {
+    font-size: 1rem;
+    margin-top: 0.9rem;
+}
+
+.chat-bubble.cs-markdown h2,
+.hint-bubble .cs-markdown h2 {
+    padding-bottom: 0.25rem;
+    padding-top: 0.25rem;
+}
+
+.chat-bubble.cs-markdown .cs-code-frame,
+.hint-bubble .cs-markdown .cs-code-frame {
+    margin: 0.7rem 0;
+}
+
+@media (max-width: 576px) {
+    .cs-markdown {
+        font-size: 0.93rem;
+    }
+
+    .cs-markdown h1 {
+        font-size: 1.35rem;
+    }
+
+    .cs-markdown h2 {
+        font-size: 1.08rem;
+    }
+
+    .cs-markdown pre code,
+    .cs-markdown .code-block code {
+        font-size: 0.78rem;
+    }
+}

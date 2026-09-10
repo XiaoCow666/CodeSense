@@ -103,6 +103,8 @@ function updateGuidanceFeedback() {
         console.error('找不到指导反馈相关元素');
         return;
     }
+
+    guidanceContent.classList.add('cs-markdown');
     
     // 显示容器和加载指示
     guidanceFeedbackContainer.style.display = 'block';
@@ -191,7 +193,7 @@ function updateGuidanceFeedback() {
  * 该函数负责将Markdown文本转换为HTML格式
  * 主要功能包括：
  * - 支持基本的Markdown语法（标题、粗体、斜体、代码块等）
- * - 提供降级处理，当marked库不可用时使用简单格式化
+ * - 通过共享渲染器统一处理格式与安全过滤
  * - 确保输出的HTML安全性
  * - 支持代码高亮集成
  * 
@@ -202,20 +204,20 @@ function formatMarkdown(markdown) {
     if (!markdown) return '';
     
     try {
-        // 如果marked库可用，使用它
-        if (typeof marked !== 'undefined') {
-            return marked.parse(markdown);
+        // 使用共享渲染器，确保不同页面的 Markdown 视觉与安全策略一致。
+        if (window.CodeSenseMarkdown) {
+            return window.CodeSenseMarkdown.renderToString(markdown);
         }
-        
-        // 简单的Markdown格式化
-        return markdown
-            .replace(/\n/g, '<br>')
-            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-            .replace(/\*(.*?)\*/g, '<em>$1</em>')
-            .replace(/```(\w*)([\s\S]*?)```/g, '<pre><code class="$1">$2</code></pre>');
+
+        // 共享渲染器不可用时只返回转义后的纯文本，避免产生不安全 HTML。
+        const fallback = document.createElement('div');
+        fallback.textContent = markdown;
+        return fallback.innerHTML.replace(/\n/g, '<br>');
     } catch (e) {
         console.error('格式化Markdown时出错:', e);
-        return markdown;
+        const fallback = document.createElement('div');
+        fallback.textContent = markdown;
+        return fallback.innerHTML.replace(/\n/g, '<br>');
     }
 }
 

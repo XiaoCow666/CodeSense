@@ -327,7 +327,7 @@
         <p>本次 AI 分析没有成功完成，请点击右上角重新生成。</p>
     </div>
     {% elif ability_trend.analysis_markdown %}
-    <div class="markdown-render" data-markdown="{{ ability_trend.analysis_markdown }}"></div>
+    <div class="markdown-render cs-markdown" data-markdown="{{ ability_trend.analysis_markdown }}"></div>
     <div class="text-muted mt-3 small">
         <i class="bi bi-clock"></i> 最近分析时间: {{ ability_trend.last_updated.strftime('%Y-%m-%d %H:%M') }}
     </div>
@@ -352,7 +352,7 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js"></script>
+<script src="{{ url_for('static', filename='vendor/chart.js/3.9.1/chart.min.js') }}?v=3.9.1"></script>
 <!-- 先将模板变量转换为JavaScript变量 -->
 <script>
     // 安全地解析JSON数据

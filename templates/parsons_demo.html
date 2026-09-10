@@ -156,7 +156,7 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
+<script src="{{ url_for('static', filename='lib/Sortable.min.js') }}?v=1.15.0"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         const pool = document.getElementById('demo-block-pool');

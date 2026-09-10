@@ -123,20 +123,17 @@ function tryLoadMonaco(callback) {
         }
     }
     
-    // 定义多个CDN源，包括国内可访问的CDN
-    const monacoCDNs = [
-        'https://cdn.jsdelivr.net/npm/monaco-editor@0.40.0/min',
-        'https://lf26-cdn-tos.bytecdntp.com/cdn/expire-1-M/monaco-editor/0.31.1/min',
-        'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.40.0/min',
-        'https://npm.elemecdn.com/monaco-editor@0.30.1/min',
-        'https://unpkg.com/monaco-editor@0.40.0/min'
+    // Monaco 依赖整套 AMD 模块，统一从项目同源静态目录加载，
+    // 避免浏览器依次等待多个不可达 CDN。
+    const monacoBases = [
+        '/static/vendor/monaco/0.40.0/min'
     ];
     
     // 尝试使用Require方式加载
     try {
         if (typeof require !== 'undefined') {
             require.config({
-                paths: { 'vs': monacoCDNs[0] + '/vs' }
+                paths: { 'vs': monacoBases[0] + '/vs' }
             });
             
             require(['vs/editor/editor.main'], function() {
@@ -148,7 +145,7 @@ function tryLoadMonaco(callback) {
         }
     } catch (e) {
         console.log('Require方式加载Monaco失败，尝试脚本方式: ', e);
-        loadMonacoScript(monacoCDNs, 0, callback);
+        loadMonacoScript(monacoBases, 0, callback);
     }
 }
 
@@ -327,13 +324,13 @@ function trySwitchToCodeMirror() {
     
     // 加载CodeMirror
     const cmScript = document.createElement('script');
-    cmScript.src = 'https://cdn.jsdelivr.net/npm/codemirror@5.65.2/lib/codemirror.min.js';
+    cmScript.src = '/static/vendor/codemirror/5.65.2/codemirror.js';
     cmScript.onload = function() {
         console.log('CodeMirror 核心加载成功');
         
         // 加载C++模式
         const modeScript = document.createElement('script');
-        modeScript.src = 'https://cdn.jsdelivr.net/npm/codemirror@5.65.2/mode/clike/clike.min.js';
+        modeScript.src = '/static/vendor/codemirror/5.65.2/mode/clike/clike.js';
         modeScript.onload = function() {
             console.log('C++ 模式加载成功');
             initCodeMirror();
@@ -347,13 +344,13 @@ function trySwitchToCodeMirror() {
         // 加载样式
         const style = document.createElement('link');
         style.rel = 'stylesheet';
-        style.href = 'https://cdn.jsdelivr.net/npm/codemirror@5.65.2/lib/codemirror.min.css';
+        style.href = '/static/vendor/codemirror/5.65.2/codemirror.css';
         document.head.appendChild(style);
         
         // 加载主题
         const theme = document.createElement('link');
         theme.rel = 'stylesheet';
-        theme.href = 'https://cdn.jsdelivr.net/npm/codemirror@5.65.2/theme/dracula.min.css';
+        theme.href = '/static/vendor/codemirror/5.65.2/theme/dracula.css';
         document.head.appendChild(theme);
     };
     cmScript.onerror = function() {
@@ -647,4 +644,4 @@ window.CodeEditor = {
             }
         }
     }
-}; 
+};

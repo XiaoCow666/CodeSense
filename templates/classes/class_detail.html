@@ -202,6 +202,20 @@
                 {% if session.get('usertype') == '管理员' %}
                 <p class="mb-0">教师绑定码: <code class="text-white">{{ cls.teacher_bind_code or '未生成' }}</code></p>
                 {% endif %}
+                {% if session.get('usertype') in ['管理员', '教师'] %}
+                <p class="mb-0 mt-2">
+                    学生加入码:
+                    <code class="text-white" style="font-size:1.05rem;letter-spacing:.08em;">{{ cls.student_join_code or '未生成' }}</code>
+                    <small class="d-block" style="opacity:.82;">自由用户注册后输入此码即可加入本班级</small>
+                </p>
+                <form action="{{ url_for('classes.reset_student_join_code', class_id=cls.id) }}" method="POST"
+                    class="mt-2" onsubmit="return confirm('确定重置学生加入码吗？旧加入码将立即失效。');">
+                    {% if csrf_token is defined %}{{ csrf_token() }}{% endif %}
+                    <button type="submit" class="btn btn-sm btn-light">
+                        <i class="bi bi-arrow-clockwise"></i> 重置学生加入码
+                    </button>
+                </form>
+                {% endif %}
             </div>
             <div class="col-md-4 text-right">
                 {% if session.get('usertype') == '管理员' %}

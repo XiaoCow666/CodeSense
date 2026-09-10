@@ -1,0 +1,4 @@
+# Optional Stage 3 experiment. Keep this out of requirements.txt because the
+# package currently pulls ChromaDB, LanceDB, MCP and OpenTelemetry dependencies.
+# CrewAI 1.15.18 supports Python >=3.10,<3.14.
+crewai==1.15.18

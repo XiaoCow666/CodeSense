@@ -23,8 +23,13 @@ from .contracts import (
     ToolResult,
     UIAction,
 )
-from .coverage import _is_concrete_explanation, load_coverage_config
+from .coverage import (
+    _evidence_covers_concept,
+    _is_concrete_explanation,
+    load_coverage_config,
+)
 from .goal import build_stage3_user_goal
+from .interaction import build_interaction_profile
 from .loop import (
     AgentLoop,
     AgentLoopSpec,
@@ -35,9 +40,11 @@ from .loop import (
 )
 from .memory import EventRecord, EventStore, MemorySnapshot, MemoryStore, SqlAlchemyEventStore
 from .model import DecisionModel, StructuredDecisionModel
+from .crewai_adapter import build_stage3_decision_model
 from .tools import (
     BuggyCodeGenerator,
     FixEvaluator,
+    MAX_EVIDENCE_CHARS,
     ToolRegistry,
     _is_valid_probe_question,
     build_feynman_tool_registry,
@@ -63,6 +70,9 @@ TEACHER_SPEC = AgentSpec(
         "调用 request_student_probe 时，concept 和 dimension 优先逐字复制上下文中的 key_concepts 与 probe_dimensions；"
         "不要自行创造新的概念或维度名称。每轮先回应学习者刚刚说的内容，再提出一个明确、可回答的问题；"
         "一次只能问一个问题，禁止把多个边界、多个概念或多个问题拼在同一轮，也不要只说‘请继续说明思路’这类没有方向的追问。"
+        "上下文中的 interaction_profile 是根据最近用户回复生成的确定性互动信号；必须遵守其中的 guidance。"
+        "当 input_kind 为 teacher_help 时，说明学习者刚刚无法回答小明的问题；此轮必须先讲清缺失知识，"
+        "最好给一个具体输入例子，再只提出一个用于确认理解的问题，不得只把问题原样抛回给学习者。"
         "只有在工具返回的服务端条件满足时才调用 complete_goal。"
     ),
     fallback_message="请再用自己的话解释一下这一步。",
@@ -78,7 +88,12 @@ STUDENT_SPEC = AgentSpec(
         "服务端上下文中的 coverage 是唯一的学习进度依据：收到具体解释后，优先调用 assess_teaching_progress，"
         "评估的是当前用户实际回答是否覆盖 pending_probe；不要只因为你上一轮提过问题就判为 partial。"
         "如果回答同时给出关键事实、代码关系和原因，应判为 covered；只有缺少关键事实或原因时才判为 partial。"
+        "每个新的 student_probe_intent 首轮先以同学小明的口吻承认‘我还不太会’，"
+        "请学习者用简单的话教你怎么处理这道题；这一轮不要先考察边界、循环或输出细节。"
+        "如果学习者对小明的问题表示不会、不懂、答不完整或继续提问，不要重复同一个问题，"
+        "交由老师补充缺失知识；只有学习者给出具体解释后，才调用 assess_teaching_progress。"
         "不要重复已经问过的问题；应按 pending_probe 的概念和维度切换到下一个尚未覆盖的检查。"
+        "上下文中的 interaction_profile 是根据最近用户回复生成的确定性互动信号；必须遵守其中的 guidance。"
         "一次只提出一个简短、具体的问题；问题应从新的角度检查理解，例如边界、循环关系或真实应用场景，"
         "不要在同一轮同时问多个情形，也不要用‘我也懂了’代替对学习者的回应；当 ready_for_code 为 true 时停止追问，让系统自动调用 generate_buggy_attempt。"
     ),
@@ -180,6 +195,8 @@ class _ForumRoleContextLoop(_RoleContextLoop):
         self._active_event_metadata: Dict[str, Any] = {}
         self._active_user_event_id: Optional[str] = None
         self._active_user_message = ""
+        self._active_input_kind = "chat"
+        self._active_teacher_help_target: Optional[Dict[str, str]] = None
 
     def _tool_context(self, snapshot: MemorySnapshot, request_id: str, input_kind: str):
         context = super()._tool_context(snapshot, request_id, input_kind)
@@ -262,6 +279,17 @@ class _ForumRoleContextLoop(_RoleContextLoop):
         )
 
     def _duplicate_response_fallback(self, snapshot: MemorySnapshot) -> str:
+        if self.role is AgentRole.STUDENT_AGENT:
+            target = self._student_probe_target(snapshot)
+            if target is not None:
+                candidates = (
+                    _student_opening_question(target, self._learner_name),
+                    _fallback_student_probe_question(target, self._learner_name),
+                    "我们换一个角度：请举一个具体输入，说明这条规则会怎样处理？",
+                )
+                for candidate in candidates:
+                    if not self._is_duplicate_public_text(candidate, snapshot):
+                        return candidate
         contextual = (
             _contextual_teacher_fallback(self._active_user_message)
             if self.role is AgentRole.TEACHER_AGENT
@@ -282,8 +310,18 @@ class _ForumRoleContextLoop(_RoleContextLoop):
         if self.role is AgentRole.TEACHER_AGENT and any(
             marker in response for marker in _TEACHER_IMPERSONATION_MARKERS
         ):
+            if self._active_input_kind == "teacher_help":
+                return _teacher_help_fallback(
+                    self._active_user_message,
+                    self._active_teacher_help_target,
+                )
             return _TEACHER_SAFE_PUBLIC_MESSAGE
         if self.role is AgentRole.TEACHER_AGENT and _is_generic_teacher_response(response):
+            if self._active_input_kind == "teacher_help":
+                return _teacher_help_fallback(
+                    self._active_user_message,
+                    self._active_teacher_help_target,
+                )
             return _contextual_teacher_fallback(self._active_user_message)
         if self.role is AgentRole.STUDENT_AGENT:
             # The Student Agent is the voice of Xiaoming, while the person
@@ -430,6 +468,12 @@ class _ForumRoleContextLoop(_RoleContextLoop):
             )
             self._active_user_event_id = user_event.event_id
         snapshot = self.memory.load(self.session_id)
+        self._active_input_kind = input_kind
+        self._active_teacher_help_target = (
+            _normalize_probe_target(snapshot.state.pending_probe)
+            if self.role is AgentRole.TEACHER_AGENT and input_kind == "teacher_help"
+            else None
+        )
         self._active_trigger = dict(trigger) if isinstance(trigger, Mapping) else None
         self._active_target_role = target_role
         if (
@@ -455,16 +499,52 @@ class _ForumRoleContextLoop(_RoleContextLoop):
         )
         assessment_retry_done = False
 
-        for step in range(self.config.max_model_steps):
-            decision = self._decide(
-                input_kind,
-                tool_results,
-                request_id,
-                snapshot,
-                step,
+        if self._must_generate_code(snapshot, input_kind):
+            # The coverage gate may have opened in a previous request (for
+            # example after a failed browser retry). Do not spend another
+            # provider call asking the Teacher or Student what to do: record
+            # this current user event and let DualFeynmanRuntime perform the
+            # single server-authorized code transition below.
+            self._advance_successful_chat(snapshot, user_message, "", input_kind)
+            self._persist_state_checkpoint(snapshot, request_id)
+            return AgentResult(
+                success=False,
+                agent=self.role,
+                error_code="READY_FOR_CODE_REQUIRED",
             )
+
+        for step in range(self.config.max_model_steps):
+            if step == 0 and self._should_open_student_probe(
+                snapshot,
+                input_kind=input_kind,
+                user_message=user_message,
+            ):
+                target = self._student_probe_target(snapshot)
+                decision = AgentDecision(
+                    message=(
+                        _student_opening_question(target, self._learner_name)
+                        if target is not None
+                        else f"{self._learner_name}，我还不太会这道题。你可以用简单的话告诉我应该怎么处理吗？"
+                    )
+                )
+            else:
+                decision = self._decide(
+                    input_kind,
+                    tool_results,
+                    request_id,
+                    snapshot,
+                    step,
+                )
             if isinstance(decision, AgentResult):
                 return decision
+            decision = self._fallback_protocol_decision(
+                decision,
+                user_message=user_message,
+                input_kind=input_kind,
+                request_id=request_id,
+                snapshot=snapshot,
+                tool_results=tool_results,
+            )
             if assessment_retry_needed and self._has_tool_call(
                 decision,
                 "assess_teaching_progress",
@@ -542,6 +622,16 @@ class _ForumRoleContextLoop(_RoleContextLoop):
                     decision.message,
                     input_kind,
                 )
+                if (
+                    self.role is AgentRole.STUDENT_AGENT
+                    and self._is_duplicate_public_text(safe_decision_message, snapshot)
+                ):
+                    safe_decision_message = self._duplicate_response_fallback(snapshot)
+                    decision = AgentDecision(
+                        message=safe_decision_message,
+                        goal_status=decision.goal_status,
+                        ui_action=decision.ui_action,
+                    )
                 return self._finish_public_response(
                     decision,
                     snapshot,
@@ -638,6 +728,179 @@ class _ForumRoleContextLoop(_RoleContextLoop):
 
         return self._failure("MAX_AGENT_STEPS", request_id)
 
+    def _fallback_protocol_decision(
+        self,
+        decision: AgentDecision,
+        *,
+        user_message: str,
+        input_kind: str,
+        request_id: str,
+        snapshot: MemorySnapshot,
+        tool_results: List[Dict[str, Any]],
+    ) -> AgentDecision:
+        """Keep the Stage 3 protocol moving when structured AI is unavailable.
+
+        A provider outage must not turn the forum into a repeating generic
+        prompt.  The fallback follows the same role boundary as a normal
+        model decision and uses only server-derived state plus the recent
+        interaction profile.  No learning credit is granted by this method
+        itself.
+        """
+        if (
+            self.role is AgentRole.TEACHER_AGENT
+            and not decision.tool_calls
+            and bool(getattr(self.model, "fallback_used", False))
+        ):
+            profile = build_interaction_profile(snapshot.student_messages)
+            target = self._teacher_fallback_target(snapshot)
+            if input_kind == "teacher_help" or profile.mode == "needs_scaffold":
+                return AgentDecision(message=_teacher_help_fallback(
+                    user_message,
+                    self._active_teacher_help_target or target,
+                ))
+            return AgentDecision(message=_contextual_teacher_fallback(user_message))
+
+        if (
+            self.role is not AgentRole.STUDENT_AGENT
+            or decision.tool_calls
+            or not bool(getattr(self.model, "fallback_used", False))
+        ):
+            return decision
+
+        target = self._fallback_probe_target(snapshot)
+        if target is None:
+            return decision
+
+        if input_kind == "intervention":
+            return AgentDecision(message=_fallback_student_probe_question(
+                target,
+                self._learner_name,
+            ))
+
+        if input_kind != "chat" or snapshot.state.phase != "student_dialogue":
+            return decision
+
+        if self._has_successful_assessment(tool_results):
+            return AgentDecision(message=_fallback_student_probe_question(
+                self._fallback_probe_target(snapshot) or target,
+                self._learner_name,
+            ))
+
+        if _is_concrete_explanation(user_message):
+            evidence = user_message.strip()[:MAX_EVIDENCE_CHARS]
+            assessment = (
+                "covered"
+                if _evidence_covers_concept(target["concept"], user_message)
+                else "partial"
+            )
+            return AgentDecision(
+                tool_calls=[ToolCall(
+                    call_id=f"{str(request_id)[:80]}:fallback-assess",
+                    name="assess_teaching_progress",
+                    arguments={
+                        "assessment": assessment,
+                        "evidence": evidence,
+                    },
+                )]
+            )
+
+        return AgentDecision(message=_fallback_student_probe_question(
+            target,
+            self._learner_name,
+        ))
+
+    @staticmethod
+    def _has_successful_assessment(tool_results: List[Dict[str, Any]]) -> bool:
+        return any(
+            isinstance(item, Mapping)
+            and item.get("name") == "assess_teaching_progress"
+            and item.get("ok") is True
+            for item in tool_results
+        )
+
+    @staticmethod
+    def _fallback_probe_target(snapshot: MemorySnapshot) -> Optional[Dict[str, str]]:
+        for candidate in (
+            snapshot.state.pending_probe,
+            snapshot.state.student_probe_intent,
+        ):
+            if not isinstance(candidate, Mapping):
+                continue
+            concept = str(candidate.get("concept") or "").strip()
+            dimension = str(candidate.get("dimension") or "").strip()
+            if concept and dimension:
+                return {"concept": concept, "dimension": dimension}
+        return None
+
+    @staticmethod
+    def _teacher_fallback_target(snapshot: MemorySnapshot) -> Optional[Dict[str, str]]:
+        """Select the next server-known concept for a degraded Teacher reply."""
+
+        for candidate in (
+            snapshot.state.pending_probe,
+            snapshot.state.student_probe_intent,
+        ):
+            normalized = _normalize_probe_target(candidate)
+            if normalized is not None:
+                return normalized
+
+        for concept in snapshot.state.unresolved_concepts:
+            value = str(concept or "").strip()
+            if value:
+                return {"concept": value, "dimension": "core"}
+
+        for item in snapshot.state.concept_coverage:
+            if not isinstance(item, Mapping) or item.get("status") == "covered":
+                continue
+            concept = str(item.get("concept") or "").strip()
+            if concept:
+                return {"concept": concept, "dimension": "core"}
+        return None
+
+    def _student_probe_target(self, snapshot: MemorySnapshot) -> Optional[Dict[str, str]]:
+        """Return the one server-authorized target for this Student turn."""
+        for candidate in (
+            self._active_trigger,
+            snapshot.state.pending_probe,
+            snapshot.state.student_probe_intent,
+        ):
+            target = _normalize_probe_target(candidate)
+            if target is not None:
+                return target
+        return None
+
+    def _should_open_student_probe(
+        self,
+        snapshot: MemorySnapshot,
+        *,
+        input_kind: str,
+        user_message: str,
+    ) -> bool:
+        """Keep the first peer turn in the learner-facing Xiaoming role.
+
+        AutoGen's group-chat selector separates speaker selection from the
+        selected agent's response.  We apply the same boundary here: an
+        authorized Student turn gets one deterministic opening move before
+        the model is allowed to assess an answer or choose another probe.
+        """
+        if self.role is not AgentRole.STUDENT_AGENT or snapshot.state.phase != "student_dialogue":
+            return False
+        if self._student_probe_target(snapshot) is None:
+            return False
+        if input_kind == "intervention":
+            return True
+        if isinstance(snapshot.state.student_probe_intent, Mapping):
+            return True
+        pending = snapshot.state.pending_probe
+        if isinstance(pending, Mapping) and str(pending.get("question") or "").strip():
+            return False
+        # A concrete answer may come from a legacy session whose pending probe
+        # predates the question field.  Let the normal assessment path consume
+        # it instead of replacing the answer with a new opening question.
+        if _is_concrete_explanation(str(user_message or "")):
+            return False
+        return not _looks_like_probe_answer(str(user_message or ""))
+
     def _needs_assessment_retry(
         self,
         user_message: str,
@@ -668,6 +931,17 @@ class _ForumRoleContextLoop(_RoleContextLoop):
         message_metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
         message_metadata = dict(message_metadata or {})
+        if self.role is AgentRole.STUDENT_AGENT and _is_valid_probe_question(result.response):
+            target = self._student_probe_target(snapshot)
+            if target is not None:
+                # Persist the exact public question with the server-owned
+                # target.  On a restored session this distinguishes "Xiaoming
+                # is waiting for the learner's answer" from "Xiaoming has
+                # only been scheduled and has not spoken yet".
+                snapshot.state.pending_probe = {
+                    **target,
+                    "question": result.response,
+                }
         is_intent_probe = (
             isinstance(snapshot.state.student_probe_intent, Mapping)
             and _is_valid_probe_question(result.response)
@@ -758,6 +1032,7 @@ class _ForumRoleContextLoop(_RoleContextLoop):
             "visibility",
             "reply_to_event_id",
             "parent_request_id",
+            "input_kind",
         }
         return {
             key: value
@@ -829,10 +1104,16 @@ class DualFeynmanRuntime:
     ) -> AgentResult:
         if role not in self.specs:
             raise ValueError("unsupported agent role")
+        input_kind = "chat"
+        if isinstance(event_metadata, Mapping):
+            requested_input_kind = event_metadata.get("input_kind")
+            if requested_input_kind in {"chat", "teacher_help"}:
+                input_kind = requested_input_kind
         loop = self._loop_for(role, self.model)
         result = loop.handle_turn(
             message,
             request_id=request_id,
+            input_kind=input_kind,
             event_metadata=event_metadata,
         )
         if role is AgentRole.STUDENT_AGENT and result.error_code == "READY_FOR_CODE_REQUIRED":
@@ -1068,6 +1349,9 @@ class DualFeynmanRuntime:
             "code_review_status": state.code_review_status,
             "input_kind": input_kind,
             "probe_dimensions": list(self._coverage_config().probe_dimensions),
+            "interaction_profile": build_interaction_profile(
+                snapshot.student_messages
+            ).to_prompt_dict(),
         }
         if role is AgentRole.TEACHER_AGENT:
             return {
@@ -1376,9 +1660,87 @@ def _contextual_teacher_fallback(user_message: Any) -> str:
     )
 
 
+def _teacher_help_fallback(
+    user_message: Any,
+    target: Optional[Mapping[str, str]],
+) -> str:
+    """Give a useful knowledge explanation when the Teacher model is down."""
+    compact = re.sub(r"\s+", " ", str(user_message or "")).strip()
+    compact = compact.replace("```", "").replace("\x00", "")[:96]
+    concept = str((target or {}).get("concept") or "这个知识点").strip()
+    if "循环" in concept or "边界" in concept or "索引" in concept:
+        explanation = (
+            "循环边界决定哪些位置会被处理。以数组长度 n 为例，合法下标是 0 到 n-1，"
+            "所以条件通常写成 i < n；当 i 等于 n 时循环应停止，否则就会访问越界。"
+            "例如 n=3 时只处理 0、1、2。"
+        )
+    elif "斐波那契" in concept or "数列" in concept:
+        explanation = (
+            "斐波那契数列从 0、1 开始，后面的每一项等于前两项之和。"
+            "输出前 N 项时，N=0 表示没有任何项，N=1 只输出 0；先处理这两个边界，"
+            "再从第三项开始用前两项更新当前项。"
+        )
+    else:
+        explanation = (
+            f"“{concept}”的关键是先明确输入，再说明程序中哪一步使用这个输入，"
+            "最后对应到输出或状态变化。可以先用一个最小输入逐步跟踪，而不是只记结论。"
+        )
+    prefix = f"你刚才说“{compact}”，说明你已经注意到题目的输入和输出；" if compact else ""
+    return f"{prefix}这里先补充一个关键知识点：{explanation}现在请你用自己的话说明这个例子为什么这样处理。"
+
+
 def _replace_student_self_reference(response: str, learner_name: str) -> str:
     name = _safe_learner_name(learner_name)
     return response.replace("学生 Agent", name).replace("学生Agent", name).replace("小明", name)
+
+
+def _student_opening_question(
+    target: Mapping[str, str],
+    learner_name: str,
+) -> str:
+    """Start Xiaoming's turn as a peer asking to be taught."""
+    name = _safe_learner_name(learner_name)
+    concept = str(target.get("concept") or "这道题").strip()
+    return f"{name}，我还不太会“{concept}”。你可以用简单的话告诉我这道题应该怎么处理吗？"
+
+
+def _looks_like_probe_answer(value: str) -> bool:
+    text = re.sub(r"\s+", "", str(value or "")).casefold()
+    if len(text) < 6:
+        return False
+    return any(
+        marker in text
+        for marker in (
+            "我已经解释",
+            "我理解",
+            "我认为",
+            "因为",
+            "所以",
+            "应该",
+            "输出",
+            "负责",
+            "会在",
+            "等于",
+            "循环",
+            "边界",
+        )
+    )
+
+
+def _fallback_student_probe_question(target: Mapping[str, str], learner_name: str) -> str:
+    """Create one learner-facing peer question without calling the provider."""
+    name = _safe_learner_name(learner_name)
+    concept = str(target.get("concept") or "这个概念").strip()
+    dimension = str(target.get("dimension") or "").strip()
+    questions = {
+        "core": f"{name}，请用自己的话说明“{concept}”在这道题里具体负责什么？",
+        "edge_case": f"{name}，换一个边界输入，说明“{concept}”会怎样处理，为什么？",
+        "application": f"{name}，请举一个具体输入或真实场景，说明“{concept}”怎样应用？",
+    }
+    return questions.get(
+        dimension,
+        f"{name}，请换一个具体例子说明“{concept}”如何应用？",
+    )
 
 
 def _normalize_probe_target(value: Any) -> Optional[Dict[str, str]]:
@@ -1407,7 +1769,7 @@ def build_feynman_runtime(session, assignment, preset, *, model=None, callbacks=
         session=session,
         assignment=assignment,
         preset=preset,
-        model=model or StructuredDecisionModel(),
+        model=model or build_stage3_decision_model(),
         callbacks=callbacks or FeynmanCallbacks(),
     )
 

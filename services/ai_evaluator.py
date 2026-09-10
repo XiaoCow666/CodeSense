@@ -202,6 +202,7 @@ class AIEvaluator:
                 temperature=0.7,
                 max_tokens=2000,
                 provider="zhipu",
+                request_kind="background",
             )
             if not result_content or not result_content.strip():
                 raise RuntimeError("AI服务未返回有效内容")
@@ -369,6 +370,7 @@ class AIEvaluator:
                 temperature=0.7,
                 max_tokens=2000,
                 provider="zhipu",
+                request_kind="background",
             ):
                 if content:
                     yield content

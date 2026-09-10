@@ -34,7 +34,7 @@
         forumCoverageSummary: null,
         forumUserGoal: null,
         pendingForumRequestId: null,
-        feynmanPhase: 'chat', // 'chat' | 'code_review' | 'completed'
+        feynmanPhase: 'chat', // 'chat' | 'code_generation' | 'code_review' | 'completed'
         buggyCode: null,
         buggyCodeInfo: null,
         devDebugTraceLoaded: false,
@@ -1056,7 +1056,7 @@
             typingDiv.id = typingId;
             typingDiv.innerHTML = `
                 <div class="chat-avatar teacher">🤖</div>
-                <div class="chat-bubble ai"><span class="typing-dots">思考引导中...</span></div>
+                <div class="chat-bubble ai cs-markdown"><span class="typing-dots">思考引导中...</span></div>
             `;
             container.appendChild(typingDiv);
             container.scrollTop = container.scrollHeight;
@@ -1116,7 +1116,7 @@
         msgDiv.className = `chat-message ${isUser ? 'user' : ''}`;
         msgDiv.innerHTML = `
             <div class="chat-avatar ${avatarClass}">${avatarIcon}</div>
-            <div class="chat-bubble ${isUser ? 'user-msg' : 'ai'}">${renderMarkdown(text)}</div>
+            <div class="chat-bubble cs-markdown ${isUser ? 'user-msg' : 'ai'}">${renderMarkdown(text)}</div>
         `;
         container.appendChild(msgDiv);
         container.scrollTop = container.scrollHeight;
@@ -1129,7 +1129,7 @@
         msgDiv.className = 'chat-message';
         msgDiv.innerHTML = `
             <div class="chat-avatar teacher">🤖</div>
-            <div class="chat-bubble ai"></div>
+            <div class="chat-bubble ai cs-markdown"></div>
         `;
         container.appendChild(msgDiv);
         const bubble = msgDiv.querySelector('.chat-bubble');
@@ -1306,7 +1306,8 @@
     }
 
     function triggerCodeWritingPhase() {
-        state.feynmanPhase = 'code_review';
+        if (state.feynmanPhase === 'code_generation') return;
+        state.feynmanPhase = 'code_generation';
 
         showTypingIndicator('forum');
 
@@ -1320,6 +1321,7 @@
             hideTypingIndicator('forum');
             applyForumUserGoal(data && data.user_goal);
             if (data.success) {
+                state.feynmanPhase = 'code_review';
                 state.buggyCode = data.buggy_code;
                 appendForumEvent({
                     event_id: `local-write-${data.request_id || newAgentRequestId('write-result')}`,
@@ -1335,9 +1337,18 @@
 
                 // Show code review panel
                 showCodeReviewPanel(data.buggy_code);
+            } else {
+                // A transient generator/provider error must not strand the
+                // page in code_review. The server gate remains authoritative,
+                // so the next turn can safely retry this idempotent step.
+                state.feynmanPhase = 'chat';
+                updateForumComposerState();
+                showError((data && data.error) || '代码练习生成失败，请稍后重试。');
             }
         }).catch(err => {
             hideTypingIndicator('forum');
+            state.feynmanPhase = 'chat';
+            updateForumComposerState();
             showError(err.message);
         });
     }
@@ -1470,7 +1481,7 @@
         msgDiv.className = `chat-message ${isUser ? 'user' : ''}`;
         msgDiv.innerHTML = `
             <div class="chat-avatar ${avatarClass}">${avatarIcon}</div>
-            <div class="chat-bubble ${isUser ? 'user-msg' : 'ai'}">${renderMarkdown(content)}</div>
+            <div class="chat-bubble cs-markdown ${isUser ? 'user-msg' : 'ai'}">${renderMarkdown(content)}</div>
         `;
         container.appendChild(msgDiv);
         container.scrollTop = container.scrollHeight;
@@ -1709,6 +1720,14 @@
         if (!payload || !payload.primary) return;
         if (payload.forum_state && typeof payload.forum_state === 'object') {
             state.forumCoverageSummary = sanitizeCoverageSummary(payload.forum_state.coverage_summary);
+            if (
+                payload.forum_state.target_role === 'student_agent'
+                && state.feynmanPhase === 'chat'
+            ) {
+                // The server owns the next-probe handoff. Keep the composer
+                // aligned when the Teacher authorized Xiaoming privately.
+                setForumTarget('student_agent');
+            }
         }
         applyForumUserGoal(payload.user_goal);
 
@@ -2378,7 +2397,7 @@
 
         const div = document.createElement('div');
         div.className = 'hint-bubble';
-        div.innerHTML = `<i class="bi bi-lightbulb"></i><span>${renderMarkdown(hint)}</span>`;
+        div.innerHTML = `<i class="bi bi-lightbulb"></i><span class="cs-markdown">${renderMarkdown(hint)}</span>`;
         container.appendChild(div);
         container.scrollTop = container.scrollHeight;
     }
@@ -2815,13 +2834,8 @@
 
     function renderMarkdown(str) {
         if (!str) return '';
-        if (typeof marked !== 'undefined') {
-            marked.setOptions({ breaks: true, gfm: true });
-            let html = marked.parse(str);
-            if (typeof DOMPurify !== 'undefined') {
-                html = DOMPurify.sanitize(html);
-            }
-            return html;
+        if (window.CodeSenseMarkdown) {
+            return window.CodeSenseMarkdown.renderToString(str);
         }
         return escapeHtml(str).replace(/\n/g, '<br>');
     }

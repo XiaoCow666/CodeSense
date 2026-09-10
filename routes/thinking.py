@@ -538,18 +538,22 @@ def _safe_stage3_probe_target(value):
 
 def _stage3_forum_state(session_id: int):
     coverage_summary, pending_probe = _stage3_safe_coverage_summary(session_id)
+    pending_target = _safe_stage3_probe_target(pending_probe)
+    intent_target = _safe_stage3_probe_target(coverage_summary.get('student_probe_intent'))
     reply_to_event_id = None
     target_role = Stage3Target.AUTO.value
-    if isinstance(pending_probe, dict) and pending_probe:
+    student_target = pending_target or intent_target
+    if isinstance(student_target, dict) and student_target:
         target_role = AgentRole.STUDENT_AGENT.value
-        for event in reversed(_stage3_forum_history(session_id)):
-            if (
-                event.get('source_role') == AgentRole.STUDENT_AGENT.value
-                and event.get('message_kind') == Stage3MessageKind.STUDENT_PROBE.value
-            ):
-                event_id = event.get('event_id')
-                reply_to_event_id = str(event_id) if event_id else None
-                break
+        if pending_target:
+            for event in reversed(_stage3_forum_history(session_id)):
+                if (
+                    event.get('source_role') == AgentRole.STUDENT_AGENT.value
+                    and event.get('message_kind') == Stage3MessageKind.STUDENT_PROBE.value
+                ):
+                    event_id = event.get('event_id')
+                    reply_to_event_id = str(event_id) if event_id else None
+                    break
     return {
         'target_role': target_role,
         'reply_to_event_id': reply_to_event_id,

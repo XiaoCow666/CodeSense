@@ -357,7 +357,7 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js"></script>
+<script src="{{ url_for('static', filename='vendor/chart.js/3.9.1/chart.min.js') }}?v=3.9.1"></script>
 <script>
     // 最简单的标签页切换函数
     function showTab(tabId) {

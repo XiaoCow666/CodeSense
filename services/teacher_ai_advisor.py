@@ -1,10 +1,13 @@
 import json
+import logging
 import threading
 from datetime import datetime as dt
 from models import db, User, Class, KnowledgePointScore, Assignment, AssignmentKnowledgePoint, TeacherAISuggestion
 from services.teacher_analytics import build_class_learning_rows
-from services.llm_client import SharedLLMClient
+from services.llm_client import LLMServiceError, SharedLLMClient
 from services.demo_database import activate_demo_run, is_active_demo_run
+
+logger = logging.getLogger(__name__)
 
 # 线程锁，防止重复并发生成同一班级的AI建议
 _generation_locks = {}
@@ -34,6 +37,23 @@ def _mark_demo_suggestion_failed(class_id, teacher_id):
     suggestion.last_updated = dt.utcnow()
     db.session.commit()
     return suggestion
+
+
+def _friendly_ai_error(code):
+    """把内部诊断码转换成不泄露密钥/请求内容的用户提示。"""
+
+    messages = {
+        'NO_PROVIDER': '当前没有可用的 AI 提供商，请检查 ZHIPU_API_KEY 或 OPENAI_API_KEY。',
+        'NETWORK_UNAVAILABLE': (
+            'AI 网络连接失败，请检查 TUN/VPN 的代理设置；如果使用本地代理，'
+            '可在 .env 配置 AI_HTTPS_PROXY 后重启 app.py。'
+        ),
+        'TIMEOUT': 'AI 服务响应超时，请稍后重试；也可以适当提高 AI_READ_TIMEOUT_SECONDS。',
+        'AUTH_FAILED': 'AI API Key 无效或已失效，请检查 .env 中的密钥配置。',
+        'RATE_LIMITED': 'AI 服务当前请求过多或额度受限，请稍后重试。',
+        'INVALID_RESPONSE': 'AI 返回内容格式不完整，请稍后重试。',
+    }
+    return messages.get(code, 'AI 上游服务暂时不可用，请稍后重试。')
 
 
 def generate_class_suggestions(class_id, teacher_id, demo_run_id=None):
@@ -461,6 +481,7 @@ def generate_class_suggestions_stream(class_id, teacher_id, demo_run_id=None):
     }
 
     llm = SharedLLMClient()
+    ai_error_code = 'INVALID_RESPONSE'
     if llm.is_available():
         try:
             yield f"data: {json.dumps({'type': 'status', 'message': '正在与 AI 助手建立流式会话...'})}\n\n"
@@ -564,24 +585,32 @@ def generate_class_suggestions_stream(class_id, teacher_id, demo_run_id=None):
                     yield f"data: {json.dumps({'type': 'complete', 'suggestion_json': parsed_json, 'last_updated': suggestion.last_updated.strftime('%Y-%m-%d %H:%M:%S')})}\n\n"
                     return
             except Exception as je:
-                print(f"LLM JSON 流解析失败: {je}")
+                ai_error_code = 'INVALID_RESPONSE'
+                logger.warning('班级 %s 的 AI 建议 JSON 流解析失败: %s', class_id, type(je).__name__)
 
         except Exception as le:
-            print(f"LLM 流式分析失败: {le}")
+            if isinstance(le, LLMServiceError):
+                ai_error_code = le.code
+            logger.exception('班级 %s 的 AI 流式分析失败 (%s)', class_id, ai_error_code)
 
         if demo_run_id:
             if _demo_database_is_available(demo_run_id):
                 _mark_demo_suggestion_failed(class_id, teacher_id)
-            yield f"data: {json.dumps({'type': 'error', 'message': '真实 AI 建议生成失败，请稍后重试'})}\n\n"
+            yield f"data: {json.dumps({'type': 'error', 'code': ai_error_code, 'message': _friendly_ai_error(ai_error_code)}, ensure_ascii=False)}\n\n"
             return
 
     elif demo_run_id:
         if _demo_database_is_available(demo_run_id):
             _mark_demo_suggestion_failed(class_id, teacher_id)
-        yield f"data: {json.dumps({'type': 'error', 'message': 'AI 服务当前不可用，请稍后重试'})}\n\n"
+        ai_error_code = 'NO_PROVIDER'
+        yield f"data: {json.dumps({'type': 'error', 'code': ai_error_code, 'message': _friendly_ai_error(ai_error_code)}, ensure_ascii=False)}\n\n"
         return
+    else:
+        ai_error_code = 'NO_PROVIDER'
 
     # Fallback to rules-based
+    if ai_error_code != 'INVALID_RESPONSE' or llm.is_available():
+        yield f"data: {json.dumps({'type': 'status', 'message': 'AI 暂不可用，已切换为规则分析结果...' }, ensure_ascii=False)}\n\n"
     yield f"data: {json.dumps({'type': 'start'})}\n\n"
     chunk_size = 30
     import time

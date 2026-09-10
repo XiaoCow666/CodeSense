@@ -5,11 +5,14 @@ __pycache__/
 *.so
 venv/
 .venv/
+.venv-crewai/
 ENV/
 env/
 
 # Flask runtime data
 instance/
+.crewai-storage*/
+.crewai-localappdata*/
 flask_session/
 logs/
 .webassets-cache/

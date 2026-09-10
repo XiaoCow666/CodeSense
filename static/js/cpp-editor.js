@@ -1,6 +1,6 @@
 /**
  * C++代码编辑器 - 简化版
- * 使用Monaco编辑器 - 单一CDN源
+ * 使用项目同源静态资源中的 Monaco 编辑器
  */
 
 // 全局编辑器实例
@@ -59,7 +59,7 @@ function initEditor(id) {
 
 /**
  * 加载Monaco编辑器
- * 只使用单一CDN源
+ * 只使用单一同源静态资源
  */
 function loadMonaco(onSuccess, onError) {
     // 检查是否已加载
@@ -68,12 +68,12 @@ function loadMonaco(onSuccess, onError) {
         return;
     }
     
-    // 使用可靠的CDN - 仅使用单一源
-    const cdnPath = 'https://cdn.jsdelivr.net/npm/monaco-editor@0.40.0/min';
+    // Monaco 是一套 AMD 模块，必须保留 /vs 目录结构。
+    const monacoPath = '/static/vendor/monaco/0.40.0/min';
     
     // 创建加载脚本
     const script = document.createElement('script');
-    script.src = `${cdnPath}/vs/loader.js`;
+    script.src = `${monacoPath}/vs/loader.js`;
     script.async = true;
     script.onload = () => {
         if (typeof require === 'undefined') {
@@ -84,7 +84,7 @@ function loadMonaco(onSuccess, onError) {
         
         // 配置require
         require.config({
-            paths: { 'vs': `${cdnPath}/vs` }
+            paths: { 'vs': `${monacoPath}/vs` }
         });
         
         // 设置超时
@@ -285,4 +285,4 @@ function setEditorContent(content) {
 // 暴露API
 window.initEditor = initEditor;
 window.getEditorContent = getEditorContent;
-window.setEditorContent = setEditorContent; 
+window.setEditorContent = setEditorContent;

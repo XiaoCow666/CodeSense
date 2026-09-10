@@ -50,7 +50,7 @@ function initAdviceElements() {
                     </div>
                     <p class="mt-2">正在分析代码，请稍候...</p>
                 </div>
-                <div id="advice-content" class="markdown-content"></div>
+                <div id="advice-content" class="markdown-content cs-markdown"></div>
             </div>
         `;
         
@@ -279,9 +279,9 @@ function displayAdvice(advice) {
     // 格式化Markdown内容
     let formattedAdvice = '';
     try {
-        // 如果有marked库，使用它渲染Markdown
-        if (typeof marked !== 'undefined') {
-            formattedAdvice = marked.parse(advice);
+        // 使用共享渲染器，确保不同页面的 Markdown 视觉与安全策略一致。
+        if (window.CodeSenseMarkdown) {
+            formattedAdvice = window.CodeSenseMarkdown.renderToString(advice);
         } else {
             // 简单的Markdown格式化
             formattedAdvice = formatMarkdown(advice);

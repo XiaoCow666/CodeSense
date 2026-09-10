@@ -49,6 +49,14 @@ def _establish_login_session(user, source=None):
     return new_session_id
 
 
+def _new_free_user_id():
+    """生成不暴露真实学号、且兼容旧 student_id 外键的内部账号标识。"""
+    while True:
+        candidate = f'guest_{uuid.uuid4().hex[:14]}'
+        if not User.query.filter_by(student_id=candidate).first():
+            return candidate
+
+
 @auth.route('/')
 def index():
     """首页，重定向到登录页面"""
@@ -154,7 +162,7 @@ def demo_login(role):
 @auth.route('/register', methods=['GET', 'POST'])
 @redirect_if_logged_in
 def register():
-    """注册页面 - 仅限学生"""
+    """注册页面 - 支持教学班学生和自由学生账号。"""
     enable_registration = SystemConfig.get_value('enable_registration', True)
     if not enable_registration:
         flash('系统当前不允许新用户注册，请联系管理员', 'warning')
@@ -163,16 +171,27 @@ def register():
     form = RegistrationForm()
     if form.validate_on_submit():
         username = form.username.data
-        student_id = form.student_id.data
+        student_id = (form.student_id.data or '').strip()
         email = (form.email.data or '').strip().lower() or None
-        current_app.logger.info(f"学生注册尝试 - 用户名: {username}, 学号: {student_id}, IP: {request.remote_addr}")
-        
-        existing_user = User.query.filter(
-            (User.username == username) | (User.student_id == student_id)
-        ).first()
-        
+        account_kind = 'academic' if student_id else 'free'
+        current_app.logger.info(
+            f"学生注册尝试 - 用户名: {username}, 学号: {student_id or '自由账号'}, "
+            f"类型: {account_kind}, IP: {request.remote_addr}"
+        )
+
+        duplicate_filters = [User.username == username]
+        if student_id:
+            duplicate_filters.extend([
+                User.student_id == student_id,
+                User.student_number == student_id,
+            ])
+        existing_user = User.query.filter(db.or_(*duplicate_filters)).first()
+
         if existing_user:
-            current_app.logger.warning(f"注册失败 - 用户名或学号已存在: {username}/{student_id}, IP: {request.remote_addr}")
+            current_app.logger.warning(
+                f"注册失败 - 用户名或学号已存在: {username}/{student_id or '自由账号'}, "
+                f"IP: {request.remote_addr}"
+            )
             flash('用户名或学号已存在，请使用其他的用户名和学号', 'danger')
             return render_template('register.html', form=form)
 
@@ -180,41 +199,60 @@ def register():
             flash('邮箱已被使用，请更换邮箱或直接登录。', 'danger')
             return render_template('register.html', form=form)
 
-        roster = StudentRoster.query.filter_by(student_id=student_id).first()
-        if not roster:
-            current_app.logger.warning(f"注册失败 - 学号不在导入名单中: {student_id}, IP: {request.remote_addr}")
-            flash('未在教师导入的学生名单中找到该学号，请联系任课教师或管理员导入名单后再注册。', 'danger')
-            return render_template('register.html', form=form)
+        roster = None
+        target_class = None
+        if student_id:
+            roster = StudentRoster.query.filter_by(student_id=student_id).first()
+            if not roster:
+                current_app.logger.warning(
+                    f"注册失败 - 学号不在导入名单中: {student_id}, IP: {request.remote_addr}"
+                )
+                flash('未在教师导入的学生名单中找到该学号；如果你不是教学班学生，请留空学号注册自由账号。', 'danger')
+                return render_template('register.html', form=form)
 
-        target_class = Class.query.get(roster.class_id)
-        if not target_class:
-            current_app.logger.warning(f"注册失败 - 花名册班级不存在: {student_id}, class_id={roster.class_id}")
-            flash('学生名单关联的班级不存在，请联系管理员处理。', 'danger')
-            return render_template('register.html', form=form)
+            target_class = Class.query.get(roster.class_id)
+            if not target_class:
+                current_app.logger.warning(
+                    f"注册失败 - 花名册班级不存在: {student_id}, class_id={roster.class_id}"
+                )
+                flash('学生名单关联的班级不存在，请联系管理员处理。', 'danger')
+                return render_template('register.html', form=form)
         
         try:
             user = User(
                 username=username,
-                student_id=student_id,
+                student_id=student_id or _new_free_user_id(),
+                student_number=student_id or None,
+                account_kind=account_kind,
                 usertype='学生',
                 full_name=form.full_name.data or roster.full_name,
                 email=email,
-                class_name=target_class.name,
-                class_id=target_class.id
+                class_name=target_class.name if target_class else None,
+                class_id=target_class.id if target_class else None,
             )
             user.password = form.password.data
             db.session.add(user)
-            roster.is_registered = True
-            roster.registered_user_id = student_id
+            if roster:
+                roster.is_registered = True
+                roster.registered_user_id = user.student_id
             db.session.commit()
             
             SystemLog.add_log(
                 log_type='用户注册',
-                content=f'新学生 {user.username} ({user.full_name}) 注册成功',
+                content=(
+                    f"新学生 {user.username} ({user.full_name}) 注册成功"
+                    f"，账号类型: {'自由账号' if user.is_free_account else '教学班账号'}"
+                ),
                 user_id=user.student_id
             )
-            current_app.logger.info(f"注册成功 - 用户: {user.username}, 学号: {user.student_id}, 类型: 学生, 班级: {user.class_name}, IP: {request.remote_addr}")
-            flash('注册成功，请登录！', 'success')
+            current_app.logger.info(
+                f"注册成功 - 用户: {user.username}, 内部ID: {user.student_id}, "
+                f"类型: {account_kind}, 班级: {user.class_name or '待加入'}, IP: {request.remote_addr}"
+            )
+            if user.is_free_account:
+                flash('自由账号注册成功，请登录后使用教师提供的班级加入码入班。', 'success')
+            else:
+                flash('注册成功，请登录！', 'success')
             return redirect(url_for('auth.login'))
         except Exception as e:
             db.session.rollback()
@@ -258,8 +296,12 @@ def register_teacher(token):
 
     if form.validate_on_submit():
         username = form.username.data
-        teacher_id = form.student_id.data
+        teacher_id = (form.student_id.data or '').strip()
         email = (form.email.data or '').strip().lower() or None
+
+        if not teacher_id:
+            form.student_id.errors.append('教师工号不能为空')
+            return render_template('register_teacher.html', form=form, token=token)
 
         existing_user = User.query.filter(
             (User.username == username) | (User.student_id == teacher_id)
@@ -277,6 +319,7 @@ def register_teacher(token):
             user = User(
                 username=username,
                 student_id=teacher_id,
+                account_kind='academic',
                 usertype='教师',
                 full_name=form.full_name.data,
                 email=email

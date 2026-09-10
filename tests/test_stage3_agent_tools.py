@@ -581,6 +581,7 @@ def test_student_probe_question_uses_server_target_and_persists_pending_probe():
         "pending_probe": {
             "concept": "循环边界",
             "dimension": "core",
+            "question": "你能解释一下为什么 i < n 不会越界吗？",
         }
     }
 

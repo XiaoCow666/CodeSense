@@ -252,7 +252,7 @@ function displayAnswer(answerText) {
                 <i class="bi bi-robot"></i>
                 <span>AI助手回答</span>
             </div>
-            <div class="answer-content markdown-content">
+            <div class="answer-content markdown-content cs-markdown">
                 ${formattedAnswer}
             </div>
         </div>
@@ -466,7 +466,7 @@ function handleAskQuestion() {
         onDelta: event => {
             streamedAnswer += event.content || event.token || '';
             if (streamedAnswer) {
-                answerContainer.innerHTML = `<div class="card"><div class="card-body markdown-content">${formatMarkdown(streamedAnswer)}</div></div>`;
+                answerContainer.innerHTML = `<div class="card"><div class="card-body markdown-content cs-markdown">${formatMarkdown(streamedAnswer)}</div></div>`;
             }
         },
         onError: event => {
@@ -496,7 +496,7 @@ function handleAskQuestion() {
                             <div><i class="bi bi-robot me-2"></i> AI助手回答：</div>
                         </div>
                     </div>
-                    <div class="card-body markdown-content">
+                    <div class="card-body markdown-content cs-markdown">
                         ${formatMarkdown(answer)}
                     </div>
                 </div>
@@ -572,7 +572,7 @@ function handleAskQuestion() {
  * 该函数负责将Markdown文本转换为HTML格式
  * 主要功能包括：
  * - 支持基本的Markdown语法（标题、粗体、斜体、代码块等）
- * - 提供降级处理，当marked库不可用时使用简单格式化
+ * - 通过共享渲染器统一处理格式与安全过滤
  * - 确保输出的HTML安全性
  * - 支持代码高亮集成
  * 
@@ -583,20 +583,16 @@ function formatMarkdown(markdown) {
     if (!markdown) return '';
     
     try {
-        // 如果marked库可用，使用它
-        if (typeof marked !== 'undefined') {
-            return marked.parse(markdown);
+        // 使用共享渲染器，确保不同页面的 Markdown 视觉与安全策略一致。
+        if (window.CodeSenseMarkdown) {
+            return window.CodeSenseMarkdown.renderToString(markdown);
         }
-        
-        // 简单的Markdown格式化
-        return markdown
-            .replace(/\n/g, '<br>')
-            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-            .replace(/\*(.*?)\*/g, '<em>$1</em>')
-            .replace(/```(\w*)([\s\S]*?)```/g, '<pre><code class="$1">$2</code></pre>');
+
+        // 共享渲染器不可用时只返回转义后的纯文本，避免产生不安全 HTML。
+        return escapeHtml(markdown).replace(/\n/g, '<br>');
     } catch (e) {
         console.error('格式化Markdown时出错:', e);
-        return markdown;
+        return escapeHtml(markdown).replace(/\n/g, '<br>');
     }
 }
 

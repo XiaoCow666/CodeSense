@@ -440,7 +440,7 @@
                 <img src="{{ url_for('static', filename='images/campus.jpg') }}" 
                      alt="沈阳航空航天大学校园" 
                      style="width: 100%; height: auto; display: block;"
-                     onerror="this.src='https://via.placeholder.com/800x400?text=沈阳航空航天大学校园'; this.onerror='';">
+                     onerror="this.onerror=null; this.src='{{ url_for('static', filename='img/empty-state.svg') }}';">
                 <div style="background: rgba(0,123,255,0.1); padding: 0.75rem; text-align: center; color: #4b5563;">
                     <i class="bi bi-info-circle"></i> 沈阳航空航天大学校园风光
                 </div>
@@ -523,4 +523,4 @@
         </div>
     </div>
 </div>
-{% endblock %} 
+{% endblock %}

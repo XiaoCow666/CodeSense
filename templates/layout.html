@@ -22,23 +22,20 @@
         }
     </style>
 
-    <!-- 引入Google字体 -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <!-- 字体（项目同源静态资源，网络不可用时仍保持一致的排版） -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fonts/codesense-fonts.css') }}?v=5.3">
 
-    <!-- 引入图标库 -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.10.5/font/bootstrap-icons.min.css">
+    <!-- 引入图标库（项目同源静态资源） -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap-icons/1.10.5/font/bootstrap-icons.min.css') }}?v=1.10.5">
 
-    <!-- 添加Bootstrap CSS -->
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.1.3/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
+    <!-- 添加Bootstrap CSS（项目同源静态资源） -->
+    <link href="{{ url_for('static', filename='vendor/bootstrap/5.1.3/css/bootstrap.min.css') }}?v=5.1.3" rel="stylesheet">
 
-    <!-- CodeMirror CSS -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/theme/darcula.min.css">
+    <!-- CodeMirror CSS（项目同源静态资源） -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/codemirror/5.65.2/codemirror.css') }}?v=5.65.2">
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/codemirror/5.65.2/theme/darcula.css') }}?v=5.65.2">
     <link rel="stylesheet"
-        href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/fold/foldgutter.min.css">
+        href="{{ url_for('static', filename='vendor/codemirror/5.65.2/addon/fold/foldgutter.css') }}?v=5.65.2">
 
     <!-- 引入自定义CSS -->
     <link rel="stylesheet" href="{{ url_for('static', filename='modern.css') }}">
@@ -48,6 +45,9 @@
 
     <!-- 页面特定的CSS -->
     {% block extra_css %}{% endblock %}
+
+    <!-- 统一 AI/Markdown 阅读样式：加载在页面局部样式之后，避免各页面重复覆盖 -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/codesense-markdown.css') }}?v={{ now().timestamp() }}">
 
     <!-- 页面特定的头部内容（如脚本） -->
     {% block extra_head %}{% endblock %}
@@ -255,18 +255,10 @@
     </footer>
 
     <!-- 基础JavaScript库 -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.1.3/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+    <script src="{{ url_for('static', filename='vendor/bootstrap/5.1.3/js/bootstrap.bundle.min.js') }}?v=5.1.3"></script>
     <script>
-        // 全局 Markdown 渲染：页面加载后自动渲染所有 .markdown-body 和 .markdown-render 元素
+        // 初始化并显示所有 Toast
         document.addEventListener('DOMContentLoaded', function () {
-            if (typeof marked === 'undefined') return;
-            marked.setOptions({ breaks: true, gfm: true });
-            document.querySelectorAll('.markdown-body, .markdown-render').forEach(function (el) {
-                var raw = el.getAttribute('data-markdown') || el.textContent || '';
-                if (raw.trim()) el.innerHTML = marked.parse(raw);
-            });
-            // 初始化并显示所有 Toast
             document.querySelectorAll('.toast').forEach(function (toastEl) {
                 var toast = new bootstrap.Toast(toastEl);
                 toast.show();
@@ -274,33 +266,14 @@
         });
     </script>
 
-    <!-- 备用Bootstrap加载 -->
+    <!-- 初始化Bootstrap组件；依赖已经由同源静态资源提供，不再回退到外部CDN -->
     <script>
-        // 检查Bootstrap是否成功加载
-        setTimeout(function () {
-            if (typeof bootstrap === 'undefined') {
-                console.warn('Bootstrap未正确加载，尝试使用备用CDN');
-                // 加载备用CSS
-                var backupCSS = document.createElement('link');
-                backupCSS.rel = 'stylesheet';
-                backupCSS.href = 'https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/5.1.3/css/bootstrap.min.css';
-                document.head.appendChild(backupCSS);
-
-                // 加载备用JS
-                var backupScript = document.createElement('script');
-                backupScript.src = 'https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/5.1.3/js/bootstrap.bundle.min.js';
-                backupScript.onload = function () {
-                    console.log('Bootstrap已通过备用CDN加载');
-                    // 重新初始化页面上的Bootstrap组件
-                    initBootstrapComponents();
-                };
-                document.head.appendChild(backupScript);
-            } else {
-                console.log('Bootstrap已正确加载:', bootstrap.Modal ? '包含Modal组件' : '缺少Modal组件');
-                // 确保Bootstrap组件被正确初始化
-                initBootstrapComponents();
-            }
-        }, 1000);
+        if (typeof bootstrap === 'undefined') {
+            console.error('Bootstrap同源静态资源加载失败，页面交互组件将不可用');
+        } else {
+            console.log('Bootstrap已正确加载:', bootstrap.Modal ? '包含Modal组件' : '缺少Modal组件');
+            initBootstrapComponents();
+        }
 
         // 初始化Bootstrap组件
         function initBootstrapComponents() {
@@ -322,20 +295,19 @@
     </script>
 
     <!-- 添加jQuery (某些Bootstrap组件可能需要) -->
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"
-        integrity="sha256-/xUj+3OJU5yExlq6GSYGSHk7tPXikynS7ogEvDej/m4=" crossorigin="anonymous"></script>
+    <script src="{{ url_for('static', filename='vendor/jquery/3.6.0/jquery.min.js') }}?v=3.6.0"></script>
 
-    <!-- CodeMirror 基础脚本 -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/python/python.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/clike/clike.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/edit/closebrackets.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/edit/matchbrackets.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/selection/active-line.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/fold/foldcode.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/fold/foldgutter.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/fold/brace-fold.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/fold/indent-fold.min.js"></script>
+    <!-- CodeMirror 基础脚本（项目同源静态资源） -->
+    <script src="{{ url_for('static', filename='vendor/codemirror/5.65.2/codemirror.js') }}?v=5.65.2"></script>
+    <script src="{{ url_for('static', filename='vendor/codemirror/5.65.2/mode/python/python.js') }}?v=5.65.2"></script>
+    <script src="{{ url_for('static', filename='vendor/codemirror/5.65.2/mode/clike/clike.js') }}?v=5.65.2"></script>
+    <script src="{{ url_for('static', filename='vendor/codemirror/5.65.2/addon/edit/closebrackets.js') }}?v=5.65.2"></script>
+    <script src="{{ url_for('static', filename='vendor/codemirror/5.65.2/addon/edit/matchbrackets.js') }}?v=5.65.2"></script>
+    <script src="{{ url_for('static', filename='vendor/codemirror/5.65.2/addon/selection/active-line.js') }}?v=5.65.2"></script>
+    <script src="{{ url_for('static', filename='vendor/codemirror/5.65.2/addon/fold/foldcode.js') }}?v=5.65.2"></script>
+    <script src="{{ url_for('static', filename='vendor/codemirror/5.65.2/addon/fold/foldgutter.js') }}?v=5.65.2"></script>
+    <script src="{{ url_for('static', filename='vendor/codemirror/5.65.2/addon/fold/brace-fold.js') }}?v=5.65.2"></script>
+    <script src="{{ url_for('static', filename='vendor/codemirror/5.65.2/addon/fold/indent-fold.js') }}?v=5.65.2"></script>
 
     <!-- 自定义JavaScript -->
     <script>
@@ -362,7 +334,7 @@
 
             // 检查CodeMirror是否正确加载
             if (typeof CodeMirror === 'undefined') {
-                console.error('CodeMirror 未加载，尝试通过本地CDN加载');
+                console.error('CodeMirror 同源静态资源未加载');
 
                 // 创建失败提示
                 var errorMsg = document.createElement('div');
@@ -372,27 +344,18 @@
                 // 插入到页面顶部
                 document.querySelector('.main-content .container').prepend(errorMsg);
 
-                // 尝试重新加载关键脚本
-                loadScript('https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js', function () {
-                    loadScript('https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/clike/clike.min.js', function () {
-                        loadScript('https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/python/python.min.js', function () {
-                            // 脚本加载完成，刷新页面
-                            window.location.reload();
-                        });
-                    });
-                });
             } else {
                 console.log('CodeMirror 已正确加载');
 
                 // 检查各模式是否正确加载
                 if (!CodeMirror.modes['text/x-c++src']) {
                     console.warn('C++ 模式未加载，尝试加载');
-                    loadScript('https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/clike/clike.min.js');
+                    loadScript('{{ url_for('static', filename='vendor/codemirror/5.65.2/mode/clike/clike.js') }}');
                 }
 
                 if (!CodeMirror.modes['python']) {
                     console.warn('Python 模式未加载，尝试加载');
-                    loadScript('https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/python/python.min.js');
+                    loadScript('{{ url_for('static', filename='vendor/codemirror/5.65.2/mode/python/python.js') }}');
                 }
             }
         });
@@ -404,59 +367,16 @@
             script.src = url;
             script.onload = callback || function () { };
             script.onerror = function () {
-                console.error('脚本加载失败:', url);
-                // 尝试使用备用CDN
-                var backupUrl = url.replace('cdnjs.cloudflare.com', 'cdn.bootcdn.net/ajax/libs');
-                console.log('尝试备用CDN:', backupUrl);
-                var backupScript = document.createElement('script');
-                backupScript.type = 'text/javascript';
-                backupScript.src = backupUrl;
-                document.head.appendChild(backupScript);
+                console.error('同源静态脚本加载失败:', url);
             };
             document.head.appendChild(script);
         }
     </script>
 
-    <!-- 全局 Markdown 渲染（marked.js + DOMPurify） -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
-    <script>
-        // 全局渲染所有 data-markdown 属性元素
-        (function () {
-            function renderAllMarkdown() {
-                if (typeof marked === 'undefined') return;
-                marked.setOptions({ breaks: true, gfm: true });
-                document.querySelectorAll('[data-markdown]').forEach(function (el) {
-                    var raw = el.getAttribute('data-markdown');
-                    if (raw) {
-                        // 预解析：如果内容是长段落且包含 1) 2) 或 1. 2. 等编号，协助分段
-                        if (!raw.includes('\n') || raw.split('\n').length < 3) {
-                            raw = raw.replace(/(\s)(\d[\)\.]\s?)/g, '\n\n$2');
-                        }
-                        var html = marked.parse(raw);
-                        el.innerHTML = typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(html) : html;
-                    }
-                });
-                // 同时渲染 class="markdown-render" 的元素（内容在 textContent 中）
-                document.querySelectorAll('.markdown-render').forEach(function (el) {
-                    if (el.getAttribute('data-rendered')) return;
-                    var raw = el.textContent || el.innerText;
-                    if (raw && raw.trim()) {
-                        var html = marked.parse(raw);
-                        el.innerHTML = typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(html) : html;
-                        el.setAttribute('data-rendered', '1');
-                    }
-                });
-            }
-            if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', renderAllMarkdown);
-            } else {
-                renderAllMarkdown();
-            }
-            // 暴露全局函数供各页面调用
-            window.renderMarkdownElements = renderAllMarkdown;
-        })();
-    </script>
+    <!-- 全局 Markdown 渲染（同源静态依赖，避免 CDN/DNS/代理故障影响排版） -->
+    <script src="{{ url_for('static', filename='vendor/marked.min.js') }}?v=9.1.6"></script>
+    <script src="{{ url_for('static', filename='vendor/purify.min.js') }}?v=3.0.6"></script>
+    <script src="{{ url_for('static', filename='js/codesense-markdown.js') }}?v={{ now().timestamp() }}"></script>
 
     <!-- 导航栏移动端折叠 JS -->
     <script>

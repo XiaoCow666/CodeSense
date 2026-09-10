@@ -9,13 +9,16 @@ prevents a deferred Student response from answering an old user message.
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Mapping, Optional
 
 from .contracts import AgentResult, AgentRole, Stage3MessageKind, Stage3Target
+from .coverage import _evidence_covers_concept, _is_concrete_explanation
 from .intent import (
     ForumIntent,
     ForumRouting,
+    INTENT_ANSWER_TEACHER,
     INTENT_EXPLAIN_CONCEPT,
     recognize_forum_intent,
 )
@@ -57,19 +60,35 @@ class Stage3Orchestrator:
     ) -> ForumTurnResult:
         requested_role = _normalize_target_role(target_role)
         intent = self._recognize_intent(message, reply_to_event_id)
-        role, selection_source = self._select_role_with_source(
-            requested_role,
-            message,
-            request_id,
-            intent,
-        )
+        if requested_role is Stage3Target.AUTO and self._ready_for_code():
+            # Once the server-side teaching gate is open, no new Teacher
+            # question is allowed to reopen the dialogue. Route the current
+            # turn to Student so the normal runtime can perform the single,
+            # idempotent code-generation transition.
+            role, selection_source = AgentRole.STUDENT_AGENT, "ready_for_code"
+        else:
+            role, selection_source = self._select_role_with_source(
+                requested_role,
+                message,
+                request_id,
+                intent,
+            )
         if role is AgentRole.STUDENT_AGENT:
-            if not self._ensure_student_turn_target(request_id):
+            if not self._ready_for_code() and not self._ensure_student_turn_target(request_id):
                 # A Student answer/ask without a server-authorized target is
                 # not safe to invent.  Keep the turn single-speaker and fall
                 # back to Teacher when no concept remains available.
                 role = AgentRole.TEACHER_AGENT
                 selection_source = "student_target_unavailable"
+        input_kind = "chat"
+        if role is AgentRole.STUDENT_AGENT and self._student_answer_needs_teacher(message):
+            # Xiaoming is a peer, not a second teacher.  Once the learner's
+            # reply shows a knowledge gap, hand this same current turn to the
+            # Teacher.  The Student does not get a chance to repeat its old
+            # question, and the forum still commits exactly one public reply.
+            role = AgentRole.TEACHER_AGENT
+            selection_source = "teacher_help_after_student"
+            input_kind = "teacher_help"
         # A learner message without an explicit reply target starts a new
         # forum turn, so its request id is also the root used to group the
         # single public reply.  Replies to an existing message inherit that
@@ -90,6 +109,7 @@ class Stage3Orchestrator:
                 "visibility": "public",
                 "reply_to_event_id": reply_to_event_id,
                 "parent_request_id": parent_request_id,
+                "input_kind": input_kind,
             },
         )
         return ForumTurnResult(
@@ -101,6 +121,67 @@ class Stage3Orchestrator:
                 selection_source=selection_source,
             ),
         )
+
+    def _ready_for_code(self) -> bool:
+        try:
+            state = self.runtime.memory.load(self.runtime.session.id).state
+        except (AttributeError, TypeError, ValueError):
+            return False
+        return bool(state.ready_for_code) and str(state.phase or "") != "code_review"
+
+    def _student_answer_needs_teacher(self, message: str) -> bool:
+        """Return whether the current reply is a knowledge request to Teacher.
+
+        ``pending_probe.question`` is server-owned and is written when the
+        Student has actually asked a public question.  A Student intent alone
+        means that Xiaoming has not spoken yet, so it must not reroute the
+        learner's message to Teacher before the opening peer question exists.
+        """
+        try:
+            snapshot = self.runtime.memory.load(self.runtime.session.id)
+        except (AttributeError, TypeError, ValueError):
+            return False
+        pending = snapshot.state.pending_probe
+        if not _pending_probe_has_question(pending) and not self._legacy_student_question_exists():
+            return False
+
+        text = str(message or "").strip()
+        if not text:
+            return True
+        normalized = re.sub(r"\s+", "", text).casefold()
+        if any(marker in normalized for marker in _STUDENT_HELP_MARKERS):
+            return True
+        if _looks_like_question(text) and not _is_concrete_explanation(text):
+            return True
+        if not _is_concrete_explanation(text):
+            return True
+        concept = str(pending.get("concept") or "").strip()
+        return bool(concept) and not _evidence_covers_concept(concept, text)
+
+    def _legacy_student_question_exists(self) -> bool:
+        """Recognize a Student question saved before ``pending_probe.question``.
+
+        Older Stage 3 sessions persisted only the server-selected concept and
+        dimension.  Their public event is still authoritative: when the last
+        Student event is a probe, the next learner message is its answer and
+        must be eligible for the Teacher hand-off path.
+        """
+        try:
+            events = self.runtime.memory.forum_events(self.runtime.session.id)
+        except (AttributeError, TypeError, ValueError):
+            return False
+        for event in reversed(events):
+            if event.get("event_type") != Stage3MessageKind.AGENT_MESSAGE.value:
+                continue
+            if event.get("visibility") != "public":
+                continue
+            if event.get("source_role") != AgentRole.STUDENT_AGENT.value:
+                return False
+            return (
+                event.get("message_kind") == Stage3MessageKind.STUDENT_PROBE.value
+                and bool(str(event.get("content") or "").strip())
+            )
+        return False
 
     def _ensure_student_turn_target(self, request_id: str) -> bool:
         """Give an explicitly selected Student turn one server-owned target.
@@ -201,6 +282,18 @@ class Stage3Orchestrator:
             return requested_role, "explicit"
 
         if intent.target_role is AgentRole.TEACHER_AGENT:
+            if intent.name == INTENT_ANSWER_TEACHER:
+                # Do not let the reply-to-Teacher intent defeat fairness
+                # forever. After two consecutive Teacher replies, hand the
+                # current learner answer to Xiaoming through a fresh,
+                # server-owned probe target.
+                fairness_role = self._fairness_role()
+                if fairness_role is AgentRole.STUDENT_AGENT:
+                    prepare_intent = getattr(self.runtime, "prepare_student_probe_intent", None)
+                    if callable(prepare_intent) and prepare_intent(
+                        request_id=f"{request_id}:fairness-answer"
+                    ) is not None:
+                        return AgentRole.STUDENT_AGENT, "fairness_after_teacher_answer"
             return AgentRole.TEACHER_AGENT, "intent"
 
         snapshot = self.runtime.memory.load(self.runtime.session.id)
@@ -322,6 +415,36 @@ def _valid_probe_target(value: Any) -> bool:
         and isinstance(value.get("dimension"), str)
         and bool(value.get("dimension", "").strip())
     )
+
+
+def _pending_probe_has_question(value: Any) -> bool:
+    return (
+        _valid_probe_target(value)
+        and isinstance(value.get("question"), str)
+        and bool(value.get("question", "").strip())
+    )
+
+
+def _looks_like_question(value: str) -> bool:
+    text = str(value or "").strip()
+    return bool(
+        text.endswith(("?", "？", "吗", "呢"))
+        or text.startswith(("为什么", "为何", "怎么", "如何", "什么", "请问", "能不能", "可不可以"))
+    )
+
+
+_STUDENT_HELP_MARKERS = (
+    "不知道",
+    "不懂",
+    "不会",
+    "不太会",
+    "不清楚",
+    "没学会",
+    "看不懂",
+    "听不懂",
+    "怎么处理",
+    "怎么做",
+)
 
 
 def _stable_roll(session_id: Any, request_id: str, message: str) -> int:

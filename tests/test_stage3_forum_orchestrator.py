@@ -4,6 +4,7 @@ from datetime import datetime
 
 from utils.agents.contracts import AgentDecision, AgentRole, Stage3Target, ToolCall, ToolResult, UIAction
 from utils.agents.feynman import FeynmanCallbacks, build_feynman_runtime
+from utils.agents.model import StructuredDecisionModel
 from utils.agents.memory import EventRecord
 from utils.agents.orchestrator import ForumTurnResult, Stage3Orchestrator
 
@@ -34,6 +35,11 @@ class SequencedModel:
     def decide(self, **kwargs):
         self.calls.append(kwargs)
         return self.decisions.pop(0)
+
+
+class UnavailableClient:
+    def is_available(self):
+        return False
 
 
 @dataclass
@@ -80,9 +86,9 @@ class FakeSession:
     stage3_student_rounds: int = 0
 
 
-def make_runtime(*, decisions, buggy_code_generator=None):
+def make_runtime(*, decisions=None, buggy_code_generator=None, model=None):
     event_store = FakeEventStore()
-    model = SequencedModel(decisions)
+    model = model or SequencedModel(decisions or [])
     runtime = build_feynman_runtime(
         FakeSession(),
         FakeAssignment(),
@@ -231,10 +237,11 @@ def test_auto_mode_chooses_one_speaker_and_does_not_create_a_second_reply():
     assert result.primary.success is True
     assert result.primary.agent is AgentRole.STUDENT_AGENT
     assert result.interventions == []
-    assert len(model.calls) == 1
-    assert "我已经想明白循环边界了。" in json.dumps(
-        json.loads(model.calls[0]["context"]), ensure_ascii=False
+    assert result.primary.response == (
+        "赵一，我还不太会“循环边界”。你可以用简单的话告诉我这道题应该怎么处理吗？"
     )
+    assert len(model.calls) == 0
+    assert runtime.memory.load(runtime.session.id).state.pending_probe["question"] == result.primary.response
     forum_events = runtime.memory.forum_events(runtime.session.id)
     assert len([item for item in forum_events if item["request_id"] == "auto-speaker-1"]) == 2
     assert not any(event.event_type == "student_probe_queued" for event in runtime.memory.event_store.events)
@@ -273,9 +280,11 @@ def test_auto_intent_routes_a_student_question_with_a_server_owned_probe():
     assert result.routing is not None
     assert result.routing.intent.name == "ask_student"
     assert result.routing.selection_source == "intent"
-    assert len(model.calls) == 1
-    student_context = json.loads(model.calls[0]["context"])
-    assert student_context["coverage"]["pending_probe"]["concept"] == "循环边界"
+    assert result.primary.response == (
+        "赵一，我还不太会“循环边界”。你可以用简单的话告诉我这道题应该怎么处理吗？"
+    )
+    assert len(model.calls) == 0
+    assert runtime.memory.load(runtime.session.id).state.pending_probe["question"] == result.primary.response
 
 
 def test_auto_mode_yields_after_two_consecutive_public_teacher_turns():
@@ -306,8 +315,142 @@ def test_auto_mode_yields_after_two_consecutive_public_teacher_turns():
 
     assert result.primary.success is True
     assert result.primary.agent is AgentRole.STUDENT_AGENT
-    assert result.primary.response == "赵一，请用一个具体输入说说下一项如何得到。"
-    assert len(model.calls) == 3
+    assert result.primary.response == (
+        "赵一，我还不太会“循环边界”。你可以用简单的话告诉我这道题应该怎么处理吗？"
+    )
+    assert len(model.calls) == 2
+
+
+def test_auto_mode_does_not_let_teacher_answer_intent_monopolize_forum():
+    runtime, model, _ = make_runtime(
+        decisions=[
+            AgentDecision(message="先确认这个边界的含义。"),
+            AgentDecision(message="再说明它和循环条件的关系。"),
+            AgentDecision(tool_calls=[ToolCall("fairness-assess", "assess_teaching_progress", {
+                "assessment": "partial",
+                "evidence": "我理解循环条件会阻止访问越界位置。",
+            })]),
+            AgentDecision(message="赵一，请换一个具体输入说明这个规则如何应用？"),
+        ],
+    )
+    orchestrator = Stage3Orchestrator(runtime)
+
+    orchestrator.handle_user_message(
+        "请先帮我解释循环边界。",
+        target_role=Stage3Target.AUTO,
+        request_id="answer-fairness-1",
+    )
+    orchestrator.handle_user_message(
+        "应该在索引到达长度时停止，因为最后一个合法位置是长度减一。",
+        target_role=Stage3Target.AUTO,
+        request_id="answer-fairness-2",
+    )
+    result = orchestrator.handle_user_message(
+        "我理解了，循环条件会阻止访问越界位置。",
+        target_role=Stage3Target.AUTO,
+        request_id="answer-fairness-3",
+    )
+
+    assert result.primary.success is True
+    assert result.primary.agent is AgentRole.STUDENT_AGENT
+    assert result.routing is not None
+    assert result.routing.selection_source == "fairness_after_teacher_answer"
+    assert len(model.calls) == 4
+
+
+def test_unavailable_model_uses_server_assessment_and_keeps_student_flow_moving():
+    runtime, _, event_store = make_runtime(
+        model=StructuredDecisionModel(
+            UnavailableClient(),
+            fallback_message="请继续说明你的思路。",
+        ),
+    )
+    runtime.memory.append_event(
+        runtime.session.id,
+        "state_snapshot",
+        "student_agent",
+        metadata={
+            "state": {
+                "concept_coverage": [
+                    _coverage_entry("循环边界", status="unseen"),
+                    _coverage_entry("不变量", status="unseen"),
+                ],
+                "coverage_score": 0.0,
+                "unresolved_concepts": ["循环边界", "不变量"],
+                "ready_for_code": False,
+                "pending_probe": {"concept": "循环边界", "dimension": "core"},
+            }
+        },
+    )
+
+    result = Stage3Orchestrator(runtime).handle_user_message(
+        "每轮循环都先检查索引是否小于长度，达到长度时停止，所以最后一个合法位置是长度减一。",
+        target_role=AgentRole.STUDENT_AGENT,
+        request_id="fallback-student-1",
+    )
+
+    assert result.primary.success is True
+    assert result.primary.agent is AgentRole.STUDENT_AGENT
+    assert result.primary.response.startswith("赵一，")
+    assert "循环边界" in result.primary.response
+    assert result.primary.ui_action is UIAction.CONTINUE_CHAT
+    assert runtime.memory.load(runtime.session.id).state.coverage_score == 0.25
+    assert [event.event_type for event in event_store.events].count("agent_fallback") >= 1
+
+
+def test_ready_for_code_auto_mode_cannot_fall_back_to_another_teacher_question():
+    runtime, model, event_store = make_runtime(
+        decisions=[AgentDecision(message="请继续说明你的思路。")],
+        buggy_code_generator=lambda context: {
+            "buggy_code": "int main() { return 1; }",
+            "bugs": [{"line": 1, "description": "返回值错误", "correct_version": "return 0;"}],
+            "message": "内部代码说明",
+        },
+    )
+    runtime.memory.append_event(
+        runtime.session.id,
+        "agent_message",
+        "teacher_agent",
+        content="请继续回答这个问题。",
+        metadata={
+            "source_role": "teacher_agent",
+            "target_role": "user",
+            "visibility": "public",
+        },
+    )
+    runtime.memory.append_event(
+        runtime.session.id,
+        "state_snapshot",
+        "student_agent",
+        metadata={
+            "state": {
+                "phase": "student_dialogue",
+                "concept_coverage": [
+                    _coverage_entry("循环边界", status="covered"),
+                    _coverage_entry("不变量", status="covered"),
+                ],
+                "coverage_score": 1.0,
+                "unresolved_concepts": [],
+                "ready_for_code": True,
+                "learning_evidence": [{"concept": "循环边界", "evidence": "已解释"}],
+                "pending_probe": None,
+            }
+        },
+    )
+
+    result = Stage3Orchestrator(runtime).handle_user_message(
+        "我准备好检查代码了。",
+        target_role=Stage3Target.AUTO,
+        request_id="ready-auto-1",
+    )
+
+    assert result.primary.success is True
+    assert result.primary.agent is AgentRole.STUDENT_AGENT
+    assert result.primary.ui_action is UIAction.SHOW_CODE_REVIEW
+    assert result.routing is not None
+    assert result.routing.selection_source == "ready_for_code"
+    assert len(model.calls) == 0
+    assert [event.event_type for event in event_store.events].count("buggy_attempt") == 1
 
 
 def test_teacher_public_response_cannot_impersonate_student_agent():
@@ -335,7 +478,7 @@ def test_teacher_public_response_cannot_impersonate_student_agent():
 
 
 def test_student_public_response_addresses_the_real_learner_not_its_own_persona():
-    runtime, _, _ = make_runtime(
+    runtime, model, _ = make_runtime(
         decisions=[AgentDecision(message="小明，请用一个真实场景说明这个边界。")],
     )
 
@@ -345,9 +488,121 @@ def test_student_public_response_addresses_the_real_learner_not_its_own_persona(
         request_id="student-name-1",
     )
 
-    assert result.primary.response == "赵一，请用一个真实场景说明这个边界。"
-    context = json.loads(runtime.model.calls[0]["context"])
-    assert context["learner_name"] == "赵一"
+    assert result.primary.response == (
+        "赵一，我还不太会“循环边界”。你可以用简单的话告诉我这道题应该怎么处理吗？"
+    )
+    assert model.calls == []
+    assert runtime.memory.load(runtime.session.id).state.pending_probe["question"] == result.primary.response
+
+
+def test_student_opens_as_a_peer_and_waits_for_the_learner_answer():
+    runtime, model, _ = make_runtime(
+        decisions=[AgentDecision(message="不应在小明首轮调用模型。")],
+    )
+
+    result = Stage3Orchestrator(runtime).handle_user_message(
+        "小明，请先问我。",
+        target_role=AgentRole.STUDENT_AGENT,
+        request_id="student-peer-opening-1",
+    )
+
+    assert result.primary.success is True
+    assert result.primary.agent is AgentRole.STUDENT_AGENT
+    assert result.primary.response == (
+        "赵一，我还不太会“循环边界”。你可以用简单的话告诉我这道题应该怎么处理吗？"
+    )
+    assert model.calls == []
+    state = runtime.memory.load(runtime.session.id).state
+    assert state.student_probe_intent is None
+    assert state.pending_probe == {
+        "concept": "循环边界",
+        "dimension": "core",
+        "question": result.primary.response,
+    }
+
+
+def test_incomplete_student_answer_is_handed_to_teacher_without_repeating_student_question():
+    runtime, model, _ = make_runtime(
+        decisions=[AgentDecision(message="这里先把缺失的知识讲清楚，再看一个具体例子。")],
+    )
+    orchestrator = Stage3Orchestrator(runtime)
+
+    opening = orchestrator.handle_user_message(
+        "小明，请先问我。",
+        target_role=AgentRole.STUDENT_AGENT,
+        request_id="student-help-opening-1",
+    )
+    assert opening.primary.agent is AgentRole.STUDENT_AGENT
+
+    result = orchestrator.handle_user_message(
+        "负责输入输出",
+        target_role=Stage3Target.AUTO,
+        request_id="student-help-answer-1",
+    )
+
+    assert result.primary.success is True
+    assert result.primary.agent is AgentRole.TEACHER_AGENT
+    assert result.primary.response == "这里先把缺失的知识讲清楚，再看一个具体例子。"
+    assert result.routing is not None
+    assert result.routing.selection_source == "teacher_help_after_student"
+    assert len(model.calls) == 1
+    context = json.loads(model.calls[0]["context"])
+    assert context["input_kind"] == "teacher_help"
+    assert context["coverage"]["pending_probe"]["question"] == opening.primary.response
+    assert "负责输入输出" in json.dumps(context, ensure_ascii=False)
+
+    current_events = [
+        item
+        for item in runtime.memory.forum_events(runtime.session.id)
+        if item["request_id"] == "student-help-answer-1"
+    ]
+    assert [item["source_role"] for item in current_events] == ["user", "teacher_agent"]
+    assert not any(item["source_role"] == "student_agent" for item in current_events)
+
+
+def test_legacy_student_probe_history_also_hands_incomplete_answer_to_teacher():
+    runtime, model, _ = make_runtime(
+        decisions=[AgentDecision(message="先补充这里的关键知识，再继续。")],
+    )
+    runtime.memory.append_event(
+        runtime.session.id,
+        "state_snapshot",
+        "student_agent",
+        metadata={
+            "state": {
+                "pending_probe": {
+                    "concept": "循环边界",
+                    "dimension": "core",
+                }
+            }
+        },
+    )
+    runtime.memory.append_event(
+        runtime.session.id,
+        "agent_message",
+        "student_agent",
+        content="赵一，请解释一下这个边界。",
+        metadata={
+            "request_id": "legacy-student-probe",
+            "source_role": "student_agent",
+            "target_role": "user",
+            "message_kind": "student_probe",
+            "visibility": "public",
+        },
+    )
+
+    result = Stage3Orchestrator(runtime).handle_user_message(
+        "输出null",
+        target_role=Stage3Target.AUTO,
+        request_id="legacy-student-answer-1",
+    )
+
+    assert result.primary.agent is AgentRole.TEACHER_AGENT
+    assert result.routing is not None
+    assert result.routing.selection_source == "teacher_help_after_student"
+    assert result.primary.response == "先补充这里的关键知识，再继续。"
+    assert len(model.calls) == 1
+    assert json.loads(model.calls[0]["context"])["input_kind"] == "teacher_help"
 
 
 def test_repeated_public_reply_is_retried_with_a_new_angle():
@@ -491,10 +746,14 @@ def test_teacher_probe_intent_is_consumed_by_the_next_current_student_turn():
     )
     assert second.primary.success is True
     assert second.primary.agent is AgentRole.STUDENT_AGENT
-    assert second.primary.response == "赵一，请结合一个具体输入说说 N=0 时会输出什么，以及为什么。"
-    assert "好的，我来回应这个问题。" in json.dumps(
-        json.loads(runtime.model.calls[-1]["context"]), ensure_ascii=False
+    assert second.primary.response == (
+        "赵一，我还不太会“循环边界”。你可以用简单的话告诉我这道题应该怎么处理吗？"
     )
+    # The Teacher's first decision requests the probe; its bounded public
+    # response is the second Teacher decision.  The Student opening itself is
+    # deterministic and does not consume a provider call.
+    assert len(runtime.model.calls) == 2
+    assert runtime.memory.load(runtime.session.id).state.pending_probe["question"] == second.primary.response
     assert len([item for item in runtime.memory.forum_events(runtime.session.id) if item["request_id"] == "teacher-trigger-current-2"]) == 2
 
 

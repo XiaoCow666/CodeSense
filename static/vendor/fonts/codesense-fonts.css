@@ -1,0 +1,67 @@
+/* CodeSense 本地字体资源
+ * 来源：Fontsource（对应 Google Fonts 字体），仅保留应用实际使用的字重和子集。
+ */
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url('inter/5.3.0/inter-latin-ext-400-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url('inter/5.3.0/inter-latin-ext-500-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url('inter/5.3.0/inter-latin-ext-600-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url('inter/5.3.0/inter-latin-ext-700-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url('jetbrains-mono/5.3.0/jetbrains-mono-latin-ext-400-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url('jetbrains-mono/5.3.0/jetbrains-mono-latin-ext-500-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Caveat';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url('caveat/5.3.0/caveat-latin-700-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Ma Shan Zheng';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url('ma-shan-zheng/5.3.1/ma-shan-zheng-chinese-simplified-400-normal.woff2') format('woff2');
+}

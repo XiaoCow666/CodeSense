@@ -55,7 +55,7 @@
     <!-- ========== Problem Description ========== -->
     <div class="problem-panel no-select" oncopy="return false;" oncut="return false;" oncontextmenu="return false;">
         <h2><i class="bi bi-file-earmark-text"></i> {{ assignment.title }}</h2>
-        <div class="problem-description" data-markdown="{{ assignment.description or '' }}">
+        <div class="problem-description cs-markdown" data-markdown="{{ assignment.description or '' }}">
             {{ assignment.description or '暂无描述' }}
         </div>
     </div>
@@ -274,7 +274,7 @@
                     <div class="chat-messages no-select" id="companion-messages" oncopy="return false;" oncut="return false;" oncontextmenu="return false;">
                         <div class="chat-message">
                             <div class="chat-avatar teacher">🤖</div>
-                            <div class="chat-bubble ai">我是你的 AI 伴学助手。在思路描述和积木编程阶段，如果你遇到问题，随时可以在下方问我，我会引导你思考！</div>
+                            <div class="chat-bubble ai cs-markdown" data-markdown="我是你的 AI 伴学助手。在思路描述和积木编程阶段，如果你遇到问题，随时可以在下方问我，我会引导你思考！">我是你的 AI 伴学助手。在思路描述和积木编程阶段，如果你遇到问题，随时可以在下方问我，我会引导你思考！</div>
                         </div>
                     </div>
                     <div class="chat-input-area">

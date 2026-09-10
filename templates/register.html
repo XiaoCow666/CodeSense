@@ -9,13 +9,11 @@
     <meta name="description" content="CodeSense 酷森思 - 基于机器学习的代码能力评估平台">
     <title>用户注册 - CodeSense 酷森思</title>
     
-    <!-- 引入Google字体 -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- 字体（项目同源静态资源，网络不可用时仍保持一致的排版） -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fonts/codesense-fonts.css') }}?v=5.3">
     
     <!-- 引入图标库 -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap-icons/1.10.5/font/bootstrap-icons.min.css') }}?v=1.10.5">
     
     <!-- 引入自定义CSS -->
     <link rel="stylesheet" href="{{ url_for('static', filename='modern.css') }}">
@@ -298,8 +296,8 @@
             </div>
             
             <div class="form-group">
-                <label for="student_id" class="form-label">学号</label>
-                {{ form.student_id(class="form-control" + (" is-invalid" if form.student_id.errors else ""), id="student_id", placeholder="请输入学号", required=True) }}
+                <label for="student_id" class="form-label">学号 <span style="color:#6b7280;font-weight:400;">（教学班学生填写，自由用户可留空）</span></label>
+                {{ form.student_id(class="form-control" + (" is-invalid" if form.student_id.errors else ""), id="student_id", placeholder="教学班学生填写；自由用户留空即可") }}
                 {% if form.student_id.errors %}
                     <div class="form-error">
                         {% for error in form.student_id.errors %}
@@ -337,7 +335,9 @@
             <div class="form-group">
                 <div class="alert" style="color:#1f2937;background-color:#eef2ff;">
                     <i class="bi bi-info-circle"></i>
-                    班级将根据教师导入的学生名单自动绑定。请确认学号与名单一致；如果无法注册，请联系任课教师或管理员先导入名单。
+                    <strong>账号模式会自动识别：</strong><br>
+                    填写学号：按教师导入的学生名单注册并自动入班。<br>
+                    留空学号：创建自由账号，登录后输入教师提供的班级加入码即可加入班级。
                 </div>
             </div>
             

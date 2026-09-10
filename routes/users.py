@@ -282,9 +282,16 @@ def edit_profile():
     user = User.query.get(session.get('student_id'))
     form = EditProfileForm()
     
-    # 获取所有班级作为下拉选项
-    classes = Class.query.all()
-    form.class_name.choices = [('', '未分配')] + [(c.name, c.name) for c in classes]
+    # 教学班账号保留原有资料编辑入口；自由账号只能通过教师加入码入班，
+    # 不能在个人资料页直接自选任意班级。
+    if user.is_free_account:
+        current_class_name = user.class_name or ''
+        form.class_name.choices = [
+            (current_class_name, current_class_name or '未分配（请使用班级加入码）')
+        ]
+    else:
+        classes = Class.query.all()
+        form.class_name.choices = [('', '未分配')] + [(c.name, c.name) for c in classes]
     
     if form.validate_on_submit():
         try:
@@ -302,19 +309,25 @@ def edit_profile():
             user.username = form.username.data
             user.full_name = form.full_name.data
             user.email = email
-            user.class_name = form.class_name.data
 
             avatar_path = _save_avatar(form.avatar.data, user.student_id)
             if avatar_path:
                 user.avatar_path = avatar_path
             
-            # 同时更新 class_id 以保持一致
-            if form.class_name.data:
-                target_class = Class.query.filter_by(name=form.class_name.data).first()
-                if target_class:
-                    user.class_id = target_class.id
+            if user.is_free_account:
+                # 即使有人手工构造请求，也不能借个人资料接口绕过加入码。
+                if form.class_name.data != (user.class_name or ''):
+                    flash('自由账号请使用教师提供的班级加入码入班。', 'warning')
+                    return render_template('edit_profile.html', form=form, user=user)
             else:
-                user.class_id = None
+                user.class_name = form.class_name.data
+                # 同时更新 class_id 以保持一致
+                if form.class_name.data:
+                    target_class = Class.query.filter_by(name=form.class_name.data).first()
+                    if target_class:
+                        user.class_id = target_class.id
+                else:
+                    user.class_id = None
             
             db.session.commit()
             flash('资料更新成功！', 'success')

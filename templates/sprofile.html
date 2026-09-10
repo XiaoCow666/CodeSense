@@ -213,7 +213,7 @@
                         data-analysis-status="{{ analysis_status }}">{{ analysis_status_label }}</span>
                 </div>
                 {% if ability_trend and ability_trend.analysis_markdown %}
-                <div class="markdown-render small" data-markdown="{{ ability_trend.analysis_markdown|e }}"></div>
+                <div class="markdown-render cs-markdown small" data-markdown="{{ ability_trend.analysis_markdown|e }}"></div>
                 {% elif analysis_status == 'failed' %}
                 <div class="alert alert-warning small">AI 分析暂时失败，可以点击下方按钮重新生成。</div>
                 {% elif analysis_status == 'processing' %}
@@ -279,7 +279,7 @@
                 </div>
                 <div class="review-analysis">
                     <h4><i class="bi bi-lightbulb text-warning"></i> 重构建议</h4>
-                    <div class="markdown-render" style="font-size: 0.95rem; line-height: 1.7;">{{ sub.ai_feedback or
+                    <div class="markdown-render cs-markdown" style="font-size: 0.95rem; line-height: 1.7;">{{ sub.ai_feedback or
                         sub.feedback or '分析正在生成中...' }}</div>
                 </div>
             </div>
@@ -298,7 +298,7 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="{{ url_for('static', filename='vendor/chart.js/3.9.1/chart.min.js') }}?v=3.9.1"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         const skillsData = {{ skills_data_json| safe

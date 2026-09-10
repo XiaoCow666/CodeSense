@@ -146,6 +146,7 @@ def test_stage3_forum_keeps_model_failures_visible_instead_of_dropping_empty_rep
 def test_student_probe_switches_the_selected_target_to_student_agent():
     assert "primaryEvent.message_kind === 'student_probe'" in THINKING_JS
     assert THINKING_JS.count("setForumTarget('student_agent')") >= 1
+    assert "forum_state.target_role === 'student_agent'" in THINKING_JS
 
 
 def test_forum_uses_one_current_turn_and_exposes_auto_arbitration():

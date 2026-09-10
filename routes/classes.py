@@ -56,6 +56,18 @@ def _can_manage_class(cls):
     return current_user.is_admin or cls.teacher_id == current_user.student_id
 
 
+def _join_student_to_class(user, cls):
+    """将学生加入班级；班级关系仍保持为现有的一名学生对应一个班级。"""
+    if user.class_id and user.class_id != cls.id:
+        return False, f'该账号已经属于班级“{user.class_name or "其他班级"}”，暂不能直接切换班级。'
+    if user.class_name and user.class_name != cls.name:
+        return False, f'该账号已经属于班级“{user.class_name}”，暂不能直接切换班级。'
+
+    user.class_id = cls.id
+    user.class_name = cls.name
+    return True, f'已加入班级“{cls.name}”，现在可以查看该班级作业了。'
+
+
 def _clean_cell(value):
     if value is None or pd.isna(value):
         return ''
@@ -92,6 +104,7 @@ def class_list():
 
     for cls in all_classes:
         cls.ensure_teacher_bind_code()
+        cls.ensure_student_join_code()
     db.session.commit()
 
     for cls in all_classes:
@@ -180,6 +193,50 @@ def reset_bind_code(class_id):
     new_code = cls.reset_teacher_bind_code()
     db.session.commit()
     flash(f'班级 "{cls.name}" 的新绑定码为 {new_code}', 'success')
+    return redirect(url_for('classes.class_detail', class_id=class_id))
+
+
+@classes.route('/join', methods=['POST'])
+@login_required
+def join_class():
+    """学生凭教师分享的学生加入码加入班级。"""
+    if not current_user.is_authenticated or current_user.usertype != '学生':
+        flash('只有学生账号可以加入班级。', 'danger')
+        return redirect(url_for('main.home'))
+
+    join_code = (request.form.get('join_code') or '').strip().upper()
+    if not join_code:
+        flash('请输入教师提供的班级加入码。', 'danger')
+        return redirect(url_for('main.home'))
+
+    cls = Class.query.filter(func.upper(Class.student_join_code) == join_code).first()
+    if not cls:
+        flash('班级加入码无效或已失效，请向教师确认最新加入码。', 'danger')
+        return redirect(url_for('main.home'))
+
+    joined, message = _join_student_to_class(current_user, cls)
+    if not joined:
+        flash(message, 'warning')
+        return redirect(url_for('main.home'))
+
+    db.session.commit()
+    flash(message, 'success')
+    return redirect(url_for('main.home'))
+
+
+@classes.route('/<int:class_id>/reset-student-join-code', methods=['POST'])
+@login_required
+@admin_or_teacher_required
+def reset_student_join_code(class_id):
+    """管理员或班级教师重置学生加入码。"""
+    cls = Class.query.get_or_404(class_id)
+    if not _can_manage_class(cls):
+        flash('您没有权限重置此班级的学生加入码。', 'danger')
+        return redirect(url_for('classes.class_list'))
+
+    new_code = cls.reset_student_join_code()
+    db.session.commit()
+    flash(f'班级“{cls.name}”的新学生加入码为 {new_code}，旧加入码已失效。', 'success')
     return redirect(url_for('classes.class_detail', class_id=class_id))
 
 
@@ -325,6 +382,7 @@ def class_detail(class_id):
     # 获取班级统计
     stats = cls.get_statistics()
     cls.ensure_teacher_bind_code()
+    cls.ensure_student_join_code()
     db.session.commit()
     roster_total = StudentRoster.query.filter_by(class_id=cls.id).count()
     roster_registered = StudentRoster.query.filter_by(class_id=cls.id, is_registered=True).count()

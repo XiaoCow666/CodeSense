@@ -9,9 +9,8 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/cpp-editor.css') }}">
 <!-- 代码提交页面样式 -->
 <link rel="stylesheet" href="{{ url_for('static', filename='css/code_submit.css') }}">
-<!-- 使用国内CDN -->
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@5/github-markdown-light.min.css">
+<!-- Highlight.js 样式（项目同源静态资源） -->
+<link rel="stylesheet" href="{{ url_for('static', filename='vendor/highlight.js/11.9.0/styles/github.min.css') }}?v=11.9.0">
 <style>
     /* 全新页面样式 */
     .code-studio-container {
@@ -795,7 +794,7 @@
     <div class="collapse mb-4" id="assignmentDescription">
         <div class="card card-body">
             {% if assignment.description %}
-            <div class="markdown-body" id="description-md-body">{{ assignment.description }}</div>
+            <div class="markdown-body cs-markdown" id="description-md-body">{{ assignment.description }}</div>
             {% else %}
             <p class="text-muted">该作业没有详细描述。</p>
             {% endif %}
@@ -984,12 +983,11 @@
 {% endblock %}
 
 {% block extra_js %}
-<!-- 加载依赖库 -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/cpp.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/java.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+<!-- 加载依赖库（项目同源静态资源） -->
+<script src="{{ url_for('static', filename='vendor/highlight.js/11.9.0/highlight.min.js') }}?v=11.9.0"></script>
+<script src="{{ url_for('static', filename='vendor/highlight.js/11.9.0/languages/cpp.min.js') }}?v=11.9.0"></script>
+<script src="{{ url_for('static', filename='vendor/highlight.js/11.9.0/languages/python.min.js') }}?v=11.9.0"></script>
+<script src="{{ url_for('static', filename='vendor/highlight.js/11.9.0/languages/java.min.js') }}?v=11.9.0"></script>
 
 <!-- 安全代码处理和C++编辑器脚本 -->
 <script src="{{ url_for('static', filename='js/safe-code-processor.js') }}"></script>
@@ -1060,23 +1058,6 @@
 
     // 开始观察body元素的变化
     observer.observe(document.body, { childList: true, subtree: true });
-</script>
-
-<!-- 渲染作业描述中的Markdown -->
-<script>
-    document.addEventListener('DOMContentLoaded', function () {
-        var mdBody = document.getElementById('description-md-body');
-        if (mdBody && typeof marked !== 'undefined') {
-            var raw = mdBody.textContent || mdBody.innerText;
-            mdBody.innerHTML = marked.parse(raw, { breaks: true, gfm: true });
-            // 高亮代码块
-            mdBody.querySelectorAll('pre code').forEach(function (block) {
-                if (typeof hljs !== 'undefined') {
-                    hljs.highlightElement(block);
-                }
-            });
-        }
-    });
 </script>
 
 <!-- 代码提交页面交互脚本 -->
@@ -1219,13 +1200,13 @@
         avatar.innerHTML = role === 'user' ? '<i class="bi bi-person"></i>' : '<i class="bi bi-robot"></i>';
 
         const messageContent = document.createElement('div');
-        messageContent.className = 'ai-message-content';
+        messageContent.className = 'ai-message-content' + (role === 'assistant' ? ' cs-markdown' : '');
 
         // 根据角色处理内容
         if (role === 'assistant') {
-            // AI消息使用marked渲染Markdown
-            if (typeof marked !== 'undefined') {
-                messageContent.innerHTML = marked.parse(content);
+            // AI 消息统一使用 CodeSense Markdown 渲染器。
+            if (window.CodeSenseMarkdown) {
+                window.CodeSenseMarkdown.render(messageContent, content);
             } else {
                 messageContent.textContent = content;
             }
@@ -1369,7 +1350,7 @@
         avatar.innerHTML = '<i class="bi bi-robot"></i>';
 
         const messageContent = document.createElement('div');
-        messageContent.className = 'ai-message-content';
+        messageContent.className = 'ai-message-content cs-markdown';
         messageContent.setAttribute('data-streaming', 'true');
 
         wrapper.appendChild(avatar);
@@ -1382,8 +1363,8 @@
 
     // 更新流式消息内容
     function updateStreamingMessage(element, content) {
-        if (typeof marked !== 'undefined') {
-            element.innerHTML = marked.parse(content);
+        if (window.CodeSenseMarkdown) {
+            window.CodeSenseMarkdown.render(element, content, { streaming: true });
         } else {
             element.textContent = content;
         }
@@ -1516,22 +1497,12 @@
             // 渲染AI反馈
             var feedback = data.advice || '';
 
-            // 判断是否为简洁建议（不包含markdown标记且较短）
-            var isSimpleAdvice = !feedback.includes('#') && !feedback.includes('**') &&
-                !feedback.includes('###') && feedback.length < 200;
-
-            if (isSimpleAdvice) {
-                // 简洁建议直接显示，保持表情符号和换行
-                aiResponse.innerHTML = '<div style="font-size: 16px; line-height: 1.6; padding: 15px;">' +
-                    feedback.replace(/\n/g, '<br>') + '</div>';
+            aiResponse.classList.add('cs-markdown');
+            if (window.CodeSenseMarkdown) {
+                window.CodeSenseMarkdown.render(aiResponse, feedback);
             } else {
-                // 复杂内容使用Markdown处理
-                if (typeof marked !== 'undefined') {
-                    aiResponse.innerHTML = marked.parse(feedback);
-                } else {
-                    // 改进的Markdown格式化后备方案
-                    aiResponse.innerHTML = formatAdvancedMarkdown(feedback);
-                }
+                // 没有共享渲染器时只显示纯文本，避免 AI 输出被当作 HTML 执行。
+                aiResponse.textContent = feedback;
             }
 
             // 应用代码高亮

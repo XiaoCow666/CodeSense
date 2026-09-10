@@ -146,8 +146,18 @@
 
         {% if current_user.usertype == '学生' %}
         <div class="form-group">
+            {% if current_user.is_free_account %}
+            <label class="form-label">所属班级</label>
+            <div class="alert alert-info" style="margin-bottom:0;">
+                <i class="bi bi-link-45deg"></i>
+                自由账号不能直接自选班级，请在首页输入教师提供的班级加入码。
+                {% if current_user.class_name %}<br>当前班级：{{ current_user.class_name }}{% endif %}
+            </div>
+            {{ form.class_name(type="hidden", value=current_user.class_name or "") }}
+            {% else %}
             {{ form.class_name.label }}
             {{ form.class_name(class="form-control") }}
+            {% endif %}
             {% if form.class_name.errors %}
             <div class="text-danger">
                 {% for error in form.class_name.errors %}

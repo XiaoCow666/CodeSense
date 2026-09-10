@@ -8,13 +8,11 @@
     <meta name="description" content="CodeSense 酷森思 - 基于机器学习的代码能力评估平台">
     <title>登录 - CodeSense 酷森思</title>
 
-    <!-- 引入Google字体 -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Caveat:wght@700&family=Ma+Shan+Zheng&display=swap" rel="stylesheet">
+    <!-- 字体（项目同源静态资源，网络不可用时仍保持一致的排版） -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fonts/codesense-fonts.css') }}?v=5.3">
 
     <!-- 引入图标库 -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.10.5/font/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap-icons/1.10.5/font/bootstrap-icons.min.css') }}?v=1.10.5">
 
     <style>
         :root {

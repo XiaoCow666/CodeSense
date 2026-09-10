@@ -13,13 +13,13 @@
 {% endmacro %}
 
 {% macro format_markdown_content(content) %}
-<div class="markdown-content ds-markdown ds-markdown--block" style="--ds-md-zoom: 1.143;">
+<div class="markdown-content cs-markdown ds-markdown ds-markdown--block" style="--ds-md-zoom: 1.143;">
     {{ content | safe }}
 </div>
 {% endmacro %}
 
 {% macro format_ai_response(content, type='default') %}
-<div class="ds-markdown ds-markdown--block ai-response-container {% if type %}ai-response-{{ type }}{% endif %}" style="--ds-md-zoom: 1.143;">
+<div class="markdown-content cs-markdown ds-markdown ds-markdown--block ai-response-container {% if type %}ai-response-{{ type }}{% endif %}" style="--ds-md-zoom: 1.143;">
     {{ content | safe }}
 </div>
-{% endmacro %} 
+{% endmacro %}

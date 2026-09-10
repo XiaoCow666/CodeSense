@@ -348,7 +348,15 @@ def _ask_student_probe(context: ToolContext, arguments: Dict[str, Any]) -> ToolR
         # wording.  Keep the turn single-speaker and replace it with a
         # bounded, server-generated new angle.
         question = _fallback_probe_question(target, context.learner_name)
-    state_patch = {"pending_probe": target}
+    state_patch = {
+        "pending_probe": {
+            **target,
+            # Keep the exact public wording in server memory so a restored
+            # session can tell an unanswered peer question from a merely
+            # scheduled Student turn.
+            "question": question,
+        }
+    }
     if isinstance(getattr(context.memory.state, "student_probe_intent", None), Mapping):
         state_patch["student_probe_intent"] = None
     return ToolResult(

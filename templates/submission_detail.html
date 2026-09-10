@@ -250,7 +250,7 @@
             <h3 class="mb-0">代码评估建议</h3>
         </div>
 
-        <div class="ai-feedback-content markdown-body" data-markdown="{{ submission.ai_feedback | e }}"></div>
+        <div class="ai-feedback-content markdown-body cs-markdown" data-markdown="{{ submission.ai_feedback | e }}"></div>
 
         <div class="d-flex justify-content-end mt-2">
             <span class="badge ai-badge">
@@ -267,7 +267,7 @@
             <h3 class="mb-0">常规评估反馈</h3>
         </div>
 
-        <div class="ai-feedback-content markdown-body" data-markdown="{{ submission.feedback | e }}"></div>
+        <div class="ai-feedback-content markdown-body cs-markdown" data-markdown="{{ submission.feedback | e }}"></div>
     </div>
     {% endif %}
     {% endif %}

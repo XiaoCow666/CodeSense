@@ -124,26 +124,8 @@
 {% endblock %}
 
 {% block extra_head %}
-<!-- Chart.js库引入 -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
-<!-- 备用CDN链接 -->
-<script>
-    // 检查Chart是否已经加载
-    if (typeof Chart === 'undefined') {
-        console.log("主要CDN加载失败，尝试备用CDN...");
-        document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"><\/script>');
-        
-        // 如果备用CDN也失败，尝试第三个源
-        setTimeout(function() {
-            if (typeof Chart === 'undefined') {
-                console.log("备用CDN也加载失败，尝试第三个源...");
-                document.write('<script src="https://cdn.bootcdn.net/ajax/libs/Chart.js/3.9.1/chart.min.js"><\/script>');
-            }
-        }, 1000);
-    } else {
-        console.log("Chart.js已成功从主要CDN加载");
-    }
-</script>
+<!-- Chart.js库（项目同源静态资源） -->
+<script src="{{ url_for('static', filename='vendor/chart.js/3.9.1/chart.min.js') }}?v=3.9.1"></script>
 {% endblock %}
 
 {% block content %}
@@ -555,4 +537,4 @@
 {% endblock %}
 
 {% block extra_js %}
-{% endblock %} 
+{% endblock %}

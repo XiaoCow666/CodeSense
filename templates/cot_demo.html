@@ -4,11 +4,11 @@
 
 {% block extra_head %}
 <!-- 引入 SortableJS -->
-<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+<script src="{{ url_for('static', filename='lib/Sortable.min.js') }}?v=1.15.0"></script>
 <!-- 引入 Anime.js -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js"></script>
+<script src="{{ url_for('static', filename='vendor/animejs/3.2.1/anime.min.js') }}?v=3.2.1"></script>
 <!-- 引入 Confetti -->
-<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+<script src="{{ url_for('static', filename='vendor/canvas-confetti/1.6.0/confetti.browser.js') }}?v=1.6.0"></script>
 
 <style>
     :root {
