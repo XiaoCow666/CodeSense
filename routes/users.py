@@ -15,6 +15,11 @@ from services.password_reset import (
     create_password_reset_token,
     password_reset_ttl_minutes,
 )
+from services.email_verification import (
+    create_email_verification_token,
+    revoke_email_verification_token,
+    send_email_verification_email,
+)
 from werkzeug.utils import secure_filename
 import pandas as pd
 import io
@@ -306,10 +311,22 @@ def edit_profile():
                     flash('邮箱已被其他账号使用', 'danger')
                     return render_template('edit_profile.html', form=form, user=user)
 
+            email_changed = email != _normalize_email(user.email)
+            email_registration_reverification = (
+                email_changed
+                and getattr(user, 'registration_method', '') == 'email'
+            )
+            if email_registration_reverification and not email:
+                flash('邮箱注册账号必须保留邮箱地址。', 'danger')
+                return render_template('edit_profile.html', form=form, user=user)
+
             # 更新用户信息
             user.username = form.username.data
             user.full_name = form.full_name.data
             user.email = email
+            if email_registration_reverification:
+                user.email_verified_at = None
+                user.email_verification_required = True
             user.class_name = form.class_name.data
 
             avatar_path = _save_avatar(form.avatar.data, user.student_id)
@@ -325,7 +342,27 @@ def edit_profile():
                 user.class_id = None
             
             db.session.commit()
-            flash('资料更新成功！', 'success')
+
+            if email_registration_reverification:
+                raw_token = None
+                try:
+                    raw_token = create_email_verification_token(
+                        user,
+                        requested_ip=request.remote_addr,
+                    )
+                    send_email_verification_email(user, raw_token)
+                except Exception:
+                    if raw_token:
+                        try:
+                            revoke_email_verification_token(raw_token)
+                        except Exception:
+                            db.session.rollback()
+                    current_app.logger.exception('邮箱变更后的验证邮件发送失败')
+                    flash('资料已更新，但新邮箱验证邮件发送失败，请稍后重新发送。', 'warning')
+                else:
+                    flash('资料已更新，请查收新邮箱验证邮件并完成验证。', 'success')
+            else:
+                flash('资料更新成功！', 'success')
             return redirect(url_for('users.view_submissions'))
         except Exception as e:
             db.session.rollback()

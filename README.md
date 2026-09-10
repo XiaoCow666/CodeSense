@@ -258,16 +258,20 @@ SECRET_KEY=replace-with-a-random-secret
 ZHIPU_API_KEY=
 OPENAI_API_KEY=
 
-# 密码找回邮件（不配置时，管理员可在用户管理页生成一次性重置链接）
+# 密码找回和邮箱注册邮件（不配置时，管理员可在用户管理页生成一次性重置链接）
 MAIL_SERVER=
 MAIL_PORT=587
 MAIL_USERNAME=
 MAIL_PASSWORD=
 MAIL_DEFAULT_SENDER=
 APP_BASE_URL=https://codesense.example.com
+EMAIL_VERIFICATION_TOKEN_TTL_MINUTES=30
+EMAIL_VERIFICATION_REQUEST_INTERVAL_SECONDS=60
 ~~~
 
 开发和测试配置会在启动时创建数据库表。生产配置要显式设置 <code>DATABASE_URL</code> 和 <code>SECRET_KEY</code>；生产 WSGI 默认跳过启动期建表和迁移，请先执行 <code>python database_maintenance.py</code>。不要把 <code>.env</code>、API 密钥或本地数据库文件提交到 Git。
+
+登录页同时提供学生名单注册和邮箱注册。邮箱注册不要求提前导入学生名单，账号创建后必须点击验证邮件中的链接才能登录；验证令牌只保存摘要，过期或重复发送后旧链接会自动失效。<code>AuthIdentity</code> 表为后续接入 Google、微信等社交登录保留统一的身份绑定位置。
 
 ### 3. 安装 C++ 编译器
 
@@ -329,6 +333,7 @@ gunicorn -c gunicorn_config.py wsgi:application
 | <code>MAIL_SERVER</code> / <code>MAIL_PORT</code> / <code>MAIL_USERNAME</code> / <code>MAIL_PASSWORD</code> / <code>MAIL_DEFAULT_SENDER</code> | 忘记密码邮件服务配置；敏感值只放服务器环境变量或受限配置文件 |
 | <code>APP_BASE_URL</code> | 邮件和管理员重置链接使用的公开 HTTPS 地址 |
 | <code>PASSWORD_RESET_TOKEN_TTL_MINUTES</code> / <code>PASSWORD_RESET_REQUEST_INTERVAL_SECONDS</code> | 重置链接有效期和重复申请冷却时间 |
+| <code>EMAIL_VERIFICATION_TOKEN_TTL_MINUTES</code> / <code>EMAIL_VERIFICATION_REQUEST_INTERVAL_SECONDS</code> | 邮箱验证链接有效期和重复发送冷却时间 |
 | <code>AI_PROVIDER_ORDER</code> | 多 provider 的优先顺序，例如 <code>zhipu,openai</code> |
 | <code>ZHIPU_MODEL</code> / <code>OPENAI_MODEL</code> | 各 provider 使用的模型 |
 | <code>AI_RETRY_ATTEMPTS</code> | 网络错误、限流和 5xx 的最大重试次数 |

@@ -145,6 +145,12 @@ class Config(object):
     PASSWORD_RESET_REQUEST_INTERVAL_SECONDS = _env_int(
         'PASSWORD_RESET_REQUEST_INTERVAL_SECONDS', 60, minimum=0, maximum=86400
     )
+    EMAIL_VERIFICATION_TOKEN_TTL_MINUTES = _env_int(
+        'EMAIL_VERIFICATION_TOKEN_TTL_MINUTES', 30, minimum=5, maximum=1440
+    )
+    EMAIL_VERIFICATION_REQUEST_INTERVAL_SECONDS = _env_int(
+        'EMAIL_VERIFICATION_REQUEST_INTERVAL_SECONDS', 60, minimum=0, maximum=86400
+    )
     
     # 上传文件配置
     UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')

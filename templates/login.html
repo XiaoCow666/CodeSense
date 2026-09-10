@@ -629,6 +629,7 @@
                             记住我
                         </label>
                         <a href="{{ url_for('auth.forgot_password') }}" class="forgot-link">忘记密码？</a>
+                        <a href="{{ url_for('auth.resend_verification') }}" class="forgot-link">验证邮箱</a>
                     </div>
 
                     <!-- 提交按钮 -->
@@ -653,7 +654,10 @@
                 </section>
 
                 <div class="register-box">
-                    还没有账号？ <a href="{{ url_for('auth.register') }}" class="register-link">立即注册</a>
+                    还没有账号？
+                    <a href="{{ url_for('auth.register') }}" class="register-link">学生名单注册</a>
+                    <span aria-hidden="true"> · </span>
+                    <a href="{{ url_for('auth.register_email') }}" class="register-link">邮箱注册</a>
                 </div>
             </main>
         </div>

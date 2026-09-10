@@ -10,7 +10,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_sqlalchemy.session import Session as FlaskSQLAlchemySession
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_login import UserMixin  # 添加UserMixin导入
-from sqlalchemy import Index, inspect
+from sqlalchemy import Index, UniqueConstraint, inspect, text
 from sqlalchemy.exc import SQLAlchemyError
 
 # 班级默认配置
@@ -252,6 +252,20 @@ class User(db.Model, UserMixin):  # 添加UserMixin继承
     class_id = db.Column(db.Integer, db.ForeignKey('classes.id'), nullable=True)  # 新增班级外键
     full_name = db.Column(db.String(50))
     email = db.Column(db.String(120), unique=True, nullable=True, index=True)
+    # 兼容历史账号：只有邮箱注册账号会要求完成邮箱验证。
+    email_verified_at = db.Column(db.DateTime, nullable=True)
+    email_verification_required = db.Column(
+        db.Boolean,
+        default=False,
+        server_default=text('0'),
+        nullable=False,
+    )
+    registration_method = db.Column(
+        db.String(32),
+        default='legacy',
+        server_default=text("'legacy'"),
+        nullable=False,
+    )
     avatar_path = db.Column(db.String(255), nullable=True)
     submit_count = db.Column(db.Integer, default=0)
     user_ascore = db.Column(db.Float, default=0.0)
@@ -860,6 +874,9 @@ def init_db(app):
             'users': {
                 'current_session_id': 'ALTER TABLE users ADD COLUMN current_session_id VARCHAR(100) NULL',
                 'email': 'ALTER TABLE users ADD COLUMN email VARCHAR(120) NULL',
+                'email_verified_at': 'ALTER TABLE users ADD COLUMN email_verified_at DATETIME NULL',
+                'email_verification_required': 'ALTER TABLE users ADD COLUMN email_verification_required BOOLEAN NOT NULL DEFAULT 0',
+                'registration_method': "ALTER TABLE users ADD COLUMN registration_method VARCHAR(32) NOT NULL DEFAULT 'legacy'",
                 'avatar_path': 'ALTER TABLE users ADD COLUMN avatar_path VARCHAR(255) NULL',
                 'password_changed_at': 'ALTER TABLE users ADD COLUMN password_changed_at DATETIME NULL',
                 'student_number': 'ALTER TABLE users ADD COLUMN student_number VARCHAR(20) NULL',
@@ -1242,6 +1259,66 @@ class PasswordResetToken(db.Model):
     )
 
 
+class EmailVerificationToken(db.Model):
+    """邮箱注册验证令牌，只保存令牌摘要，不保存原始令牌。"""
+    __tablename__ = 'email_verification_tokens'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(
+        db.String(20),
+        db.ForeignKey('users.student_id', ondelete='CASCADE'),
+        nullable=False,
+        index=True,
+    )
+    token_hash = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=dt.utcnow, nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=False, index=True)
+    used_at = db.Column(db.DateTime, nullable=True)
+    revoked_at = db.Column(db.DateTime, nullable=True)
+    requested_ip = db.Column(db.String(45), nullable=True)
+
+    user = db.relationship(
+        'User',
+        backref=db.backref('email_verification_tokens', lazy='dynamic'),
+    )
+
+
+class AuthIdentity(db.Model):
+    """可扩展的登录身份绑定表，为后续接入社交账号预留。"""
+    __tablename__ = 'auth_identities'
+    __table_args__ = (
+        UniqueConstraint(
+            'provider',
+            'provider_subject_hash',
+            name='uq_auth_identities_provider_subject',
+        ),
+        UniqueConstraint(
+            'user_id',
+            'provider',
+            name='uq_auth_identities_user_provider',
+        ),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(
+        db.String(20),
+        db.ForeignKey('users.student_id', ondelete='CASCADE'),
+        nullable=False,
+        index=True,
+    )
+    provider = db.Column(db.String(32), nullable=False)
+    # 不保存第三方原始 subject；统一保存带 provider 作用域的 SHA-256 摘要。
+    provider_subject_hash = db.Column(db.String(64), nullable=False)
+    provider_email = db.Column(db.String(120), nullable=True)
+    created_at = db.Column(db.DateTime, default=dt.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=dt.utcnow, onupdate=dt.utcnow, nullable=False)
+
+    user = db.relationship(
+        'User',
+        backref=db.backref('auth_identities', lazy='dynamic'),
+    )
+
+
 # ============================================================
 # 三阶段引导式学习系统（Guided Learning Arena）数据模型
 # 独立表，不修改任何现有模型
@@ -1464,6 +1541,11 @@ PERFORMANCE_INDEXES = (
     Index('ix_code_advice_student_time', CodeAdviceRequest.student_id, CodeAdviceRequest.requested_at),
     Index('ix_assignment_kp_assignment_name', AssignmentKnowledgePoint.assignment_id, AssignmentKnowledgePoint.knowledge_point),
     Index('ix_invite_tokens_used_expiry', InviteToken.is_used, InviteToken.expires_at),
+    Index(
+        'ix_email_verification_tokens_user_expiry',
+        EmailVerificationToken.user_id,
+        EmailVerificationToken.expires_at,
+    ),
     Index('ix_thinking_sessions_student_assignment', ThinkingSession.student_id, ThinkingSession.assignment_id),
     Index('ix_thinking_sessions_assignment_status', ThinkingSession.assignment_id, ThinkingSession.status),
     Index('ix_thinking_logs_session_stage_time', ThinkingStageLog.session_id, ThinkingStageLog.stage, ThinkingStageLog.created_at),

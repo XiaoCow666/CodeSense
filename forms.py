@@ -29,6 +29,25 @@ class PasswordResetRequestForm(FlaskForm):
     submit = SubmitField('发送重置链接')
 
 
+class EmailVerificationRequestForm(FlaskForm):
+    """重新发送注册邮箱验证邮件的表单。"""
+    email = StringField(
+        '注册邮箱',
+        validators=[
+            DataRequired(message='请输入注册邮箱'),
+            Email(message='邮箱格式不正确'),
+            Length(3, 120),
+        ],
+    )
+    submit = SubmitField('重新发送验证邮件')
+
+
+class EmailVerificationForm(FlaskForm):
+    """确认邮箱验证令牌的表单。"""
+    token = HiddenField('邮箱验证令牌', validators=[DataRequired()])
+    submit = SubmitField('验证邮箱')
+
+
 class ResetPasswordForm(FlaskForm):
     """使用一次性令牌设置新密码的表单。"""
     token = HiddenField('重置令牌', validators=[DataRequired()])
@@ -69,6 +88,41 @@ class RegistrationForm(FlaskForm):
     usertype = RadioField('用户类型', choices=[('学生', '学生'), ('管理员', '管理员')], default='学生')
     admin_password = PasswordField('管理员密码', validators=[Optional()])
     submit = SubmitField('注册')
+
+
+class EmailRegistrationForm(FlaskForm):
+    """独立的邮箱注册表单，不要求预先导入学生名单。"""
+    username = StringField(
+        '用户名',
+        validators=[DataRequired(message='用户名不能为空'), Length(1, 50)],
+    )
+    email = StringField(
+        '邮箱',
+        validators=[
+            DataRequired(message='邮箱不能为空'),
+            Email(message='邮箱格式不正确'),
+            Length(3, 120),
+        ],
+    )
+    full_name = StringField(
+        '姓名或昵称',
+        validators=[Optional(), Length(0, 50)],
+    )
+    password = PasswordField(
+        '密码',
+        validators=[
+            DataRequired(message='密码不能为空'),
+            Length(8, 64, message='密码长度应为 8-64 位'),
+        ],
+    )
+    confirm_password = PasswordField(
+        '确认密码',
+        validators=[
+            DataRequired(message='确认密码不能为空'),
+            EqualTo('password', message='两次输入的密码不匹配'),
+        ],
+    )
+    submit = SubmitField('注册并验证邮箱')
 
 
 class AssignmentForm(FlaskForm):
