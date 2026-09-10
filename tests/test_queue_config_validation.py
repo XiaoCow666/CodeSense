@@ -20,13 +20,19 @@ import pytest
 
 import config
 
-_BACKEND_KEYS = (
-    "ABILITY_ANALYSIS_QUEUE_BACKEND",
-    "SUBMISSION_EVALUATION_QUEUE_BACKEND",
-)
-_URL_KEYS = (
-    "ABILITY_ANALYSIS_REDIS_URL",
-    "SUBMISSION_EVALUATION_REDIS_URL",
+# Explicit (backend_key, url_key) pairing for each queue. Listing the pairs
+# directly (instead of zipping two separate lists) keeps backend/URL association
+# visible at the definition site and makes a missing or mismatched entry fail
+# loudly rather than being silently dropped by ``zip``.
+_QUEUE_CONFIG_KEYS = (
+    (
+        "ABILITY_ANALYSIS_QUEUE_BACKEND",
+        "ABILITY_ANALYSIS_REDIS_URL",
+    ),
+    (
+        "SUBMISSION_EVALUATION_QUEUE_BACKEND",
+        "SUBMISSION_EVALUATION_REDIS_URL",
+    ),
 )
 
 
@@ -49,7 +55,9 @@ def test_explicit_thread_backends_pass_validation():
     assert config.Config.init_app(_app()) is None
 
 
-@pytest.mark.parametrize("backend_key", _BACKEND_KEYS)
+@pytest.mark.parametrize(
+    "backend_key", [pair[0] for pair in _QUEUE_CONFIG_KEYS]
+)
 def test_unknown_backend_value_is_rejected(backend_key):
     app = _app(**{backend_key: "redis"})
     # The message must name the exact backend key that is invalid AND state the
@@ -62,7 +70,7 @@ def test_unknown_backend_value_is_rejected(backend_key):
         config.Config.init_app(app)
 
 
-@pytest.mark.parametrize("backend_key,url_key", tuple(zip(_BACKEND_KEYS, _URL_KEYS)))
+@pytest.mark.parametrize("backend_key,url_key", _QUEUE_CONFIG_KEYS)
 def test_rq_backend_without_redis_url_is_rejected(backend_key, url_key):
     app = _app(**{backend_key: "rq", url_key: ""})
     # The message must name the exact missing URL variable AND state the reason,
@@ -112,7 +120,7 @@ def test_rq_without_url_does_not_reuse_other_queue_url(
         config.Config.init_app(app)
 
 
-@pytest.mark.parametrize("backend_key,url_key", tuple(zip(_BACKEND_KEYS, _URL_KEYS)))
+@pytest.mark.parametrize("backend_key,url_key", _QUEUE_CONFIG_KEYS)
 def test_rq_backend_with_redis_url_passes(backend_key, url_key):
     app = _app(
         **{
