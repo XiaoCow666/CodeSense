@@ -693,7 +693,7 @@
                         {% for user in pagination.items %}
                         <tr>
                             <td>{{ user.username }}</td>
-                            <td>{{ user.student_id }}</td>
+                            <td>{{ user.student_number or user.student_id }}</td>
                             <td>{{ user.full_name }}</td>
                             <td>
                                 <span
@@ -708,6 +708,14 @@
                                     class="btn btn-sm btn-info">
                                     <i class="fas fa-eye"></i> 查看
                                 </a>
+                                <form action="{{ url_for('users.admin_reset_password', student_id=user.student_id) }}"
+                                    method="POST" class="d-inline"
+                                    onsubmit="return confirm('确定为该用户生成一次性密码重置链接吗？链接仅显示一次，过期后失效。');">
+                                    {{ admin_reset_form.hidden_tag() }}
+                                    <button type="submit" class="btn btn-sm btn-warning">
+                                        <i class="fas fa-key"></i> 生成重置链接
+                                    </button>
+                                </form>
                                 <button class="btn btn-sm btn-danger delete-btn" data-user-id="{{ user.student_id }}">
                                     <i class="fas fa-trash"></i> 删除
                                 </button>

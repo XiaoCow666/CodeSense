@@ -128,6 +128,23 @@ class Config(object):
     # AI API配置 - 从环境变量读取
     ZHIPU_API_KEY = os.environ.get('ZHIPU_API_KEY', '')
     OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
+
+    # 密码找回邮件配置。未配置邮件服务器时，管理员仍可生成一次性重置链接。
+    MAIL_SERVER = os.environ.get('MAIL_SERVER', '')
+    MAIL_PORT = _env_int('MAIL_PORT', 587, minimum=1, maximum=65535)
+    MAIL_USERNAME = os.environ.get('MAIL_USERNAME', '')
+    MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD', '')
+    MAIL_USE_TLS = _env_bool('MAIL_USE_TLS', True)
+    MAIL_USE_SSL = _env_bool('MAIL_USE_SSL', False)
+    MAIL_DEFAULT_SENDER = os.environ.get('MAIL_DEFAULT_SENDER', '')
+    MAIL_TIMEOUT_SECONDS = _env_int('MAIL_TIMEOUT_SECONDS', 10, minimum=1, maximum=60)
+    APP_BASE_URL = os.environ.get('APP_BASE_URL', '').rstrip('/')
+    PASSWORD_RESET_TOKEN_TTL_MINUTES = _env_int(
+        'PASSWORD_RESET_TOKEN_TTL_MINUTES', 30, minimum=5, maximum=1440
+    )
+    PASSWORD_RESET_REQUEST_INTERVAL_SECONDS = _env_int(
+        'PASSWORD_RESET_REQUEST_INTERVAL_SECONDS', 60, minimum=0, maximum=86400
+    )
     
     # 上传文件配置
     UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')

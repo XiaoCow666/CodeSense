@@ -1215,6 +1215,30 @@ class InviteToken(db.Model):
         return ok, err_msg
 
 
+class PasswordResetToken(db.Model):
+    """一次性密码重置令牌，只保存令牌摘要，不保存原始令牌。"""
+    __tablename__ = 'password_reset_tokens'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(
+        db.String(20),
+        db.ForeignKey('users.student_id', ondelete='CASCADE'),
+        nullable=False,
+        index=True,
+    )
+    token_hash = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=dt.utcnow, nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=False, index=True)
+    used_at = db.Column(db.DateTime, nullable=True)
+    revoked_at = db.Column(db.DateTime, nullable=True)
+    requested_ip = db.Column(db.String(45), nullable=True)
+    created_by = db.Column(
+        db.String(20),
+        db.ForeignKey('users.student_id', ondelete='SET NULL'),
+        nullable=True,
+    )
+
+
 # ============================================================
 # 三阶段引导式学习系统（Guided Learning Arena）数据模型
 # 独立表，不修改任何现有模型

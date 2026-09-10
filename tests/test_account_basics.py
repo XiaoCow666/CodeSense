@@ -25,6 +25,7 @@ class AccountBasicsTestCase(unittest.TestCase):
             db.create_all()
             student = User(
                 student_id='20240001',
+                student_number='2024-0001',
                 username='student_user',
                 usertype='学生',
                 class_name='软件2302',
@@ -50,6 +51,20 @@ class AccountBasicsTestCase(unittest.TestCase):
 
     def test_login_accepts_email_identifier(self):
         response = self.login(username='student@example.com')
+
+        self.assertEqual(response.status_code, 302)
+        with self.client.session_transaction() as sess:
+            self.assertEqual(sess.get('student_id'), '20240001')
+
+    def test_login_accepts_student_id_identifier(self):
+        response = self.login(username='20240001')
+
+        self.assertEqual(response.status_code, 302)
+        with self.client.session_transaction() as sess:
+            self.assertEqual(sess.get('student_id'), '20240001')
+
+    def test_login_accepts_student_number_identifier(self):
+        response = self.login(username='2024-0001')
 
         self.assertEqual(response.status_code, 302)
         with self.client.session_transaction() as sess:

@@ -9,9 +9,49 @@ from wtforms.validators import DataRequired, Length, EqualTo, Email, ValidationE
 
 class LoginForm(FlaskForm):
     """登录表单"""
-    username = StringField('用户名或邮箱', validators=[DataRequired(message='用户名或邮箱不能为空'), Length(1, 120)])
+    username = StringField(
+        '用户名、学号或邮箱',
+        validators=[DataRequired(message='用户名、学号或邮箱不能为空'), Length(1, 120)],
+    )
     password = PasswordField('密码', validators=[DataRequired(message='密码不能为空')])
     submit = SubmitField('登录')
+
+
+class PasswordResetRequestForm(FlaskForm):
+    """密码重置申请表单。"""
+    identifier = StringField(
+        '用户名、学号或邮箱',
+        validators=[
+            DataRequired(message='请输入用户名、学号或邮箱'),
+            Length(1, 120),
+        ],
+    )
+    submit = SubmitField('发送重置链接')
+
+
+class ResetPasswordForm(FlaskForm):
+    """使用一次性令牌设置新密码的表单。"""
+    token = HiddenField('重置令牌', validators=[DataRequired()])
+    password = PasswordField(
+        '新密码',
+        validators=[
+            DataRequired(message='新密码不能为空'),
+            Length(8, 64, message='新密码长度应为 8-64 位'),
+        ],
+    )
+    confirm_password = PasswordField(
+        '确认新密码',
+        validators=[
+            DataRequired(message='确认新密码不能为空'),
+            EqualTo('password', message='两次输入的新密码不匹配'),
+        ],
+    )
+    submit = SubmitField('重置密码')
+
+
+class AdminPasswordResetForm(FlaskForm):
+    """管理员生成一次性密码重置链接的表单。"""
+    pass
 
 
 class RegistrationForm(FlaskForm):

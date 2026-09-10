@@ -17,6 +17,7 @@
 - Python 3.8+、g++ 和可写的应用目录；
 - 生产环境必须设置 DATABASE_URL 和长度至少 32 个字符的随机 SECRET_KEY；
 - AI 功能至少配置 ZHIPU_API_KEY 或 OPENAI_API_KEY；不配置时基础页面仍可启动，但 AI 功能不可用；
+- 密码找回邮件需要配置 MAIL_SERVER、MAIL_PORT、MAIL_USERNAME、MAIL_PASSWORD 和 MAIL_DEFAULT_SENDER；未配置邮件时，管理员仍可生成一次性重置链接；
 - 生产 HTTPS 必须使用 SECURE_COOKIES=true；Nginx → Gunicorn 拓扑使用 TRUST_PROXY_HEADERS=true 和 PROXY_FIX_HOPS=1；
 - 学生提交的 C++ 代码只经过应用层限制，当前实现不是完整的 OS 级恶意代码隔离。公网部署必须补充容器/虚拟机、低权限账户、网络限制和资源配额。
 
@@ -69,6 +70,19 @@ SECRET_KEY=replace-with-a-random-32-byte-secret
 ZHIPU_API_KEY=your_server_side_key
 OPENAI_API_KEY=
 
+# 密码找回邮件；密钥只放在服务器环境变量或受限配置文件中，不要提交到 Git
+MAIL_SERVER=smtp.example.com
+MAIL_PORT=587
+MAIL_USERNAME=codesense@example.com
+MAIL_PASSWORD=replace-with-smtp-password
+MAIL_USE_TLS=true
+MAIL_USE_SSL=false
+MAIL_DEFAULT_SENDER=codesense@example.com
+MAIL_TIMEOUT_SECONDS=10
+APP_BASE_URL=https://codesense.example.com
+PASSWORD_RESET_TOKEN_TTL_MINUTES=30
+PASSWORD_RESET_REQUEST_INTERVAL_SECONDS=60
+
 AUTO_INIT_DB=0
 DB_ENSURE_INDEXES=0
 SECURE_COOKIES=true
@@ -102,6 +116,7 @@ python database_maintenance.py
 ~~~
 
 它会使用生产 DATABASE_URL 建表、补历史列和维护索引，不会启动 Web 服务或后台 AI 任务。
+本次版本会创建 `password_reset_tokens` 表；执行前请完成生产数据库备份。
 
 手动启动生产 WSGI：
 
@@ -200,7 +215,7 @@ curl -i https://codesense.example.com/readyz
 - /healthz：轻量存活检查，不访问数据库；
 - /readyz：检查数据库是否可用，不就绪时返回 HTTP 503。
 
-再验证：登录、学生体验、教师体验、C++ 编译评测、AI 失败/重试状态、文件上传和 SSE/流式响应。没有 AI Key 时，不要把“AI 不可用”误判为网站整体故障。
+再验证：登录（用户名、内部账号 ID、学号和邮箱均可）、忘记密码邮件重置、管理员生成无邮箱账号的重置链接、学生体验、教师体验、C++ 编译评测、AI 失败/重试状态、文件上传和 SSE/流式响应。没有 AI Key 时，不要把“AI 不可用”误判为网站整体故障。
 
 ## 8. 发布新版本
 
@@ -249,6 +264,7 @@ sudo systemctl status redis-server --no-pager
 - [ ] 生产环境使用随机 SECRET_KEY，且密钥文件权限为 600。
 - [ ] DATABASE_URL 指向正式数据库，已完成备份和恢复演练。
 - [ ] database_maintenance.py 已成功执行，/readyz 返回 200。
+- [ ] APP_BASE_URL 和 SMTP 配置已验证；已用测试账号完成一次邮件重置和一次管理员兜底重置。
 - [ ] g++ 已安装，代码执行目录权限和资源限制已复核。
 - [ ] Nginx 已启用 HTTPS、代理头和流式响应配置。
 - [ ] Redis/会话策略与 worker 数量匹配。
