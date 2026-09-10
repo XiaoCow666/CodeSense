@@ -104,7 +104,11 @@ def test_rq_without_url_does_not_reuse_other_queue_url(
             filled_url_key: "redis://broker.example.invalid:6379/9",
         },
     )
-    with pytest.raises(RuntimeError, match=expected_url_name):
+    with pytest.raises(
+        RuntimeError,
+        match=re.escape(expected_url_name)
+        + r".*is required when the RQ backend is enabled",
+    ):
         config.Config.init_app(app)
 
 
