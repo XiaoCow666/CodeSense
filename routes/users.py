@@ -7,6 +7,7 @@ from models import db, User, Submission, SystemLog, Class, AbilityTrend, Knowled
 from utils.auth import login_required, admin_required, admin_or_teacher_required
 from tasks.ability_analysis import trigger_analysis_if_needed
 from services.demo_database import current_demo_run_id
+from services.profile import get_profile_settings, save_profile_settings
 from sqlalchemy import desc, func
 from forms import ChangePasswordForm, EditProfileForm
 from werkzeug.utils import secure_filename
@@ -281,6 +282,7 @@ def edit_profile():
     """编辑个人资料"""
     user = User.query.get(session.get('student_id'))
     form = EditProfileForm()
+    profile_settings = get_profile_settings(getattr(user, 'student_id', None))
     
     # 获取所有班级作为下拉选项
     classes = Class.query.all()
@@ -296,7 +298,12 @@ def edit_profile():
                 ).first()
                 if existing_email_user:
                     flash('邮箱已被其他账号使用', 'danger')
-                    return render_template('edit_profile.html', form=form, user=user)
+                    return render_template(
+                        'edit_profile.html',
+                        form=form,
+                        user=user,
+                        profile_settings=profile_settings,
+                    )
 
             # 更新用户信息
             user.username = form.username.data
@@ -316,6 +323,12 @@ def edit_profile():
             else:
                 user.class_id = None
             
+            save_profile_settings(
+                user.student_id,
+                bio=form.bio.data,
+                profile_visibility=form.profile_visibility.data,
+                commit=False,
+            )
             db.session.commit()
             flash('资料更新成功！', 'success')
             return redirect(url_for('users.view_submissions'))
@@ -329,8 +342,15 @@ def edit_profile():
         form.full_name.data = user.full_name
         form.email.data = user.email
         form.class_name.data = user.class_name
-    
-    return render_template('edit_profile.html', form=form, user=user)
+        form.bio.data = profile_settings.get('bio', '')
+        form.profile_visibility.data = profile_settings.get('profile_visibility', 'private')
+
+    return render_template(
+        'edit_profile.html',
+        form=form,
+        user=user,
+        profile_settings=profile_settings,
+    )
 
 
 @users.route('/change_password', methods=['GET', 'POST'])

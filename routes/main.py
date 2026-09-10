@@ -23,12 +23,24 @@ from services.teacher_analytics import build_teacher_dashboard_data
 from services.demo_database import current_demo_run_id
 from services.feedback import (
     FEEDBACK_CATEGORIES,
+    FEEDBACK_CATEGORY_LABELS,
+    FEEDBACK_STATUS_LABELS,
+    FEEDBACK_STATUS_OPTIONS,
     FeedbackValidationError,
+    FeedbackStatusError,
     create_feedback_record,
     find_feedback,
     list_feedback,
     save_feedback,
+    update_feedback_status,
 )
+from services.notifications import (
+    create_notification,
+    list_notifications,
+    mark_all_notifications_read,
+    mark_notification_read,
+)
+from services.profile import get_profile_settings, PROFILE_VISIBILITY_PUBLIC
 from utils.auth import admin_required
 from utils.maturity_calculator import calculate_maturity_components
 from utils.sse import sse_event, sse_response
@@ -942,6 +954,21 @@ def user_profile(user_username):
                               ability_trend.status if ability_trend else 'pending'
                           ))
 
+
+@main.route('/public_profile/<string:user_username>')
+def public_profile(user_username):
+    """Show only the fields explicitly opted into public sharing."""
+
+    user = User.query.filter_by(username=user_username).first_or_404()
+    profile_settings = get_profile_settings(user.student_id)
+    if profile_settings.get('profile_visibility') != PROFILE_VISIBILITY_PUBLIC:
+        abort(404)
+    return render_template(
+        'public_profile.html',
+        user=user,
+        profile_settings=profile_settings,
+    )
+
 @main.route('/debug_session')
 def debug_session():
     """调试会话状态"""
@@ -1011,7 +1038,25 @@ def _save_feedback(data):
         data,
         request_context=_feedback_request_context(),
     )
-    save_feedback(record, user_id=_feedback_user_id())
+    user_id = _feedback_user_id()
+    save_feedback(record, user_id=user_id)
+    if user_id:
+        try:
+            create_notification(
+                user_id,
+                kind='feedback_received',
+                title='反馈已收到',
+                message=f"反馈 {record['feedback_id']} 已记录，当前状态为“已收到”。",
+                url=url_for('main.feedback_receipt', feedback_id=record['feedback_id']),
+                idempotency_key=f"feedback-received:{record['feedback_id']}",
+            )
+        except Exception:
+            db.session.rollback()
+            current_app.logger.warning(
+                '反馈已保存，但站内通知创建失败 feedback_id=%s',
+                record['feedback_id'],
+                exc_info=True,
+            )
     return record
 
 
@@ -1069,7 +1114,116 @@ def feedback_receipt(feedback_id):
 def admin_feedback():
     """Review the structured feedback intake records as an administrator."""
 
-    return render_template('admin_feedback.html', feedback_records=list_feedback())
+    status_filter = request.args.get('status', '').strip()
+    category_filter = request.args.get('category', '').strip()
+    if status_filter not in FEEDBACK_STATUS_LABELS:
+        status_filter = ''
+    if category_filter not in FEEDBACK_CATEGORY_LABELS:
+        category_filter = ''
+    return render_template(
+        'admin_feedback.html',
+        feedback_records=list_feedback(
+            status=status_filter or None,
+            category=category_filter or None,
+        ),
+        feedback_statuses=FEEDBACK_STATUS_OPTIONS,
+        feedback_categories=FEEDBACK_CATEGORIES,
+        status_filter=status_filter,
+        category_filter=category_filter,
+    )
+
+
+@main.route('/admin/feedback/<feedback_id>/status', methods=['POST'])
+@login_required
+@admin_required
+def admin_feedback_status(feedback_id):
+    """Advance feedback through the bounded admin workflow."""
+
+    status_filter = request.form.get('return_status', '').strip()
+    category_filter = request.form.get('return_category', '').strip()
+    try:
+        record, owner_id = update_feedback_status(
+            feedback_id,
+            request.form.get('status', ''),
+            actor_id=getattr(current_user, 'student_id', None),
+            note=request.form.get('note', ''),
+        )
+    except FeedbackStatusError as exc:
+        flash(str(exc), 'warning')
+        return redirect(url_for(
+            'main.admin_feedback',
+            status=status_filter if status_filter in FEEDBACK_STATUS_LABELS else None,
+            category=category_filter if category_filter in FEEDBACK_CATEGORY_LABELS else None,
+        ))
+
+    if owner_id:
+        try:
+            create_notification(
+                owner_id,
+                kind='feedback_status',
+                title='反馈状态已更新',
+                message=f"反馈 {record['feedback_id']} 当前状态为“{record['status_label']}”。",
+                url=url_for('main.feedback_receipt', feedback_id=record['feedback_id']),
+                idempotency_key=(
+                    f"feedback-status:{record['feedback_id']}:{record['status']}:{record.get('last_updated_at')}"
+                ),
+            )
+        except Exception:
+            db.session.rollback()
+            current_app.logger.warning(
+                '反馈状态已更新，但站内通知创建失败 feedback_id=%s',
+                feedback_id,
+                exc_info=True,
+            )
+    flash(f"反馈 {record['feedback_id']} 已更新为“{record['status_label']}”。", 'success')
+    return redirect(url_for(
+        'main.admin_feedback',
+        status=status_filter if status_filter in FEEDBACK_STATUS_LABELS else None,
+        category=category_filter if category_filter in FEEDBACK_CATEGORY_LABELS else None,
+    ))
+
+
+def _safe_next_url(value, fallback):
+    value = str(value or '').strip()
+    return value if value.startswith('/') and not value.startswith('//') else fallback
+
+
+@main.route('/notifications')
+@login_required
+def notifications():
+    """Display the authenticated user's local notification inbox."""
+
+    filter_name = request.args.get('filter', 'all').strip().lower()
+    if filter_name not in {'all', 'unread'}:
+        filter_name = 'all'
+    notification_items = list_notifications(
+        current_user.student_id,
+        unread_only=filter_name == 'unread',
+    )
+    return render_template(
+        'notifications.html',
+        notifications=notification_items,
+        filter_name=filter_name,
+    )
+
+
+@main.route('/notifications/<int:notification_id>/read', methods=['POST'])
+@login_required
+def notification_read(notification_id):
+    if not mark_notification_read(current_user.student_id, notification_id):
+        abort(404)
+    return redirect(_safe_next_url(
+        request.form.get('next') or request.args.get('next'),
+        url_for('main.notifications'),
+    ))
+
+
+@main.route('/notifications/read-all', methods=['POST'])
+@login_required
+def notifications_read_all():
+    mark_all_notifications_read(current_user.student_id)
+    flash('未读通知已全部标记为已读。', 'success')
+    return redirect(url_for('main.notifications'))
 
 
 @main.route('/contact', methods=['GET', 'POST'])

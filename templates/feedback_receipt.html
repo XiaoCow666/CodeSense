@@ -63,6 +63,22 @@
         gap: 0.75rem;
     }
 
+    .feedback-timeline {
+        margin: 1rem 0 1.5rem;
+        padding: 1rem 1rem 1rem 1.4rem;
+        border-left: 3px solid #86efac;
+        background: rgba(255, 255, 255, 0.55);
+    }
+
+    .feedback-timeline li + li {
+        margin-top: 0.55rem;
+    }
+
+    .feedback-timeline time {
+        color: #166534;
+        font-size: 0.875rem;
+    }
+
     @media (max-width: 560px) {
         .feedback-receipt {
             padding: 1.25rem;
@@ -84,7 +100,7 @@
 <section class="feedback-receipt" aria-labelledby="feedback-receipt-title">
     <div class="feedback-receipt-icon" aria-hidden="true"><i class="bi bi-check-circle-fill"></i></div>
     <h1 id="feedback-receipt-title">反馈已收到</h1>
-    <p role="status">系统已经记录这条反馈。当前状态是“已收到”，后续处理会沿用下面的编号。</p>
+    <p role="status">系统已经记录这条反馈。当前状态是“{{ record.status_label }}”，后续处理会沿用下面的编号。</p>
 
     <dl>
         <dt>反馈编号</dt>
@@ -94,8 +110,17 @@
         <dt>提交时间</dt>
         <dd><time datetime="{{ record.submitted_at }}">{{ record.submitted_at }}</time></dd>
         <dt>状态</dt>
-        <dd>已收到</dd>
+        <dd>{{ record.status_label }}</dd>
     </dl>
+
+    <section aria-labelledby="feedback-progress-title">
+        <h2 id="feedback-progress-title" class="visually-hidden">处理进度</h2>
+        <ol class="feedback-timeline">
+            {% for item in record.status_history %}
+            <li><strong>{{ item.status_label }}</strong> · <time datetime="{{ item.at }}">{{ item.at }}</time></li>
+            {% endfor %}
+        </ol>
+    </section>
 
     <div class="feedback-receipt-actions">
         <a class="btn btn-primary" href="{{ url_for('main.feedback') }}">继续提交反馈</a>

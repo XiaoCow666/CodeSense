@@ -473,7 +473,20 @@ def create_app(config_name='default'):
     @app.context_processor
     def inject_now():
         from datetime import datetime as dt_now
-        return {'current_time': dt_now.utcnow()}
+        notification_unread_count = 0
+        student_id = session.get('student_id') if session.get('login') else None
+        if student_id:
+            try:
+                from services.notifications import count_unread
+                notification_unread_count = count_unread(student_id)
+            except Exception:
+                # Notification rendering must never make an otherwise healthy
+                # page unavailable; the inbox remains the source of detail.
+                app.logger.warning('站内通知未读数读取失败', exc_info=True)
+        return {
+            'current_time': dt_now.utcnow(),
+            'notification_unread_count': notification_unread_count,
+        }
     
     # 初始化Flask-Session（如果可用）
     if HAS_FLASK_SESSION and Session is not None:

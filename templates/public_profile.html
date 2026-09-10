@@ -1,0 +1,85 @@
+{% extends "layout.html" %}
+
+{% block title %}{{ user.full_name or user.username }}的公开资料 - CodeSense 酷森思{% endblock %}
+
+{% block extra_css %}
+<style>
+    .public-profile {
+        max-width: 680px;
+        margin: 2rem auto;
+    }
+
+    .public-profile-card {
+        padding: 2rem;
+        border: 1px solid #dbeafe;
+        border-radius: 1rem;
+        background: linear-gradient(145deg, #eff6ff, #fff 60%);
+        box-shadow: var(--shadow-md);
+        text-align: center;
+    }
+
+    .public-profile-avatar {
+        width: 5.5rem;
+        height: 5.5rem;
+        margin: 0 auto 1rem;
+        overflow: hidden;
+        border-radius: 50%;
+        background: #dbeafe;
+        color: #2563eb;
+        font-size: 2.25rem;
+        line-height: 5.5rem;
+    }
+
+    .public-profile-avatar img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .public-profile-card h1 {
+        margin-bottom: 0.35rem;
+        color: var(--dark);
+    }
+
+    .public-profile-role {
+        color: var(--medium);
+        font-size: 0.9rem;
+    }
+
+    .public-profile-bio {
+        max-width: 36rem;
+        margin: 1.25rem auto 0;
+        color: var(--dark-light);
+        line-height: 1.75;
+        white-space: pre-wrap;
+    }
+
+    .public-profile-note {
+        margin-top: 1rem;
+        color: var(--medium);
+        font-size: 0.82rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="public-profile" aria-labelledby="public-profile-title">
+    <section class="public-profile-card">
+        <div class="public-profile-avatar">
+            {% if user.avatar_path %}
+            <img src="{{ url_for('static', filename=user.avatar_path.replace('static/', '', 1)) }}" alt="{{ user.full_name or user.username }}的头像">
+            {% else %}
+            <i class="bi bi-person" aria-hidden="true"></i>
+            {% endif %}
+        </div>
+        <h1 id="public-profile-title">{{ user.full_name or user.username }}</h1>
+        <div class="public-profile-role">{{ user.usertype }}</div>
+        {% if profile_settings.bio %}
+        <p class="public-profile-bio">{{ profile_settings.bio }}</p>
+        {% else %}
+        <p class="public-profile-bio">这个用户还没有填写公开简介。</p>
+        {% endif %}
+        <p class="public-profile-note">仅展示用户主动公开的基础资料，不包含邮箱、学号、班级或学习记录。</p>
+    </section>
+</section>
+{% endblock %}

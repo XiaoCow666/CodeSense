@@ -158,6 +158,17 @@
                     <li><a href="{{ url_for('main.admin_feedback') }}"
                             class="navbar-link {% if request.path.startswith('/admin/feedback') %}active{% endif %}">反馈中心</a></li>
                     {% endif %}
+                    <li>
+                        <a href="{{ url_for('main.notifications') }}"
+                            class="navbar-link navbar-notification-link {% if request.path.startswith('/notifications') %}active{% endif %}"
+                            aria-label="站内通知{% if notification_unread_count %}，{{ notification_unread_count }} 条未读{% endif %}">
+                            <i class="bi bi-bell" aria-hidden="true"></i>
+                            <span>通知</span>
+                            {% if notification_unread_count %}
+                            <span class="notification-count" aria-label="{{ notification_unread_count }} 条未读">{{ notification_unread_count if notification_unread_count < 100 else '99+' }}</span>
+                            {% endif %}
+                        </a>
+                    </li>
                     {% else %}
                     <li><a href="{{ url_for('auth.login') }}"
                             class="navbar-link {% if request.path == url_for('auth.login') %}active{% endif %}">登录</a></li>
@@ -251,10 +262,11 @@
     <footer class="footer">
         <div class="container footer-content">
             <nav class="footer-links" aria-label="辅助导航">
-                <a href="{{ url_for('main.about') }}">关于系统</a>
-                <a href="{{ url_for('main.help') }}">使用帮助</a>
-                <a href="{{ url_for('main.feedback', from_page=request.path) }}">反馈中心</a>
+                <a href="{{ url_for('main.about') }}" {% if request.endpoint == 'main.about' %}aria-current="page"{% endif %}>关于系统</a>
+                <a href="{{ url_for('main.help') }}" {% if request.endpoint == 'main.help' %}aria-current="page"{% endif %}>使用帮助</a>
+                <a href="{{ url_for('main.feedback', from_page=request.path) }}" {% if request.endpoint in ('main.feedback', 'main.feedback_receipt') %}aria-current="page"{% endif %}>反馈中心</a>
             </nav>
+            <p class="footer-note">学习记录与反馈仅在授权范围内用于教学改进；如需协助，请保留反馈编号。</p>
             <div class="footer-copyright">
                 &copy; {{ now().year }} CodeSense 酷森思 - 版权所有
             </div>
@@ -471,6 +483,13 @@
             var toggleBtn = document.getElementById('navbar-menu-toggle');
             var menuWrapper = document.getElementById('navbar-menu-wrapper');
             if (toggleBtn && menuWrapper) {
+                function closeNavbarMenu() {
+                    menuWrapper.classList.remove('active');
+                    toggleBtn.setAttribute('aria-expanded', 'false');
+                    var icon = toggleBtn.querySelector('i');
+                    if (icon) icon.className = 'bi bi-list';
+                }
+
                 toggleBtn.addEventListener('click', function(e) {
                     e.stopPropagation();
                     menuWrapper.classList.toggle('active');
@@ -483,13 +502,17 @@
                     }
                 });
 
+                document.addEventListener('keydown', function(e) {
+                    if (e.key === 'Escape' && menuWrapper.classList.contains('active')) {
+                        closeNavbarMenu();
+                        toggleBtn.focus();
+                    }
+                });
+
                 // 点击外部关闭菜单
                 document.addEventListener('click', function(e) {
                     if (menuWrapper.classList.contains('active') && !menuWrapper.contains(e.target) && e.target !== toggleBtn) {
-                        menuWrapper.classList.remove('active');
-                        toggleBtn.setAttribute('aria-expanded', 'false');
-                        var icon = toggleBtn.querySelector('i');
-                        icon.className = 'bi bi-list';
+                        closeNavbarMenu();
                     }
                 });
             }
