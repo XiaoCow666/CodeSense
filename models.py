@@ -243,6 +243,8 @@ class User(db.Model, UserMixin):  # 添加UserMixin继承
     """用户模型"""
     __tablename__ = 'users'
     student_id = db.Column(db.String(20), unique=True, nullable=False, primary_key=True)
+    # student_id 仍是历史系统内部主键；student_number 表示可选的真实学号。
+    student_number = db.Column(db.String(20), nullable=True)
     username = db.Column(db.String(50), unique=True, nullable=False)
     password_hash = db.Column(db.String(128), nullable=False)
     usertype = db.Column(db.Enum('学生', '教师', '管理员'), nullable=False)
@@ -860,6 +862,7 @@ def init_db(app):
                 'email': 'ALTER TABLE users ADD COLUMN email VARCHAR(120) NULL',
                 'avatar_path': 'ALTER TABLE users ADD COLUMN avatar_path VARCHAR(255) NULL',
                 'password_changed_at': 'ALTER TABLE users ADD COLUMN password_changed_at DATETIME NULL',
+                'student_number': 'ALTER TABLE users ADD COLUMN student_number VARCHAR(20) NULL',
             },
             'classes': {
                 'teacher_bind_code': 'ALTER TABLE classes ADD COLUMN teacher_bind_code VARCHAR(20) NULL',
@@ -1447,6 +1450,7 @@ class TeacherAISuggestion(db.Model):
 # 高频列表、统计和阶段三恢复查询使用的组合索引。它们集中声明在模型末尾，
 # 既会进入新库 metadata，也可以由 ensure_performance_indexes 补到历史库。
 PERFORMANCE_INDEXES = (
+    Index('ix_users_student_number', User.student_number),
     Index('ix_users_class_name_usertype', User.class_name, User.usertype),
     Index('ix_users_class_id_usertype', User.class_id, User.usertype),
     Index('ix_assignments_creator_created', Assignment.creator_id, Assignment.created_time),
