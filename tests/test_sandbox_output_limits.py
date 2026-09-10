@@ -48,6 +48,7 @@ def test_exact_stdout_limit_remains_a_valid_result():
 
     assert result['passed'] is True
     assert result['termination_reason'] is None
+    assert result['actual_output'] == 'x' * 64
     assert len(result['actual_output'].encode('utf-8')) == 64
 
 
