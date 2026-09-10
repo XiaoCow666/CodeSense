@@ -6,7 +6,12 @@ import uuid
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired
 from flask_login import login_user, logout_user, current_user
 from models import db, Class, StudentRoster, User, SystemLog, SystemConfig
-from forms import LoginForm, RegistrationForm
+from forms import (
+    LoginForm,
+    PasswordResetRequestForm,
+    RegistrationForm,
+    ResetPasswordForm,
+)
 from services.demo_experience import (
     DEMO_STUDENT_ID,
     DEMO_TEACHER_ID,
@@ -21,9 +26,23 @@ from services.demo_database import (
     destroy_demo_run,
     login_demo_run,
 )
+from services.password_reset import (
+    consume_password_reset_token,
+    create_password_reset_token,
+    find_user_by_identifier,
+    get_valid_password_reset_token,
+    has_recent_reset_request,
+    revoke_password_reset_token,
+    send_password_reset_email,
+)
 from utils.auth import redirect_if_logged_in
 
 auth = Blueprint('auth', __name__)
+
+PASSWORD_RESET_NOTICE = (
+    '如果账号存在且已绑定邮箱，系统会发送重置链接；'
+    '若未收到邮件，请检查垃圾邮件或联系管理员。'
+)
 
 
 def _establish_login_session(user, source=None):
@@ -78,7 +97,9 @@ def login():
         user = User.query.filter(
             db.or_(
                 User.username == username,
-                db.func.lower(User.email) == username.lower()
+                db.func.lower(User.email) == username.lower(),
+                User.student_id == username,
+                User.student_number == username,
             )
         ).first()
         if user and user.verify_password(password):
@@ -114,6 +135,80 @@ def login():
     login_message = SystemConfig.get_value('login_message', '欢迎登录 CodeSense 酷森思')
     site_name = SystemConfig.get_value('site_name', 'CodeSense 酷森思')
     return render_template('login.html', form=form, login_message=login_message, site_name=site_name)
+
+
+@auth.route('/forgot-password', methods=['GET', 'POST'])
+@redirect_if_logged_in
+def forgot_password():
+    """申请密码重置链接，不向外暴露账号是否存在。"""
+    form = PasswordResetRequestForm()
+    if form.validate_on_submit():
+        user = find_user_by_identifier(form.identifier.data)
+        if user and user.email and not has_recent_reset_request(user):
+            raw_token = None
+            try:
+                raw_token = create_password_reset_token(
+                    user,
+                    requested_ip=request.remote_addr,
+                )
+                send_password_reset_email(user, raw_token)
+            except Exception:
+                db.session.rollback()
+                if raw_token:
+                    try:
+                        revoke_password_reset_token(raw_token)
+                    except Exception:
+                        db.session.rollback()
+                current_app.logger.exception('密码重置邮件发送失败')
+            else:
+                current_app.logger.info('密码重置邮件已提交发送')
+
+        flash(PASSWORD_RESET_NOTICE, 'info')
+        return redirect(url_for('auth.forgot_password'))
+
+    return render_template('forgot_password.html', form=form)
+
+
+@auth.route('/reset-password', methods=['GET', 'POST'])
+def reset_password():
+    """校验一次性令牌并设置新密码。"""
+    raw_token = (
+        request.args.get('token')
+        or request.form.get('token')
+        or ''
+    ).strip()
+    form = ResetPasswordForm()
+    if request.method == 'GET':
+        form.token.data = raw_token
+
+    token_record = get_valid_password_reset_token(raw_token)
+    if request.method == 'GET':
+        return render_template(
+            'reset_password.html',
+            form=form,
+            token=raw_token,
+            token_valid=token_record is not None,
+        )
+
+    if not form.validate_on_submit() or token_record is None:
+        return render_template(
+            'reset_password.html',
+            form=form,
+            token=raw_token,
+            token_valid=token_record is not None,
+        )
+
+    user = consume_password_reset_token(raw_token, form.password.data)
+    if not user:
+        return render_template(
+            'reset_password.html',
+            form=form,
+            token=raw_token,
+            token_valid=False,
+        )
+
+    flash('密码重置成功，请使用新密码登录。', 'success')
+    return redirect(url_for('auth.login'))
 
 
 @auth.route('/demo-login/<role>')

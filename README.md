@@ -256,6 +256,14 @@ SECRET_KEY=replace-with-a-random-secret
 # 至少配置一个，AI 功能才会启用
 ZHIPU_API_KEY=
 OPENAI_API_KEY=
+
+# 密码找回邮件（不配置时，管理员可在用户管理页生成一次性重置链接）
+MAIL_SERVER=
+MAIL_PORT=587
+MAIL_USERNAME=
+MAIL_PASSWORD=
+MAIL_DEFAULT_SENDER=
+APP_BASE_URL=https://codesense.example.com
 ~~~
 
 开发和测试配置会在启动时创建数据库表。生产配置要显式设置 <code>DATABASE_URL</code> 和 <code>SECRET_KEY</code>；生产 WSGI 默认跳过启动期建表和迁移，请先执行 <code>python database_maintenance.py</code>。不要把 <code>.env</code>、API 密钥或本地数据库文件提交到 Git。
@@ -309,6 +317,9 @@ gunicorn -c gunicorn_config.py wsgi:application
 | <code>TEST_DATABASE_URL</code> | 测试数据库连接，不设置时使用独立 SQLite |
 | <code>SECRET_KEY</code> | Flask 会话和签名密钥；生产环境必须设置随机值 |
 | <code>ZHIPU_API_KEY</code> / <code>OPENAI_API_KEY</code> | AI 服务密钥，至少配置一个 |
+| <code>MAIL_SERVER</code> / <code>MAIL_PORT</code> / <code>MAIL_USERNAME</code> / <code>MAIL_PASSWORD</code> / <code>MAIL_DEFAULT_SENDER</code> | 忘记密码邮件服务配置；敏感值只放服务器环境变量或受限配置文件 |
+| <code>APP_BASE_URL</code> | 邮件和管理员重置链接使用的公开 HTTPS 地址 |
+| <code>PASSWORD_RESET_TOKEN_TTL_MINUTES</code> / <code>PASSWORD_RESET_REQUEST_INTERVAL_SECONDS</code> | 重置链接有效期和重复申请冷却时间 |
 | <code>AI_PROVIDER_ORDER</code> | 多 provider 的优先顺序，例如 <code>zhipu,openai</code> |
 | <code>ZHIPU_MODEL</code> / <code>OPENAI_MODEL</code> | 各 provider 使用的模型 |
 | <code>AI_RETRY_ATTEMPTS</code> | 网络错误、限流和 5xx 的最大重试次数 |
@@ -336,6 +347,9 @@ gunicorn -c gunicorn_config.py wsgi:application
 | <code>/api/code_advice</code> | <code>POST</code> | 获取代码建议 |
 | <code>/api/get_programming_guidance</code> | <code>POST</code> | 获取编程引导 |
 | <code>/api/stream/ability-analysis</code> | <code>GET</code> | 流式获取能力分析 |
+| <code>/forgot-password</code> | <code>GET/POST</code> | 申请密码重置链接 |
+| <code>/reset-password</code> | <code>GET/POST</code> | 使用一次性链接设置新密码 |
+| <code>/users/reset_password/&lt;student_id&gt;</code> | <code>POST</code> | 管理员为账号生成兜底重置链接 |
 | <code>/thinking/&lt;assignment_id&gt;</code> | <code>GET</code> | 进入三阶段引导式学习页面 |
 | <code>/thinking/api/stage1/submit</code> | <code>POST</code> | 提交阶段一思路 |
 | <code>/thinking/api/stage2/verify</code> | <code>POST</code> | 验证阶段二步骤组装 |

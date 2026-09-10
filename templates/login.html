@@ -583,14 +583,14 @@
                 <form action="{{ url_for('auth.login') }}" method="post">
                     {{ form.hidden_tag() }}
 
-                    <!-- 用户名或邮箱 -->
+                    <!-- 用户名、学号或邮箱 -->
                     <div class="form-group">
                         <label for="username" class="form-label">
-                            <i class="bi bi-person"></i> 用户名或邮箱
+                            <i class="bi bi-person"></i> 用户名、学号或邮箱
                         </label>
                         <input type="text" id="username" name="username"
                             class="form-control {% if form.username.errors %}is-invalid{% endif %}" 
-                            placeholder="请输入用户名或邮箱" required autofocus>
+                            placeholder="请输入用户名、学号或邮箱" required autofocus>
                         {% if form.username.errors %}
                         <div class="form-error">
                             {% for error in form.username.errors %}
@@ -626,7 +626,7 @@
                             <input type="checkbox" name="remember" class="checkbox-input">
                             记住我
                         </label>
-                        <a href="#" class="forgot-link">忘记密码？</a>
+                        <a href="{{ url_for('auth.forgot_password') }}" class="forgot-link">忘记密码？</a>
                     </div>
 
                     <!-- 提交按钮 -->

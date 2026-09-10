@@ -2,13 +2,19 @@
 用户管理相关路由
 """
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, send_file, current_app, jsonify
+from flask_login import current_user
 from itsdangerous import URLSafeTimedSerializer
 from models import db, User, Submission, SystemLog, Class, AbilityTrend, KnowledgePointScore
 from utils.auth import login_required, admin_required, admin_or_teacher_required
 from tasks.ability_analysis import trigger_analysis_if_needed
 from services.demo_database import current_demo_run_id
 from sqlalchemy import desc, func
-from forms import ChangePasswordForm, EditProfileForm
+from forms import AdminPasswordResetForm, ChangePasswordForm, EditProfileForm
+from services.password_reset import (
+    build_password_reset_url,
+    create_password_reset_token,
+    password_reset_ttl_minutes,
+)
 from werkzeug.utils import secure_filename
 import pandas as pd
 import io
@@ -56,6 +62,7 @@ def manage_users():
             db.or_(
                 User.username.ilike(f'%{search}%'),
                 User.student_id.ilike(f'%{search}%'),
+                User.student_number.ilike(f'%{search}%'),
                 User.full_name.ilike(f'%{search}%')
             )
         )
@@ -115,6 +122,7 @@ def manage_users():
     return render_template('users.html',
                          users=users,
                          pagination=pagination,
+                         admin_reset_form=AdminPasswordResetForm(),
                          search_term=search,
                          user_type=user_type,
                          total_users=total_users,
@@ -365,6 +373,37 @@ def change_password():
         return redirect(url_for('main.profile'))
 
     return render_template('change_password.html', form=form)
+
+
+@users.route('/users/reset_password/<string:student_id>', methods=['POST'])
+@login_required
+@admin_required
+def admin_reset_password(student_id):
+    """管理员为没有邮箱的用户生成一次性密码重置链接。"""
+    form = AdminPasswordResetForm()
+    if not form.validate_on_submit():
+        flash('请求无效，请刷新页面后重试。', 'danger')
+        return redirect(url_for('users.manage_users', search=student_id))
+
+    user = User.query.get_or_404(student_id)
+    try:
+        raw_token = create_password_reset_token(
+            user,
+            requested_ip=request.remote_addr,
+            created_by=current_user.student_id,
+        )
+        reset_url = build_password_reset_url(raw_token)
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception('管理员生成密码重置链接失败')
+        flash('密码重置链接生成失败，请稍后重试。', 'danger')
+    else:
+        flash(
+            f'已生成一次性密码重置链接（{password_reset_ttl_minutes()}分钟内有效，请复制给用户）：'
+            f'{reset_url}',
+            'success',
+        )
+    return redirect(url_for('users.manage_users', search=student_id))
 
 
 @users.route('/export_users')
