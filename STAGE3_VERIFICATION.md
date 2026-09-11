@@ -16,7 +16,7 @@
 在项目根目录执行：
 
 ```powershell
-python -m pytest tests/test_stage3_coverage.py tests/test_stage3_agent_contracts.py tests/test_stage3_agent_memory.py tests/test_stage3_agent_loop.py tests/test_stage3_agent_routes.py tests/test_stage3_goal.py tests/test_stage3_forum_contracts.py tests/test_stage3_forum_intent.py tests/test_stage3_forum_memory.py tests/test_stage3_forum_orchestrator.py tests/test_stage3_forum_restore.py tests/test_stage3_forum_trace.py tests/test_stage3_forum_ui.py -q
+python -m pytest tests/test_stage3_coverage.py tests/test_stage3_agent_contracts.py tests/test_stage3_agent_memory.py tests/test_stage3_agent_loop.py tests/test_stage3_agent_routes.py tests/test_stage3_agent_tools.py tests/test_stage3_goal.py tests/test_stage3_forum_contracts.py tests/test_stage3_forum_intent.py tests/test_stage3_forum_memory.py tests/test_stage3_forum_orchestrator.py tests/test_stage3_forum_restore.py tests/test_stage3_forum_routes.py tests/test_stage3_forum_trace.py tests/test_stage3_forum_ui.py -q
 ```
 
 这组测试覆盖阶段三的核心状态机、代理契约、记忆与事件恢复、路由门禁、论坛编排及前端契约。测试使用替身模型和临时数据库，不需要真实 AI provider 或生产数据库。
