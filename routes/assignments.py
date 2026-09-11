@@ -20,8 +20,11 @@ from services.submission_reviews import (
     can_access_submission_review,
     list_review_queue,
     create_review_request,
+    get_ai_feedback_signal,
+    get_review_summaries,
     get_submission_review,
     review_notification_recipients,
+    save_ai_feedback_signal,
     transition_review,
 )
 from services.notifications import create_notification
@@ -985,12 +988,22 @@ def view_submission(submission_id):
         
         assignment = Assignment.query.get_or_404(submission.assignment_id)
         review = get_submission_review(submission.id)
+        ai_feedback_signal = None
+        if (
+            submission.ai_feedback
+            and current_user.student_id == submission.student_id
+        ):
+            ai_feedback_signal = get_ai_feedback_signal(
+                submission.id,
+                current_user.student_id,
+            )
         return render_template(
             'submission_detail.html',
             submission=submission,
             assignment=assignment,
             review=review,
             can_access_review=can_access_submission_review(submission, current_user),
+            ai_feedback_signal=ai_feedback_signal,
         )
     except Exception as e:
         print(f"查看提交详情时出错: {str(e)}")
@@ -1162,6 +1175,37 @@ def transition_submission_review(submission_id):
     return redirect(url_for('assignments.teacher_review_queue'))
 
 
+@assignments.route('/submission/<int:submission_id>/ai-feedback-signal', methods=['POST'])
+@login_required
+def save_submission_ai_feedback_signal(submission_id):
+    """Save a student's bounded signal about the existing AI feedback."""
+
+    submission = Submission.query.get_or_404(submission_id)
+    if current_user.student_id != submission.student_id:
+        abort(403)
+    try:
+        save_ai_feedback_signal(
+            submission_id,
+            current_user.student_id,
+            request.form.get('value', ''),
+        )
+    except ReviewPermissionError:
+        abort(403)
+    except ReviewValidationError as exc:
+        return _review_error_redirect(submission_id, str(exc))
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception(
+            'AI 反馈信号保存失败 submission_id=%s actor_id=%s',
+            submission_id,
+            current_user.student_id,
+        )
+        return _review_error_redirect(submission_id, '反馈信号暂时无法保存，请稍后重试。', 'danger')
+
+    flash('已记录你的反馈，分数不会因此改变。', 'success')
+    return redirect(url_for('assignments.view_submission', submission_id=submission_id))
+
+
 @assignments.route('/all_submissions')
 @login_required
 @admin_required
@@ -1256,6 +1300,8 @@ def submission_history(assignment_id):
         if date_key not in submissions_by_date:
             submissions_by_date[date_key] = []
         submissions_by_date[date_key].append(submission)
+
+    review_summaries = get_review_summaries([submission.id for submission in submissions])
     
     # 渲染模板
     return render_template(
@@ -1263,6 +1309,7 @@ def submission_history(assignment_id):
         assignment=assignment,
         submissions=submissions,
         submissions_by_date=submissions_by_date,
+        review_summaries=review_summaries,
         student=student,
         stats={
             'total': total_submissions,

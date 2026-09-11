@@ -446,6 +446,56 @@ class SubmissionReviewCollaborationTestCase(unittest.TestCase):
             self.assertEqual(len(student_notifications), 2)
             self.assertTrue(all(item['url'].startswith('/view_submission/') for item in student_notifications))
 
+    def test_ai_signal_route_and_student_lists_show_next_action(self):
+        self.assertEqual(self.login('review_student', 'student_password').status_code, 302)
+        self.client.post(
+            f'/submission/{self.submission_id}/review/request',
+            data={'body': '请在提交列表里保留复核状态。'},
+            follow_redirects=False,
+        )
+
+        first_signal = self.client.post(
+            f'/submission/{self.submission_id}/ai-feedback-signal',
+            data={'value': 'helpful'},
+            follow_redirects=False,
+        )
+        second_signal = self.client.post(
+            f'/submission/{self.submission_id}/ai-feedback-signal',
+            data={'value': 'needs_clarification'},
+            follow_redirects=False,
+        )
+        self.assertEqual(first_signal.status_code, 302)
+        self.assertEqual(second_signal.status_code, 302)
+
+        with self.app.app_context():
+            self.assertEqual(
+                SystemLog.query.filter_by(log_type='AI反馈信号').count(),
+                1,
+            )
+
+        detail = self.client.get(f'/view_submission/{self.submission_id}')
+        self.assertEqual(detail.status_code, 200)
+        detail_html = detail.get_data(as_text=True)
+        self.assertIn('需要澄清', detail_html)
+        self.assertIn('这条建议对你有帮助吗', detail_html)
+
+        history = self.client.get(f'/submission-history/{self.assignment_id}')
+        self.assertEqual(history.status_code, 200)
+        self.assertIn('待教师查看', history.get_data(as_text=True))
+
+        learning = self.client.get('/view_submission')
+        self.assertEqual(learning.status_code, 200)
+        self.assertIn('待教师查看', learning.get_data(as_text=True))
+
+        self.client.get('/logout')
+        self.assertEqual(self.login('review_outsider', 'student_password').status_code, 302)
+        outsider_signal = self.client.post(
+            f'/submission/{self.submission_id}/ai-feedback-signal',
+            data={'value': 'helpful'},
+            follow_redirects=False,
+        )
+        self.assertEqual(outsider_signal.status_code, 403)
+
 
 if __name__ == '__main__':
     unittest.main()

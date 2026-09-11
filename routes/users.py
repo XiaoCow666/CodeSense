@@ -8,6 +8,7 @@ from utils.auth import login_required, admin_required, admin_or_teacher_required
 from tasks.ability_analysis import trigger_analysis_if_needed
 from services.demo_database import current_demo_run_id
 from services.profile import get_profile_settings, save_profile_settings
+from services.submission_reviews import get_review_summaries
 from sqlalchemy import desc, func
 from forms import ChangePasswordForm, EditProfileForm
 from werkzeug.utils import secure_filename
@@ -221,6 +222,10 @@ def view_submissions():
             item.setdefault('accuracy', 0)
             item.setdefault('average_difficulty', 0)
             knowledge_profile_rows.append({'key': key, 'name': name, **item})
+
+        review_summaries = get_review_summaries(
+            [submission.id for submission in submissions.items]
+        )
         
         # 5. 获取 AI 能力趋势分析
         ability_trend = AbilityTrend.query.filter_by(student_id=student_id).first()
@@ -241,7 +246,8 @@ def view_submissions():
                             knowledge_profile_rows=knowledge_profile_rows,
                             ability_trend=ability_trend,
                             comprehensive_score=comprehensive_score,
-                            strongest_dim=strongest_dim)
+                            strongest_dim=strongest_dim,
+                            review_summaries=review_summaries)
     except Exception as e:
         import traceback
         print(f'访问学情分析时出错: {str(e)}')
