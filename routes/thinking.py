@@ -1416,7 +1416,7 @@ def stage2_hint():
 
         preset = AssignmentThinkingPreset.query.filter_by(assignment_id=ts.assignment_id).first()
         assignment = Assignment.query.get(ts.assignment_id)
-        if not assignment or not preset:
+        if not assignment or not preset or not preset.get_quiz_steps():
             return _stage2_runtime_error_response('STAGE2_UNAVAILABLE')
 
         if wants_sse():

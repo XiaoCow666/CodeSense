@@ -16,6 +16,14 @@ def _events(response):
     ]
 
 
+INACTIVE_STAGE2_STATES = [
+    {"current_stage": 1},
+    {"current_stage": 2, "stage2_completed": True},
+    {"current_stage": 2, "status": "completed"},
+    {"current_stage": 3, "stage2_completed": True},
+]
+
+
 @pytest.fixture
 def stage2_context(tmp_path, monkeypatch):
     database_path = tmp_path / "stage2_routes.db"
@@ -60,11 +68,13 @@ def stage2_context(tmp_path, monkeypatch):
         db.drop_all()
 
 
-def test_stage2_verify_rejects_sessions_outside_stage2(stage2_context):
+@pytest.mark.parametrize("session_updates", INACTIVE_STAGE2_STATES)
+def test_stage2_verify_rejects_inactive_sessions(stage2_context, session_updates):
     app, client, session_id = stage2_context
     with app.app_context():
         session = db.session.get(ThinkingSession, session_id)
-        session.current_stage = 1
+        for field, value in session_updates.items():
+            setattr(session, field, value)
         db.session.commit()
 
     response = client.post(
@@ -76,16 +86,18 @@ def test_stage2_verify_rejects_sessions_outside_stage2(stage2_context):
     assert response.json["error_code"] == "STAGE2_NOT_ACTIVE"
     with app.app_context():
         session = db.session.get(ThinkingSession, session_id)
-        assert session.current_stage == 1
-        assert session.stage2_completed is False
+        for field, value in session_updates.items():
+            assert getattr(session, field) == value
+        assert session.stage2_block_order is None
 
 
-def test_stage2_hint_rejects_sessions_outside_stage2(stage2_context, monkeypatch):
+@pytest.mark.parametrize("session_updates", INACTIVE_STAGE2_STATES)
+def test_stage2_hint_rejects_inactive_sessions(stage2_context, monkeypatch, session_updates):
     app, client, session_id = stage2_context
     with app.app_context():
         session = db.session.get(ThinkingSession, session_id)
-        session.current_stage = 3
-        session.stage2_completed = True
+        for field, value in session_updates.items():
+            setattr(session, field, value)
         db.session.commit()
 
     monkeypatch.setattr(thinking_routes, "generate_stage2_hint", lambda *args: "提示")
@@ -140,6 +152,31 @@ def test_stage2_verify_rejects_missing_quiz_data(stage2_context):
         session = db.session.get(ThinkingSession, session_id)
         assert session.current_stage == 2
         assert session.stage2_completed is False
+
+
+def test_stage2_hint_rejects_missing_quiz_data(stage2_context, monkeypatch):
+    app, client, session_id = stage2_context
+    with app.app_context():
+        session = db.session.get(ThinkingSession, session_id)
+        preset = AssignmentThinkingPreset.query.filter_by(assignment_id=session.assignment_id).first()
+        preset.quiz_steps = "[]"
+        db.session.commit()
+
+    monkeypatch.setattr(
+        thinking_routes,
+        "generate_stage2_hint",
+        lambda *args: pytest.fail("empty quiz data must be rejected before hint generation"),
+    )
+    response = client.post(
+        "/thinking/api/stage2/hint",
+        json={"session_id": session_id, "current_blocks": []},
+    )
+
+    assert response.status_code == 503
+    assert response.json["error_code"] == "STAGE2_UNAVAILABLE"
+    with app.app_context():
+        session = db.session.get(ThinkingSession, session_id)
+        assert session.stage2_hint_count == 0
 
 
 def test_stage2_verify_passes_and_persists_progress(stage2_context):
