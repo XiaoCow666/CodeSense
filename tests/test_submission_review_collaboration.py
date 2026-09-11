@@ -2,6 +2,7 @@ import json
 import os
 import tempfile
 import unittest
+from pathlib import Path
 
 from app import create_app
 from config import config
@@ -217,6 +218,10 @@ class SubmissionReviewCollaborationTestCase(unittest.TestCase):
             transition_review(submission, teacher, 'in_review')
             self.assertEqual(len(list_review_queue(teacher, status='in_review')), 1)
             self.assertEqual(count_open_reviews(teacher), 1)
+            add_review_message(submission, teacher, '请补充一次边界输入的运行结果。')
+            with self.assertRaises(ReviewStatusError):
+                transition_review(submission, teacher, 'resolved')
+            add_review_message(submission, student, '已补充运行结果，请继续复核。')
             transition_review(submission, teacher, 'resolved')
             self.assertEqual(count_open_reviews(teacher), 0)
 
@@ -252,6 +257,39 @@ class SubmissionReviewCollaborationTestCase(unittest.TestCase):
                     self.student_id,
                     'unknown',
                 )
+
+    def test_ai_feedback_signal_requires_existing_feedback(self):
+        with self.app.app_context():
+            submission = db.session.get(Submission, self.submission_id)
+            submission.ai_feedback = None
+            db.session.commit()
+
+            with self.assertRaises(ReviewValidationError):
+                save_ai_feedback_signal(
+                    self.submission_id,
+                    self.student_id,
+                    'helpful',
+                )
+            self.assertEqual(
+                SystemLog.query.filter_by(log_type='AI反馈信号').count(),
+                0,
+            )
+
+    def test_shared_pages_have_a_valid_icon_and_cancel_stream_on_navigation(self):
+        project_root = Path(__file__).resolve().parents[1]
+        base_template = (project_root / 'templates' / 'base.html').read_text(
+            encoding='utf-8'
+        )
+        student_home = (project_root / 'templates' / 'student_home.html').read_text(
+            encoding='utf-8'
+        )
+        self.assertIn('img/favicon.svg', base_template)
+        self.assertTrue((project_root / 'static' / 'img' / 'favicon.svg').is_file())
+        self.assertIn("addEventListener('pagehide'", student_home)
+        self.assertIn('abilityStreamController.abort()', student_home)
+        icon_response = self.client.get('/favicon.ico')
+        self.assertEqual(icon_response.status_code, 200)
+        self.assertTrue(icon_response.content_type.startswith('image/svg+xml'))
 
     def test_stored_events_are_versioned_and_do_not_contain_code_snapshot(self):
         with self.app.app_context():

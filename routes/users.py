@@ -2,6 +2,7 @@
 用户管理相关路由
 """
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, send_file, current_app, jsonify
+from flask_login import current_user
 from itsdangerous import URLSafeTimedSerializer
 from models import db, User, Submission, SystemLog, Class, AbilityTrend, KnowledgePointScore
 from utils.auth import login_required, admin_required, admin_or_teacher_required

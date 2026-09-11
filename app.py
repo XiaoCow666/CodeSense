@@ -15,7 +15,7 @@ import uuid
 from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 from logging import FileHandler
 
-from flask import Flask, request, session, flash, redirect, url_for, g, jsonify
+from flask import Flask, request, session, flash, redirect, url_for, g, jsonify, send_file
 from flask_login import LoginManager
 from werkzeug.middleware.proxy_fix import ProxyFix
 # Flask-Session导入优化
@@ -559,6 +559,15 @@ def create_app(config_name='default'):
         response.headers['Vary'] = 'Accept-Encoding'
         response.headers.pop('Content-Length', None)
         return response
+
+    @app.get('/favicon.ico')
+    def favicon():
+        """Serve the same lightweight brand icon for browser defaults."""
+
+        return send_file(
+            os.path.join(app.root_path, 'static', 'img', 'favicon.svg'),
+            mimetype='image/svg+xml',
+        )
 
     @app.get('/healthz')
     def healthz():

@@ -11,7 +11,9 @@ from __future__ import annotations
 import json
 import secrets
 from collections import defaultdict
+from contextlib import contextmanager
 from datetime import datetime, timezone
+from threading import RLock
 
 from models import Assignment, Class, Submission, SystemLog, User, db
 
@@ -45,7 +47,7 @@ REVIEW_STATUS_OPTIONS = tuple(
 REVIEW_ALLOWED_TRANSITIONS = {
     "requested": ("in_review",),
     "in_review": ("waiting_student", "resolved"),
-    "waiting_student": ("in_review", "resolved"),
+    "waiting_student": ("in_review",),
     "resolved": (),
 }
 
@@ -60,6 +62,8 @@ _ROLE_LABELS = {
     "teacher": "教师",
     "admin": "管理员",
 }
+
+_SUBMISSION_LOCKS = defaultdict(RLock)
 
 
 class ReviewValidationError(ValueError):
@@ -97,6 +101,20 @@ def _actor_role(actor) -> str | None:
     if getattr(actor, "usertype", None) == "学生":
         return "student"
     return None
+
+
+@contextmanager
+def _locked_submission(submission_id: int):
+    """Serialize review writes and use a database row lock when supported."""
+
+    submission_id = int(submission_id)
+    with _SUBMISSION_LOCKS[submission_id]:
+        query = Submission.query.filter_by(id=submission_id)
+        bind = db.session.get_bind()
+        dialect = getattr(getattr(bind, "dialect", None), "name", "")
+        if dialect in {"mysql", "mariadb", "postgresql"}:
+            query = query.with_for_update()
+        yield query.first()
 
 
 def _clean_body(value, *, field="复核内容", max_length=MAX_REVIEW_BODY_LENGTH) -> str:
@@ -161,9 +179,20 @@ def _parse_event(log) -> dict | None:
     return event
 
 
+def _submission_content_filter(submission_id: int):
+    """Match a complete numeric JSON field before parsing bounded results."""
+
+    prefix = f'%"submission_id": {int(submission_id)}'
+    return db.or_(
+        SystemLog.content.like(prefix + ',%'),
+        SystemLog.content.like(prefix + '}%'),
+    )
+
+
 def _review_events(submission_id: int) -> list[dict]:
     logs = (
         SystemLog.query.filter_by(log_type=REVIEW_LOG_TYPE)
+        .filter(_submission_content_filter(submission_id))
         .order_by(SystemLog.id.desc())
         .limit(MAX_REVIEW_SCAN)
         .all()
@@ -284,137 +313,146 @@ def create_review_request(submission, actor_id: str, body: str):
     """
 
     actor_id = _actor_id(actor_id)
-    if submission is None or not actor_id or actor_id != str(submission.student_id):
+    if submission is None or not actor_id:
         raise ReviewPermissionError("只有提交学生可以申请教师复核。")
     body = _clean_body(body, field="复核说明")
-    existing = get_submission_review(submission.id)
-    if existing:
-        return existing, False
+    with _locked_submission(submission.id) as locked_submission:
+        if locked_submission is None or actor_id != str(locked_submission.student_id):
+            raise ReviewPermissionError("只有提交学生可以申请教师复核。")
+        existing = get_submission_review(locked_submission.id)
+        if existing:
+            return existing, False
 
-    review_id = f"SR-{secrets.token_hex(6).upper()}"
-    _add_event(
-        _event_payload(
-            event="request",
-            review_id=review_id,
-            submission_id=submission.id,
+        review_id = f"SR-{secrets.token_hex(6).upper()}"
+        _add_event(
+            _event_payload(
+                event="request",
+                review_id=review_id,
+                submission_id=locked_submission.id,
+                actor_id=actor_id,
+                actor_role="student",
+                status="requested",
+                body=body,
+            ),
             actor_id=actor_id,
-            actor_role="student",
-            status="requested",
-            body=body,
-        ),
-        actor_id=actor_id,
-    )
-    db.session.commit()
-    return get_submission_review(submission.id), True
+        )
+        db.session.commit()
+        return get_submission_review(locked_submission.id), True
 
 
 def transition_review(submission, actor, new_status: str, note: str = ""):
     """Apply one explicit teacher/admin status transition."""
 
-    review = get_submission_review(submission.id if submission else 0)
-    if review is None:
+    if submission is None:
         raise ReviewStatusError("当前提交还没有教师复核请求。")
-    if not can_access_submission_review(submission, actor):
-        raise ReviewPermissionError("您无权处理此提交的复核请求。")
-    if _actor_role(actor) not in {"teacher", "admin"}:
-        raise ReviewPermissionError("只有教师或管理员可以推进复核状态。")
+    with _locked_submission(submission.id) as locked_submission:
+        review = get_submission_review(locked_submission.id if locked_submission else 0)
+        if review is None:
+            raise ReviewStatusError("当前提交还没有教师复核请求。")
+        if not can_access_submission_review(locked_submission, actor):
+            raise ReviewPermissionError("您无权处理此提交的复核请求。")
+        if _actor_role(actor) not in {"teacher", "admin"}:
+            raise ReviewPermissionError("只有教师或管理员可以推进复核状态。")
 
-    new_status = str(new_status or "").strip()
-    if new_status not in REVIEW_STATUS_LABELS:
-        raise ReviewStatusError("复核状态无效。")
-    current_status = review["status"]
-    if new_status not in REVIEW_ALLOWED_TRANSITIONS.get(current_status, ()):
-        raise ReviewStatusError(
-            f"不能将“{REVIEW_STATUS_LABELS.get(current_status, current_status)}”直接改为“{REVIEW_STATUS_LABELS.get(new_status, new_status)}”。"
+        new_status = str(new_status or "").strip()
+        if new_status not in REVIEW_STATUS_LABELS:
+            raise ReviewStatusError("复核状态无效。")
+        current_status = review["status"]
+        if new_status not in REVIEW_ALLOWED_TRANSITIONS.get(current_status, ()):
+            raise ReviewStatusError(
+                f"不能将“{REVIEW_STATUS_LABELS.get(current_status, current_status)}”直接改为“{REVIEW_STATUS_LABELS.get(new_status, new_status)}”。"
+            )
+
+        actor_id = _actor_id(actor)
+        actor_role = _actor_role(actor)
+        payload = _event_payload(
+            event="status",
+            review_id=review["review_id"],
+            submission_id=locked_submission.id,
+            actor_id=actor_id,
+            actor_role=actor_role,
+            status=new_status,
+            body=_clean_note(note),
+            from_status=current_status,
+            to_status=new_status,
         )
-
-    actor_id = _actor_id(actor)
-    actor_role = _actor_role(actor)
-    payload = _event_payload(
-        event="status",
-        review_id=review["review_id"],
-        submission_id=submission.id,
-        actor_id=actor_id,
-        actor_role=actor_role,
-        status=new_status,
-        body=_clean_note(note),
-        from_status=current_status,
-        to_status=new_status,
-    )
-    log = _add_event(payload, actor_id=actor_id)
-    db.session.commit()
-    return get_submission_review(submission.id), _parse_event(log)
+        log = _add_event(payload, actor_id=actor_id)
+        db.session.commit()
+        return get_submission_review(locked_submission.id), _parse_event(log)
 
 
 def add_review_message(submission, actor, body: str):
     """Append a participant message and update status when the role requires it."""
 
-    review = get_submission_review(submission.id if submission else 0)
-    if review is None:
+    if submission is None:
         raise ReviewStatusError("请先申请教师复核，再发送追问。")
-    if not can_access_submission_review(submission, actor):
-        raise ReviewPermissionError("您无权参与此提交的复核。")
-    body = _clean_body(body)
-    actor_id = _actor_id(actor)
-    actor_role = _actor_role(actor)
-    if actor_role not in {"student", "teacher", "admin"}:
-        raise ReviewPermissionError("当前账号不能参与提交复核。")
+    with _locked_submission(submission.id) as locked_submission:
+        review = get_submission_review(locked_submission.id if locked_submission else 0)
+        if review is None:
+            raise ReviewStatusError("请先申请教师复核，再发送追问。")
+        if not can_access_submission_review(locked_submission, actor):
+            raise ReviewPermissionError("您无权参与此提交的复核。")
+        body = _clean_body(body)
+        actor_id = _actor_id(actor)
+        actor_role = _actor_role(actor)
+        if actor_role not in {"student", "teacher", "admin"}:
+            raise ReviewPermissionError("当前账号不能参与提交复核。")
 
-    current_status = review["status"]
-    transitions = []
-    if actor_role == "student":
-        if current_status in {"waiting_student", "resolved"}:
-            transitions = ["in_review"]
-    else:
-        if current_status == "resolved":
-            raise ReviewStatusError("已解决的复核请由学生重新追问后再继续。")
-        if current_status == "requested":
-            # A first teacher reply acknowledges the request before waiting
-            # for the student's concrete follow-up.
-            transitions = ["in_review", "waiting_student"]
-        elif current_status == "in_review":
-            transitions = ["waiting_student"]
+        current_status = review["status"]
+        transitions = []
+        if actor_role == "student":
+            if current_status in {"waiting_student", "resolved"}:
+                transitions = ["in_review"]
+        else:
+            if current_status == "resolved":
+                raise ReviewStatusError("已解决的复核请由学生重新追问后再继续。")
+            if current_status == "requested":
+                # A first teacher reply acknowledges the request before waiting
+                # for the student's concrete follow-up.
+                transitions = ["in_review", "waiting_student"]
+            elif current_status == "in_review":
+                transitions = ["waiting_student"]
 
-    for next_status in transitions:
-        student_reopen = (
-            actor_role == "student"
-            and current_status == "resolved"
-            and next_status == "in_review"
-        )
-        if (
-            next_status not in REVIEW_ALLOWED_TRANSITIONS.get(current_status, ())
-            and not student_reopen
-        ):
-            raise ReviewStatusError("复核状态转换不受支持。")
-        _add_event(
+        for next_status in transitions:
+            student_reopen = (
+                actor_role == "student"
+                and current_status == "resolved"
+                and next_status == "in_review"
+            )
+            if (
+                next_status not in REVIEW_ALLOWED_TRANSITIONS.get(current_status, ())
+                and not student_reopen
+            ):
+                raise ReviewStatusError("复核状态转换不受支持。")
+            _add_event(
+                _event_payload(
+                    event="status",
+                    review_id=review["review_id"],
+                    submission_id=locked_submission.id,
+                    actor_id=actor_id,
+                    actor_role=actor_role,
+                    status=next_status,
+                    from_status=current_status,
+                    to_status=next_status,
+                ),
+                actor_id=actor_id,
+            )
+            current_status = next_status
+
+        message_log = _add_event(
             _event_payload(
-                event="status",
+                event="message",
                 review_id=review["review_id"],
-                submission_id=submission.id,
+                submission_id=locked_submission.id,
                 actor_id=actor_id,
                 actor_role=actor_role,
-                status=next_status,
-                from_status=current_status,
-                to_status=next_status,
+                status=current_status,
+                body=body,
             ),
             actor_id=actor_id,
         )
-        current_status = next_status
-
-    message_log = _add_event(
-        _event_payload(
-            event="message",
-            review_id=review["review_id"],
-            submission_id=submission.id,
-            actor_id=actor_id,
-            actor_role=actor_role,
-            status=current_status,
-            body=body,
-        ),
-        actor_id=actor_id,
-    )
-    db.session.commit()
-    return get_submission_review(submission.id), _parse_event(message_log)
+        db.session.commit()
+        return get_submission_review(locked_submission.id), _parse_event(message_log)
 
 
 def _all_review_event_groups() -> dict[str, list[dict]]:
@@ -543,6 +581,7 @@ def get_ai_feedback_signal(submission_id: int, actor_id: str) -> str | None:
             log_type=AI_FEEDBACK_SIGNAL_LOG_TYPE,
             user_id=_actor_id(actor_id),
         )
+        .filter(_submission_content_filter(submission_id))
         .order_by(SystemLog.id.desc())
         .limit(MAX_REVIEW_SCAN)
         .all()
@@ -555,44 +594,49 @@ def get_ai_feedback_signal(submission_id: int, actor_id: str) -> str | None:
 
 
 def save_ai_feedback_signal(submission_id: int, actor_id: str, value: str) -> str:
-    submission = db.session.get(Submission, submission_id)
     actor_id = _actor_id(actor_id)
-    if submission is None or not actor_id or actor_id != str(submission.student_id):
+    if not actor_id:
         raise ReviewPermissionError("只有提交学生可以评价这条 AI 反馈。")
-    value = str(value or "").strip()
-    if value not in AI_FEEDBACK_SIGNAL_VALUES:
-        raise ReviewValidationError("AI 反馈评价选项无效。")
+    with _locked_submission(submission_id) as submission:
+        if submission is None or actor_id != str(submission.student_id):
+            raise ReviewPermissionError("只有提交学生可以评价这条 AI 反馈。")
+        if not str(submission.ai_feedback or "").strip():
+            raise ReviewValidationError("当前提交没有可评价的 AI 反馈。")
+        value = str(value or "").strip()
+        if value not in AI_FEEDBACK_SIGNAL_VALUES:
+            raise ReviewValidationError("AI 反馈评价选项无效。")
 
-    existing = None
-    logs = (
-        SystemLog.query.filter_by(
-            log_type=AI_FEEDBACK_SIGNAL_LOG_TYPE,
-            user_id=actor_id,
+        existing = None
+        logs = (
+            SystemLog.query.filter_by(
+                log_type=AI_FEEDBACK_SIGNAL_LOG_TYPE,
+                user_id=actor_id,
+            )
+            .filter(_submission_content_filter(submission_id))
+            .order_by(SystemLog.id.desc())
+            .limit(MAX_REVIEW_SCAN)
+            .all()
         )
-        .order_by(SystemLog.id.desc())
-        .limit(MAX_REVIEW_SCAN)
-        .all()
-    )
-    for log in logs:
-        signal = _parse_ai_signal(log)
-        if signal and signal["submission_id"] == int(submission_id):
-            existing = log
-            break
+        for log in logs:
+            signal = _parse_ai_signal(log)
+            if signal and signal["submission_id"] == int(submission_id):
+                existing = log
+                break
 
-    payload = {
-        "schema_version": AI_FEEDBACK_SIGNAL_SCHEMA_VERSION,
-        "submission_id": int(submission_id),
-        "value": value,
-        "updated_at": _now_iso(),
-    }
-    if existing:
-        existing.content = json.dumps(payload, ensure_ascii=False, sort_keys=True)
-    else:
-        db.session.add(SystemLog(
-            log_type=AI_FEEDBACK_SIGNAL_LOG_TYPE,
-            user_id=actor_id,
-            icon="bi bi-hand-thumbs-up",
-            content=json.dumps(payload, ensure_ascii=False, sort_keys=True),
-        ))
-    db.session.commit()
-    return value
+        payload = {
+            "schema_version": AI_FEEDBACK_SIGNAL_SCHEMA_VERSION,
+            "submission_id": int(submission_id),
+            "value": value,
+            "updated_at": _now_iso(),
+        }
+        if existing:
+            existing.content = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        else:
+            db.session.add(SystemLog(
+                log_type=AI_FEEDBACK_SIGNAL_LOG_TYPE,
+                user_id=actor_id,
+                icon="bi bi-hand-thumbs-up",
+                content=json.dumps(payload, ensure_ascii=False, sort_keys=True),
+            ))
+        db.session.commit()
+        return value
