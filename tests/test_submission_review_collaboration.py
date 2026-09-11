@@ -227,7 +227,7 @@ class SubmissionReviewCollaborationTestCase(unittest.TestCase):
                 'needs_clarification',
             )
             self.assertEqual(
-                SystemLog.query.filter_by(log_type='AI反馈反馈').count(),
+                SystemLog.query.filter_by(log_type='AI反馈信号').count(),
                 1,
             )
             with self.assertRaises(ReviewPermissionError):
@@ -253,6 +253,77 @@ class SubmissionReviewCollaborationTestCase(unittest.TestCase):
             self.assertNotIn('code', payload)
             self.assertNotIn('code_snapshot', payload)
             self.assertNotIn('int main()', log.content)
+
+    def test_submission_review_routes_render_and_enforce_participants(self):
+        anonymous = self.client.post(
+            f'/submission/{self.submission_id}/review/request',
+            data={'body': '未登录不能提交复核。'},
+            follow_redirects=False,
+        )
+        self.assertEqual(anonymous.status_code, 302)
+        self.assertIn('/login', anonymous.headers['Location'])
+
+        self.assertEqual(self.login('review_student', 'student_password').status_code, 302)
+        detail = self.client.get(f'/view_submission/{self.submission_id}')
+        self.assertEqual(detail.status_code, 200)
+        self.assertIn('申请教师复核', detail.get_data(as_text=True))
+
+        request_response = self.client.post(
+            f'/submission/{self.submission_id}/review/request',
+            data={'body': '隐藏测试用例失败后，我想确认应该先检查哪个边界条件。'},
+            follow_redirects=False,
+        )
+        duplicate_response = self.client.post(
+            f'/submission/{self.submission_id}/review/request',
+            data={'body': '重复点击不应创建第二个复核线程。'},
+            follow_redirects=False,
+        )
+        self.assertEqual(request_response.status_code, 302)
+        self.assertEqual(duplicate_response.status_code, 302)
+
+        with self.app.app_context():
+            self.assertEqual(
+                SystemLog.query.filter_by(log_type='提交复核').count(),
+                1,
+            )
+
+        self.client.get('/logout')
+        self.assertEqual(self.login('review_teacher', 'teacher_password').status_code, 302)
+        teacher_detail = self.client.get(f'/view_submission/{self.submission_id}')
+        self.assertEqual(teacher_detail.status_code, 200)
+        self.assertIn('待教师查看', teacher_detail.get_data(as_text=True))
+        teacher_message = self.client.post(
+            f'/submission/{self.submission_id}/review/message',
+            data={'body': '请补充一个失败输入的最小复现。'},
+            follow_redirects=False,
+        )
+        self.assertEqual(teacher_message.status_code, 302)
+
+        self.client.get('/logout')
+        self.assertEqual(self.login('other_teacher', 'teacher_password').status_code, 302)
+        outsider_response = self.client.post(
+            f'/submission/{self.submission_id}/review/message',
+            data={'body': '无关班级教师不应写入复核。'},
+            follow_redirects=False,
+        )
+        self.assertEqual(outsider_response.status_code, 403)
+
+        self.client.get('/logout')
+        self.assertEqual(self.login('review_student', 'student_password').status_code, 302)
+        oversized = self.client.post(
+            f'/submission/{self.submission_id}/review/message',
+            data={'body': 'x' * 2001},
+            follow_redirects=False,
+        )
+        self.assertEqual(oversized.status_code, 302)
+
+        with self.app.app_context():
+            review = get_submission_review(self.submission_id)
+            self.assertEqual(review['status'], 'waiting_student')
+            self.assertEqual(
+                len([event for event in review['events'] if event['event'] == 'message']),
+                1,
+            )
 
 
 if __name__ == '__main__':

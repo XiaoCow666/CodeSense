@@ -1,7 +1,7 @@
 """
 作业相关路由
 """
-from flask import Blueprint, render_template, request, redirect, url_for, flash, session, Response, current_app, jsonify
+from flask import Blueprint, render_template, request, redirect, url_for, flash, session, Response, current_app, jsonify, abort
 from flask_login import current_user
 from models import db, User, Assignment, Submission, SystemLog, AssignmentThinkingPreset
 from forms import AssignmentForm, SubmissionForm
@@ -10,6 +10,15 @@ from utils.code_evaluator import evaluate_cpp_code
 from tasks.submission_tasks import evaluate_submission_async
 from services.demo_database import current_demo_run_id
 from services.demo_experience import ensure_demo_guided_preset, is_demo_guided_assignment
+from services.submission_reviews import (
+    ReviewPermissionError,
+    ReviewStatusError,
+    ReviewValidationError,
+    add_review_message,
+    can_access_submission_review,
+    create_review_request,
+    get_submission_review,
+)
 from io import BytesIO
 from sqlalchemy import desc, func
 import traceback  # 添加traceback模块
@@ -969,12 +978,82 @@ def view_submission(submission_id):
             submission.feedback = "[反馈内容无法显示]"
         
         assignment = Assignment.query.get_or_404(submission.assignment_id)
-        return render_template('submission_detail.html', submission=submission, assignment=assignment)
+        review = get_submission_review(submission.id)
+        return render_template(
+            'submission_detail.html',
+            submission=submission,
+            assignment=assignment,
+            review=review,
+            can_access_review=can_access_submission_review(submission, current_user),
+        )
     except Exception as e:
         print(f"查看提交详情时出错: {str(e)}")
         print(traceback.format_exc())
         flash(f'查看提交详情时出错: {str(e)}', 'danger')
         return redirect(url_for('assignments.student_assignments'))
+
+
+def _review_error_redirect(submission_id, message, category='warning'):
+    flash(message, category)
+    return redirect(url_for('assignments.view_submission', submission_id=submission_id))
+
+
+@assignments.route('/submission/<int:submission_id>/review/request', methods=['POST'])
+@login_required
+def request_submission_review(submission_id):
+    """Create the single review thread owned by the submitting student."""
+
+    submission = Submission.query.get_or_404(submission_id)
+    try:
+        create_review_request(
+            submission,
+            current_user.student_id,
+            request.form.get('body', ''),
+        )
+    except ReviewPermissionError:
+        abort(403)
+    except ReviewValidationError as exc:
+        return _review_error_redirect(submission_id, str(exc))
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception(
+            '创建提交复核失败 submission_id=%s actor_id=%s',
+            submission_id,
+            current_user.student_id,
+        )
+        return _review_error_redirect(submission_id, '复核申请暂时无法保存，请稍后重试。', 'danger')
+
+    flash('已提交教师复核申请。', 'success')
+    return redirect(url_for('assignments.view_submission', submission_id=submission_id))
+
+
+@assignments.route('/submission/<int:submission_id>/review/message', methods=['POST'])
+@login_required
+def add_submission_review_message(submission_id):
+    """Append a participant message to an existing review thread."""
+
+    submission = Submission.query.get_or_404(submission_id)
+    try:
+        add_review_message(
+            submission,
+            current_user,
+            request.form.get('body', ''),
+        )
+    except ReviewPermissionError:
+        abort(403)
+    except (ReviewValidationError, ReviewStatusError) as exc:
+        return _review_error_redirect(submission_id, str(exc))
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception(
+            '提交复核消息保存失败 submission_id=%s actor_id=%s',
+            submission_id,
+            current_user.student_id,
+        )
+        return _review_error_redirect(submission_id, '复核消息暂时无法保存，请稍后重试。', 'danger')
+
+    flash('复核消息已发送。', 'success')
+    return redirect(url_for('assignments.view_submission', submission_id=submission_id))
 
 
 @assignments.route('/all_submissions')
