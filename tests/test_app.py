@@ -134,13 +134,15 @@ class AppTestCase(unittest.TestCase):
         execute.assert_not_called()
 
     def test_readyz_reports_database_health(self):
-        response = self.client.get('/readyz')
+        with patch('app.db.session.execute', wraps=db.session.execute) as execute:
+            response = self.client.get('/readyz')
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json(), {
             'status': 'ready',
             'checks': {'database': 'ok'},
         })
+        execute.assert_called_once()
 
     def test_readyz_rolls_back_and_reports_database_failure(self):
         with patch(
