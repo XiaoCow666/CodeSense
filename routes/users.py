@@ -224,7 +224,8 @@ def view_submissions():
             knowledge_profile_rows.append({'key': key, 'name': name, **item})
 
         review_summaries = get_review_summaries(
-            [submission.id for submission in submissions.items]
+            [submission.id for submission in submissions.items],
+            actor=current_user,
         )
         
         # 5. 获取 AI 能力趋势分析

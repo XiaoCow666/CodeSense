@@ -135,21 +135,28 @@ def _parse_event(log) -> dict | None:
     review_id = str(payload.get("review_id") or "").strip()
     if not submission_id or not review_id:
         return None
-    event = dict(payload)
-    event["submission_id"] = submission_id
-    event["review_id"] = review_id
-    event["log_id"] = log.id
-    event["actor_id"] = str(event.get("actor_id") or log.user_id or "").strip() or None
-    event["actor_role"] = event.get("actor_role") or "unknown"
+    event = {
+        "schema_version": REVIEW_SCHEMA_VERSION,
+        "event": payload["event"],
+        "submission_id": submission_id,
+        "review_id": review_id,
+        "log_id": log.id,
+        "actor_id": str(payload.get("actor_id") or log.user_id or "").strip() or None,
+        "actor_role": payload.get("actor_role") or "unknown",
+        "status": payload.get("status"),
+        "body": str(payload.get("body") or ""),
+        "created_at": payload.get("created_at") or (
+            log.created_at.isoformat() if log.created_at else ""
+        ),
+    }
+    for key in ("from_status", "to_status"):
+        if payload.get(key) is not None:
+            event[key] = payload[key]
     event["actor_role_label"] = _ROLE_LABELS.get(
         event["actor_role"], "参与者"
     )
     event["status_label"] = REVIEW_STATUS_LABELS.get(
         event.get("status") or event.get("to_status"), "处理中"
-    )
-    event["body"] = str(event.get("body") or "")
-    event["created_at"] = event.get("created_at") or (
-        log.created_at.isoformat() if log.created_at else ""
     )
     return event
 
@@ -457,11 +464,16 @@ def count_open_reviews(actor) -> int:
     )
 
 
-def get_review_summaries(submission_ids) -> dict[int, dict]:
+def get_review_summaries(submission_ids, *, actor=None) -> dict[int, dict]:
     """Build bounded list-page summaries without exposing event bodies."""
 
     summaries = {}
     for submission_id in submission_ids or []:
+        submission = db.session.get(Submission, submission_id)
+        if submission is None or (
+            actor is not None and not can_access_submission_review(submission, actor)
+        ):
+            continue
         review = get_submission_review(submission_id)
         if review:
             summaries[int(submission_id)] = {

@@ -1301,7 +1301,10 @@ def submission_history(assignment_id):
             submissions_by_date[date_key] = []
         submissions_by_date[date_key].append(submission)
 
-    review_summaries = get_review_summaries([submission.id for submission in submissions])
+    review_summaries = get_review_summaries(
+        [submission.id for submission in submissions],
+        actor=current_user,
+    )
     
     # 渲染模板
     return render_template(

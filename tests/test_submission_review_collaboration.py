@@ -15,6 +15,7 @@ from services.submission_reviews import (
     count_open_reviews,
     create_review_request,
     get_ai_feedback_signal,
+    get_review_summaries,
     get_submission_review,
     list_review_queue,
     save_ai_feedback_signal,
@@ -209,6 +210,10 @@ class SubmissionReviewCollaborationTestCase(unittest.TestCase):
             self.assertEqual(list_review_queue(other_teacher), [])
             self.assertEqual(len(list_review_queue(admin)), 1)
             self.assertEqual(list_review_queue(teacher, status='in_review'), [])
+            self.assertEqual(
+                get_review_summaries([self.submission_id], actor=other_teacher),
+                {},
+            )
             transition_review(submission, teacher, 'in_review')
             self.assertEqual(len(list_review_queue(teacher, status='in_review')), 1)
             self.assertEqual(count_open_reviews(teacher), 1)

@@ -9,7 +9,8 @@
             <h1 id="review-queue-title" class="page-title">提交复核队列</h1>
             <p class="page-subtitle">只显示您负责班级的复核请求；管理员可查看全部请求。</p>
         </div>
-        <a class="btn btn-outline-secondary" href="{{ url_for('main.teacher_dashboard') }}">
+        <a class="btn btn-outline-secondary"
+            href="{% if current_user.is_admin %}{{ url_for('main.admin_dashboard') }}{% else %}{{ url_for('main.teacher_dashboard') }}{% endif %}">
             <i class="bi bi-arrow-left me-1" aria-hidden="true"></i>返回仪表盘
         </a>
     </header>
