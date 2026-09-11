@@ -1,3 +1,4 @@
+import os
 import sys
 from unittest.mock import patch
 
@@ -38,6 +39,19 @@ def test_stdout_limit_terminates_process_and_cannot_pass():
     assert '超过限制' in result['error']
 
 
+def test_exact_stdout_limit_remains_a_valid_result():
+    with patch.object(sandbox_runner, 'MAX_OUTPUT_LEN', 64):
+        result = _run_python_program(
+            "import sys; sys.stdout.write('x' * 64); sys.stdout.flush()",
+            expected_output='x' * 64,
+        )
+
+    assert result['passed'] is True
+    assert result['termination_reason'] is None
+    assert result['actual_output'] == 'x' * 64
+    assert len(result['actual_output'].encode('utf-8')) == 64
+
+
 def test_stderr_limit_terminates_process_and_cannot_pass():
     with patch.object(sandbox_runner, 'MAX_OUTPUT_LEN', 64):
         result = _run_python_program(
@@ -48,6 +62,36 @@ def test_stderr_limit_terminates_process_and_cannot_pass():
     assert result['passed'] is False
     assert result['termination_reason'] == 'stderr_limit'
     assert '标准错误输出超过限制' in result['error']
+
+
+def test_exact_stderr_limit_remains_a_valid_result():
+    with patch.object(sandbox_runner, 'MAX_OUTPUT_LEN', 64):
+        result = _run_python_program(
+            "import sys; sys.stderr.write('e' * 64); sys.stderr.flush()",
+            expected_output='',
+        )
+
+    assert result['passed'] is True
+    assert result['termination_reason'] is None
+
+
+def test_exact_stderr_limit_is_fully_captured_by_bounded_reader():
+    with patch.object(sandbox_runner, 'MAX_OUTPUT_LEN', 64):
+        completed = sandbox_runner._run_bounded_process(
+            [
+                sys.executable,
+                '-c',
+                "import sys; sys.stderr.write('e' * 64); sys.stderr.flush()",
+            ],
+            input_data='',
+            work_dir='.',
+            env=os.environ.copy(),
+            timeout=1,
+        )
+
+    assert completed['returncode'] == 0
+    assert completed['reason'] is None
+    assert completed['stderr'] == 'e' * 64
 
 
 def test_runtime_error_remains_a_failed_result_with_stderr_detail():
