@@ -149,6 +149,9 @@
                 <h2>{{ notification.title }}{% if not notification.read %} <span class="visually-hidden">（未读）</span>{% endif %}</h2>
                 <time datetime="{{ notification.created_at }}">{{ notification.created_at }}</time>
             </div>
+            {% if notification.kind == 'submission_review' %}
+            <span class="badge bg-primary mb-2">提交复核</span>
+            {% endif %}
             <p>{{ notification.message }}</p>
             <div class="notification-card-actions">
                 {% if notification.url %}

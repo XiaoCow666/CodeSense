@@ -21,8 +21,10 @@ from services.submission_reviews import (
     list_review_queue,
     create_review_request,
     get_submission_review,
+    review_notification_recipients,
     transition_review,
 )
+from services.notifications import create_notification
 from io import BytesIO
 from sqlalchemy import desc, func
 import traceback  # 添加traceback模块
@@ -1002,6 +1004,46 @@ def _review_error_redirect(submission_id, message, category='warning'):
     return redirect(url_for('assignments.view_submission', submission_id=submission_id))
 
 
+def _notify_submission_review(submission, actor, event):
+    """Notify only the other scoped participants after an event is committed."""
+
+    recipients = review_notification_recipients(submission, actor)
+    event_type = event.get('event')
+    if event_type == 'request':
+        title = '新的提交复核请求'
+        message = '学生已申请教师复核，请打开提交详情查看说明。'
+    elif event_type == 'message':
+        title = '提交复核有新消息'
+        message = f"{event.get('actor_role_label', '参与者')}在复核中发来新消息，请打开提交详情查看。"
+    elif event_type == 'status':
+        title = '提交复核状态更新'
+        message = f"提交复核状态已更新为：{event.get('status_label', '处理中')}。"
+    else:
+        return
+
+    review_id = str(event.get('review_id') or 'unknown')
+    event_id = str(event.get('log_id') or 'unknown')
+    submission_url = url_for('assignments.view_submission', submission_id=submission.id)
+    for recipient in recipients:
+        try:
+            create_notification(
+                recipient,
+                kind='submission_review',
+                title=title,
+                message=message,
+                url=submission_url,
+                idempotency_key=f'submission-review:{review_id}:{event_id}:{recipient}',
+            )
+        except Exception:
+            db.session.rollback()
+            current_app.logger.warning(
+                '提交复核通知保存失败 submission_id=%s recipient_id=%s event_id=%s',
+                submission.id,
+                recipient,
+                event_id,
+            )
+
+
 @assignments.route('/submission/<int:submission_id>/review/request', methods=['POST'])
 @login_required
 def request_submission_review(submission_id):
@@ -1009,11 +1051,13 @@ def request_submission_review(submission_id):
 
     submission = Submission.query.get_or_404(submission_id)
     try:
-        create_review_request(
+        review, created = create_review_request(
             submission,
             current_user.student_id,
             request.form.get('body', ''),
         )
+        if created and review:
+            _notify_submission_review(submission, current_user, review['events'][-1])
     except ReviewPermissionError:
         abort(403)
     except ReviewValidationError as exc:
@@ -1038,11 +1082,12 @@ def add_submission_review_message(submission_id):
 
     submission = Submission.query.get_or_404(submission_id)
     try:
-        add_review_message(
+        review, message_event = add_review_message(
             submission,
             current_user,
             request.form.get('body', ''),
         )
+        _notify_submission_review(submission, current_user, message_event)
     except ReviewPermissionError:
         abort(403)
     except (ReviewValidationError, ReviewStatusError) as exc:
@@ -1090,12 +1135,13 @@ def transition_submission_review(submission_id):
     if queue_status not in REVIEW_STATUS_LABELS:
         queue_status = None
     try:
-        transition_review(
+        review, status_event = transition_review(
             submission,
             current_user,
             request.form.get('status', ''),
             request.form.get('note', ''),
         )
+        _notify_submission_review(submission, current_user, status_event)
     except ReviewPermissionError:
         abort(403)
     except (ReviewStatusError, ReviewValidationError) as exc:

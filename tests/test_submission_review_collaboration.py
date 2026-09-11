@@ -6,6 +6,7 @@ import unittest
 from app import create_app
 from config import config
 from models import Assignment, Class, Submission, SystemLog, User, db
+from services.notifications import list_notifications
 from services.submission_reviews import (
     ReviewPermissionError,
     ReviewStatusError,
@@ -383,6 +384,67 @@ class SubmissionReviewCollaborationTestCase(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertEqual(student_status.status_code, 403)
+
+    def test_review_notifications_are_participant_scoped_and_idempotent(self):
+        self.assertEqual(self.login('review_student', 'student_password').status_code, 302)
+        first_request = self.client.post(
+            f'/submission/{self.submission_id}/review/request',
+            data={'body': '请把这条申请通知给任课教师。'},
+            follow_redirects=False,
+        )
+        duplicate_request = self.client.post(
+            f'/submission/{self.submission_id}/review/request',
+            data={'body': '重复申请不应再发通知。'},
+            follow_redirects=False,
+        )
+        self.assertEqual(first_request.status_code, 302)
+        self.assertEqual(duplicate_request.status_code, 302)
+
+        with self.app.app_context():
+            teacher_notifications = list_notifications(self.teacher_id)
+            self.assertEqual(len(teacher_notifications), 1)
+            self.assertEqual(teacher_notifications[0]['kind'], 'submission_review')
+            self.assertIn('/view_submission/', teacher_notifications[0]['url'])
+
+        self.client.get('/logout')
+        self.assertEqual(self.login('review_teacher', 'teacher_password').status_code, 302)
+        teacher_message = self.client.post(
+            f'/submission/{self.submission_id}/review/message',
+            data={'body': '请补充一个失败输入的最小复现。'},
+            follow_redirects=False,
+        )
+        self.assertEqual(teacher_message.status_code, 302)
+
+        self.client.get('/logout')
+        self.assertEqual(self.login('review_student', 'student_password').status_code, 302)
+        self.client.get('/notifications')
+        with self.app.app_context():
+            student_notifications = list_notifications(self.student_id)
+            self.assertEqual(len(student_notifications), 1)
+            self.assertIn('复核', student_notifications[0]['title'])
+
+        self.client.post(
+            f'/submission/{self.submission_id}/review/message',
+            data={'body': '我已补充复现步骤，继续请教下一步。'},
+            follow_redirects=False,
+        )
+        with self.app.app_context():
+            teacher_notifications = list_notifications(self.teacher_id)
+            self.assertEqual(len(teacher_notifications), 2)
+
+        self.client.get('/logout')
+        self.assertEqual(self.login('review_teacher', 'teacher_password').status_code, 302)
+        self.client.post(
+            f'/submission/{self.submission_id}/review/status',
+            data={'status': 'resolved', 'note': '已完成本轮复核。'},
+            follow_redirects=False,
+        )
+        self.client.get('/logout')
+        self.assertEqual(self.login('review_student', 'student_password').status_code, 302)
+        with self.app.app_context():
+            student_notifications = list_notifications(self.student_id)
+            self.assertEqual(len(student_notifications), 2)
+            self.assertTrue(all(item['url'].startswith('/view_submission/') for item in student_notifications))
 
 
 if __name__ == '__main__':

@@ -144,6 +144,9 @@ def _parse_event(log) -> dict | None:
     event["actor_role_label"] = _ROLE_LABELS.get(
         event["actor_role"], "参与者"
     )
+    event["status_label"] = REVIEW_STATUS_LABELS.get(
+        event.get("status") or event.get("to_status"), "处理中"
+    )
     event["body"] = str(event.get("body") or "")
     event["created_at"] = event.get("created_at") or (
         log.created_at.isoformat() if log.created_at else ""
@@ -448,7 +451,10 @@ def list_review_queue(actor, *, status: str | None = None, limit: int = 100) -> 
 
 
 def count_open_reviews(actor) -> int:
-    return len(list_review_queue(actor, limit=200))
+    return sum(
+        1 for review in list_review_queue(actor, limit=200)
+        if review["status"] != "resolved"
+    )
 
 
 def get_review_summaries(submission_ids) -> dict[int, dict]:
