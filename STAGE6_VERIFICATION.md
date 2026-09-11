@@ -1,6 +1,6 @@
 # 阶段六接管验证说明
 
-本文记录当前 `main` 代码的接管准备和稳定性验证入口，便于其他开发者在独立工作区复核。本 PR 只新增文档，不修改数据库结构、权限、部署配置、运行时代码或核心接口。
+本文记录当前 `main` 代码的接管准备和稳定性验证入口，便于其他开发者在独立工作区复核。本次验证对应的代码提交为 `bdfdf2bd8f81751dceaf756175542415110f9632`。本文修订仍然只涉及文档，不修改数据库结构、权限、部署配置、运行时代码或核心接口。
 
 ## 变更范围
 
@@ -14,10 +14,9 @@
 
 ```powershell
 python -m venv .venv
-.venv\Scripts\Activate.ps1
-python -m pip install -r requirements-test.txt
-python -m pytest tests -q
-python -m compileall -q app.py routes services tasks utils tests
+.venv\Scripts\python.exe -m pip install -r requirements-test.txt
+.venv\Scripts\python.exe -m pytest tests -q
+.venv\Scripts\python.exe -m compileall -q app.py routes services tasks utils tests
 git diff --check
 ```
 
@@ -25,7 +24,7 @@ git diff --check
 
 ```text
 .venv\Scripts\python.exe -m pytest tests -q
-455 passed, 968555 warnings in 562.54s (0:09:22)
+458 passed, 968562 warnings in 593.71s (0:09:53)
 ```
 
 测试进程以退出码 `0` 结束。警告主要来自当前依赖对 `ast.Str`、`datetime.utcnow()`、SQLAlchemy `Query.get()` 和 fakeredis 参数的弃用提示；本 PR 不扩大为依赖升级或行为修改。
