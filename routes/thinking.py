@@ -253,6 +253,23 @@ def _stage3_session_is_active(thinking_session) -> bool:
     )
 
 
+def _stage2_session_is_active(thinking_session) -> bool:
+    """Only an unfinished, in-progress Stage 2 session may accept Stage 2 work."""
+    return (
+        getattr(thinking_session, 'current_stage', None) == 2
+        and not bool(getattr(thinking_session, 'stage2_completed', False))
+        and getattr(thinking_session, 'status', None) == 'in_progress'
+    )
+
+
+def _stage2_runtime_error_response(error_code: str):
+    if error_code == 'SESSION_NOT_FOUND':
+        return jsonify({'error': '会话不存在', 'error_code': error_code}), 403
+    if error_code == 'STAGE2_NOT_ACTIVE':
+        return jsonify({'error': '当前会话尚不可进行阶段2', 'error_code': error_code}), 409
+    return jsonify({'error': '阶段2题目数据尚未准备好', 'error_code': error_code}), 503
+
+
 def _stage3_runtime_error_response(error_code: str):
     if error_code == 'SESSION_NOT_FOUND':
         return jsonify({'error': '会话不存在', 'error_code': error_code}), 403
@@ -1294,11 +1311,15 @@ def stage2_verify():
 
         ts = ThinkingSession.query.get(session_id)
         if not ts or ts.student_id != current_user.student_id:
-            return jsonify({'error': '会话不存在'}), 403
+            return _stage2_runtime_error_response('SESSION_NOT_FOUND')
+        if not _stage2_session_is_active(ts):
+            return _stage2_runtime_error_response('STAGE2_NOT_ACTIVE')
 
         preset = AssignmentThinkingPreset.query.filter_by(assignment_id=ts.assignment_id).first()
         quiz_steps = preset.get_quiz_steps() if preset else []
         assignment = Assignment.query.get(ts.assignment_id)
+        if not assignment or not quiz_steps:
+            return _stage2_runtime_error_response('STAGE2_UNAVAILABLE')
 
         def verify_submission():
             passed = True
@@ -1389,10 +1410,14 @@ def stage2_hint():
 
         ts = ThinkingSession.query.get(session_id)
         if not ts or ts.student_id != current_user.student_id:
-            return jsonify({'error': '会话不存在'}), 403
+            return _stage2_runtime_error_response('SESSION_NOT_FOUND')
+        if not _stage2_session_is_active(ts):
+            return _stage2_runtime_error_response('STAGE2_NOT_ACTIVE')
 
         preset = AssignmentThinkingPreset.query.filter_by(assignment_id=ts.assignment_id).first()
         assignment = Assignment.query.get(ts.assignment_id)
+        if not assignment or not preset:
+            return _stage2_runtime_error_response('STAGE2_UNAVAILABLE')
 
         if wants_sse():
             def stream_hint():
