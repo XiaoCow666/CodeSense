@@ -5,6 +5,7 @@ import unittest
 import os
 import sys
 import tempfile
+from unittest.mock import patch
 
 # 确保正确导入项目模块
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -118,6 +119,43 @@ class AppTestCase(unittest.TestCase):
         self.assertTrue(records)
         self.assertRegex(records[-1], r'request_id=[0-9a-f-]{32,36}')
         self.assertIn('GET /healthz', records[-1])
+
+    def test_healthz_is_database_independent(self):
+        """存活探针在数据库不可用时仍应只报告进程存活。"""
+        with patch(
+            'app.db.session.execute',
+            side_effect=AssertionError('healthz touched database'),
+        ) as execute:
+            response = self.client.get('/healthz')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()['status'], 'ok')
+        self.assertGreaterEqual(response.get_json()['uptime_seconds'], 0)
+        execute.assert_not_called()
+
+    def test_readyz_reports_database_health(self):
+        response = self.client.get('/readyz')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json(), {
+            'status': 'ready',
+            'checks': {'database': 'ok'},
+        })
+
+    def test_readyz_rolls_back_and_reports_database_failure(self):
+        with patch(
+            'app.db.session.execute',
+            side_effect=RuntimeError('database unavailable'),
+        ) as execute, patch('app.db.session.rollback') as rollback:
+            response = self.client.get('/readyz')
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.get_json(), {
+            'status': 'not_ready',
+            'checks': {'database': 'unavailable'},
+        })
+        execute.assert_called_once()
+        rollback.assert_called_once()
 
     def test_admin_access_teacher_route(self):
         """测试管理员访问教师专用路由"""
