@@ -69,7 +69,7 @@
 
 ### 临时环境浏览器验收
 
-使用临时 SQLite、临时 Flask server 和本机 Chromium 1223 完成：
+使用临时 SQLite、临时 Flask server 和本机 Chromium 1223 完成 11 项浏览器检查：
 
 ```text
 student_request_control             true
@@ -79,6 +79,8 @@ status_to_in_review                 true
 teacher_message                     true
 student_reply_and_ai_signal         true
 teacher_resolved                    true
+resolved_before_reopen              true
+student_reopens_resolved_review     true
 notification_inbox                  true
 mobile_no_horizontal_overflow       true
 mobile_message_control_fits         true
