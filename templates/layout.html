@@ -140,6 +140,8 @@
                     </li>
                     <li><a href="{{ url_for('grades.grade_statistics') }}"
                             class="navbar-link {% if request.path == url_for('grades.grade_statistics') %}active{% endif %}">成绩统计</a></li>
+                    <li><a href="{{ url_for('assignments.teacher_review_queue') }}"
+                            class="navbar-link {% if request.path.startswith('/teacher/reviews') %}active{% endif %}">提交复核</a></li>
                     {% endif %}
 
                     {# Admin Links #}
@@ -157,6 +159,8 @@
                             class="navbar-link {% if 'api' in request.path %}active{% endif %}">API文档</a></li>
                     <li><a href="{{ url_for('main.admin_feedback') }}"
                             class="navbar-link {% if request.path.startswith('/admin/feedback') %}active{% endif %}">反馈中心</a></li>
+                    <li><a href="{{ url_for('assignments.teacher_review_queue') }}"
+                            class="navbar-link {% if request.path.startswith('/teacher/reviews') %}active{% endif %}">提交复核</a></li>
                     {% endif %}
                     <li>
                         <a href="{{ url_for('main.notifications') }}"

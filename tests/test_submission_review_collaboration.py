@@ -11,6 +11,7 @@ from services.submission_reviews import (
     ReviewStatusError,
     ReviewValidationError,
     add_review_message,
+    count_open_reviews,
     create_review_request,
     get_ai_feedback_signal,
     get_submission_review,
@@ -209,6 +210,9 @@ class SubmissionReviewCollaborationTestCase(unittest.TestCase):
             self.assertEqual(list_review_queue(teacher, status='in_review'), [])
             transition_review(submission, teacher, 'in_review')
             self.assertEqual(len(list_review_queue(teacher, status='in_review')), 1)
+            self.assertEqual(count_open_reviews(teacher), 1)
+            transition_review(submission, teacher, 'resolved')
+            self.assertEqual(count_open_reviews(teacher), 0)
 
     def test_ai_feedback_signal_is_owner_only_and_upserted(self):
         with self.app.app_context():
@@ -324,6 +328,61 @@ class SubmissionReviewCollaborationTestCase(unittest.TestCase):
                 len([event for event in review['events'] if event['event'] == 'message']),
                 1,
             )
+
+    def test_teacher_review_queue_and_status_routes_are_scoped(self):
+        with self.app.app_context():
+            submission = db.session.get(Submission, self.submission_id)
+            create_review_request(
+                submission,
+                self.student_id,
+                '请在教师队列中处理这条复核。',
+            )
+
+        self.assertEqual(self.login('review_teacher', 'teacher_password').status_code, 302)
+        requested_queue = self.client.get('/teacher/reviews?status=requested')
+        self.assertEqual(requested_queue.status_code, 200)
+        requested_html = requested_queue.get_data(as_text=True)
+        self.assertIn('复核测试作业', requested_html)
+        self.assertIn('待教师查看', requested_html)
+
+        status_response = self.client.post(
+            '/submission/{}/review/status?status=requested'.format(self.submission_id),
+            data={'status': 'in_review', 'note': '已安排教师复核。'},
+            follow_redirects=False,
+        )
+        self.assertEqual(status_response.status_code, 302)
+        self.assertIn('/teacher/reviews?status=requested', status_response.headers['Location'])
+
+        in_review_queue = self.client.get('/teacher/reviews?status=in_review')
+        self.assertEqual(in_review_queue.status_code, 200)
+        in_review_html = in_review_queue.get_data(as_text=True)
+        self.assertIn('复核测试作业', in_review_html)
+        self.assertIn('复核中', in_review_html)
+
+        dashboard = self.client.get('/teacher_dashboard')
+        self.assertEqual(dashboard.status_code, 200)
+        self.assertIn('待处理复核', dashboard.get_data(as_text=True))
+
+        self.client.get('/logout')
+        self.assertEqual(self.login('other_teacher', 'teacher_password').status_code, 302)
+        other_queue = self.client.get('/teacher/reviews')
+        self.assertEqual(other_queue.status_code, 200)
+        self.assertNotIn('复核测试作业', other_queue.get_data(as_text=True))
+
+        self.client.get('/logout')
+        self.assertEqual(self.login('review_admin', 'admin_password').status_code, 302)
+        admin_queue = self.client.get('/teacher/reviews')
+        self.assertEqual(admin_queue.status_code, 200)
+        self.assertIn('复核测试作业', admin_queue.get_data(as_text=True))
+
+        self.client.get('/logout')
+        self.assertEqual(self.login('review_student', 'student_password').status_code, 302)
+        student_status = self.client.post(
+            f'/submission/{self.submission_id}/review/status',
+            data={'status': 'resolved'},
+            follow_redirects=False,
+        )
+        self.assertEqual(student_status.status_code, 403)
 
 
 if __name__ == '__main__':

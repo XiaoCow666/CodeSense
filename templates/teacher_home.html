@@ -177,7 +177,18 @@
             <a href="{{ url_for('assignments.teacher_assignments') }}" class="btn btn-outline-primary">
                 <i class="bi bi-card-checklist me-2"></i>管理作业
             </a>
+            <a href="{{ url_for('assignments.teacher_review_queue') }}" class="btn btn-outline-primary">
+                <i class="bi bi-chat-square-heart me-2"></i>提交复核
+            </a>
         </div>
+    </div>
+
+    <div class="dashboard-section review-dashboard-card" aria-labelledby="open-review-title">
+        <div class="section-title">
+            <span id="open-review-title"><i class="bi bi-chat-square-heart text-primary me-2"></i>待处理复核</span>
+            <a href="{{ url_for('assignments.teacher_review_queue', status='requested') }}" class="btn btn-sm btn-outline-primary">打开队列</a>
+        </div>
+        <p class="mb-0"><strong id="open-review-count">{{ open_review_count }}</strong> 条复核请求等待参与者处理。</p>
     </div>
 
     <div class="dashboard-section">

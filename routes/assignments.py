@@ -11,13 +11,17 @@ from tasks.submission_tasks import evaluate_submission_async
 from services.demo_database import current_demo_run_id
 from services.demo_experience import ensure_demo_guided_preset, is_demo_guided_assignment
 from services.submission_reviews import (
+    REVIEW_STATUS_LABELS,
+    REVIEW_STATUS_OPTIONS,
     ReviewPermissionError,
     ReviewStatusError,
     ReviewValidationError,
     add_review_message,
     can_access_submission_review,
+    list_review_queue,
     create_review_request,
     get_submission_review,
+    transition_review,
 )
 from io import BytesIO
 from sqlalchemy import desc, func
@@ -1054,6 +1058,62 @@ def add_submission_review_message(submission_id):
 
     flash('复核消息已发送。', 'success')
     return redirect(url_for('assignments.view_submission', submission_id=submission_id))
+
+
+@assignments.route('/teacher/reviews')
+@login_required
+@teacher_required
+def teacher_review_queue():
+    """Show the current teacher/admin review queue with class scoping."""
+
+    selected_status = request.args.get('status', '').strip()
+    if selected_status not in REVIEW_STATUS_LABELS:
+        selected_status = None
+    return render_template(
+        'teacher_review_queue.html',
+        review_queue=list_review_queue(current_user, status=selected_status),
+        review_status_labels=REVIEW_STATUS_LABELS,
+        review_status_options=REVIEW_STATUS_OPTIONS,
+        selected_status=selected_status,
+    )
+
+
+@assignments.route('/submission/<int:submission_id>/review/status', methods=['POST'])
+@login_required
+def transition_submission_review(submission_id):
+    """Apply one allowed teacher/admin transition from the queue."""
+
+    if not (current_user.is_teacher or current_user.is_admin):
+        abort(403)
+    submission = Submission.query.get_or_404(submission_id)
+    queue_status = request.args.get('status', '').strip()
+    if queue_status not in REVIEW_STATUS_LABELS:
+        queue_status = None
+    try:
+        transition_review(
+            submission,
+            current_user,
+            request.form.get('status', ''),
+            request.form.get('note', ''),
+        )
+    except ReviewPermissionError:
+        abort(403)
+    except (ReviewStatusError, ReviewValidationError) as exc:
+        flash(str(exc), 'warning')
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception(
+            '提交复核状态更新失败 submission_id=%s actor_id=%s',
+            submission_id,
+            current_user.student_id,
+        )
+        flash('复核状态暂时无法更新，请稍后重试。', 'danger')
+    else:
+        flash('复核状态已更新。', 'success')
+
+    if queue_status:
+        return redirect(url_for('assignments.teacher_review_queue', status=queue_status))
+    return redirect(url_for('assignments.teacher_review_queue'))
 
 
 @assignments.route('/all_submissions')
