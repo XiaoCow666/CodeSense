@@ -101,6 +101,18 @@
         line-height: 1.5;
     }
 
+    .feedback-field-error {
+        margin: 0.45rem 0 0;
+        color: #b91c1c;
+        font-size: 0.875rem;
+        line-height: 1.5;
+    }
+
+    .feedback-field .is-invalid {
+        border-color: #dc2626;
+        box-shadow: 0 0 0 0.15rem rgba(220, 38, 38, 0.12);
+    }
+
     .feedback-errors {
         margin-bottom: 1.25rem;
         padding: 1rem 1.25rem;
@@ -176,7 +188,7 @@
 
     <section class="feedback-card" aria-labelledby="feedback-form-title">
         {% if errors %}
-        <div class="feedback-errors" role="alert" aria-labelledby="feedback-error-title" tabindex="-1">
+        <div class="feedback-errors" role="alert" aria-labelledby="feedback-error-title" tabindex="-1" data-focus-on-load="true">
             <h2 id="feedback-error-title">请检查以下信息</h2>
             <ul>
                 {% for field, message in errors.items() %}
@@ -190,51 +202,72 @@
             <fieldset>
                 <legend id="feedback-form-title">提交一条反馈</legend>
 
+                {% set category_error = errors.get('category') %}
                 <div class="feedback-field">
                     <label for="feedback-category">反馈类型 <span aria-hidden="true">*</span><span class="visually-hidden">必填</span></label>
-                    <select id="feedback-category" name="category" required aria-describedby="feedback-category-help">
+                    <select id="feedback-category" name="category" required
+                        class="{% if category_error %}is-invalid{% endif %}"
+                        aria-invalid="{{ 'true' if category_error else 'false' }}"
+                        aria-describedby="feedback-category-help{% if category_error %} feedback-category-error{% endif %}">
                         {% for value, label in categories %}
                         <option value="{{ value }}" {% if form_data.category == value %}selected{% endif %}>{{ label }}</option>
                         {% endfor %}
                     </select>
                     <p class="feedback-help" id="feedback-category-help">选择最接近的类型，便于后续分派。</p>
+                    {% if category_error %}<p class="feedback-field-error" id="feedback-category-error" role="alert">{{ category_error }}</p>{% endif %}
                 </div>
 
+                {% set subject_error = errors.get('subject') %}
                 <div class="feedback-field">
                     <label for="feedback-subject">主题 <span aria-hidden="true">*</span><span class="visually-hidden">必填</span></label>
-                    <input class="form-control" id="feedback-subject" name="subject" type="text"
+                    <input class="form-control {% if subject_error %}is-invalid{% endif %}" id="feedback-subject" name="subject" type="text"
                         value="{{ form_data.subject }}" minlength="3" maxlength="120" required
-                        aria-describedby="feedback-subject-help">
+                        aria-invalid="{{ 'true' if subject_error else 'false' }}"
+                        aria-describedby="feedback-subject-help{% if subject_error %} feedback-subject-error{% endif %}">
                     <p class="feedback-help" id="feedback-subject-help">用一句话概括问题或建议。</p>
+                    {% if subject_error %}<p class="feedback-field-error" id="feedback-subject-error" role="alert">{{ subject_error }}</p>{% endif %}
                 </div>
 
+                {% set message_error = errors.get('message') %}
                 <div class="feedback-field">
                     <label for="feedback-message">具体描述 <span aria-hidden="true">*</span><span class="visually-hidden">必填</span></label>
-                    <textarea class="form-control" id="feedback-message" name="message" minlength="10" maxlength="4000"
-                        required aria-describedby="feedback-message-help">{{ form_data.message }}</textarea>
+                    <textarea class="form-control {% if message_error %}is-invalid{% endif %}" id="feedback-message" name="message" minlength="10" maxlength="4000"
+                        required aria-invalid="{{ 'true' if message_error else 'false' }}"
+                        aria-describedby="feedback-message-help{% if message_error %} feedback-message-error{% endif %}">{{ form_data.message }}</textarea>
                     <p class="feedback-help" id="feedback-message-help">请描述期望结果和实际结果。不要填写密码、API 密钥或不必要的个人信息。</p>
+                    {% if message_error %}<p class="feedback-field-error" id="feedback-message-error" role="alert">{{ message_error }}</p>{% endif %}
                 </div>
 
+                {% set reproduction_error = errors.get('reproduction_steps') %}
                 <div class="feedback-field">
                     <label for="feedback-reproduction">复现步骤（可选）</label>
-                    <textarea class="form-control" id="feedback-reproduction" name="reproduction_steps" maxlength="2000"
-                        aria-describedby="feedback-reproduction-help">{{ form_data.reproduction_steps }}</textarea>
+                    <textarea class="form-control {% if reproduction_error %}is-invalid{% endif %}" id="feedback-reproduction" name="reproduction_steps" maxlength="2000"
+                        aria-invalid="{{ 'true' if reproduction_error else 'false' }}"
+                        aria-describedby="feedback-reproduction-help{% if reproduction_error %} feedback-reproduction-error{% endif %}">{{ form_data.reproduction_steps }}</textarea>
                     <p class="feedback-help" id="feedback-reproduction-help">例如：进入哪个页面、点击了什么、看到了什么结果。</p>
+                    {% if reproduction_error %}<p class="feedback-field-error" id="feedback-reproduction-error" role="alert">{{ reproduction_error }}</p>{% endif %}
                 </div>
 
+                {% set page_error = errors.get('page_context') %}
                 <div class="feedback-field">
                     <label for="feedback-page-context">相关页面或请求上下文</label>
-                    <input class="form-control" id="feedback-page-context" name="page_context" type="text"
-                        value="{{ form_data.page_context }}" maxlength="200" aria-describedby="feedback-page-help">
+                    <input class="form-control {% if page_error %}is-invalid{% endif %}" id="feedback-page-context" name="page_context" type="text"
+                        value="{{ form_data.page_context }}" maxlength="200"
+                        aria-invalid="{{ 'true' if page_error else 'false' }}"
+                        aria-describedby="feedback-page-help{% if page_error %} feedback-page-error{% endif %}">
                     <p class="feedback-help" id="feedback-page-help">此入口会自动带入当前页面；如不相关可以改写或留作说明。</p>
+                    {% if page_error %}<p class="feedback-field-error" id="feedback-page-error" role="alert">{{ page_error }}</p>{% endif %}
                 </div>
 
+                {% set email_error = errors.get('contact_email') %}
                 <div class="feedback-field">
                     <label for="feedback-contact-email">联系邮箱（可选）</label>
-                    <input class="form-control" id="feedback-contact-email" name="contact_email" type="email"
+                    <input class="form-control {% if email_error %}is-invalid{% endif %}" id="feedback-contact-email" name="contact_email" type="email"
                         value="{{ form_data.contact_email }}" maxlength="120" autocomplete="email"
-                        aria-describedby="feedback-email-help">
+                        aria-invalid="{{ 'true' if email_error else 'false' }}"
+                        aria-describedby="feedback-email-help{% if email_error %} feedback-email-error{% endif %}">
                     <p class="feedback-help" id="feedback-email-help">只有在你希望获得人工回复时填写。</p>
+                    {% if email_error %}<p class="feedback-field-error" id="feedback-email-error" role="alert">{{ email_error }}</p>{% endif %}
                 </div>
             </fieldset>
 
@@ -249,4 +282,15 @@
         <p><strong>隐私提示：</strong>反馈会以脱敏请求上下文和你填写的内容记录在系统中，用于处理问题和改进体验。</p>
     </aside>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+{% if errors %}
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        var summary = document.querySelector('[data-focus-on-load="true"]');
+        if (summary && typeof summary.focus === 'function') summary.focus();
+    });
+</script>
+{% endif %}
 {% endblock %}

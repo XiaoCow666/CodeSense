@@ -202,6 +202,10 @@ class TeacherAISuggestionsTestCase(unittest.TestCase):
         body = response.get_data(as_text=True)
         self.assertIn('计科2405', body)
         self.assertIn('AI 教学个性化建议', body)
+        self.assertIn('role="status"', body)
+        self.assertIn('aria-busy="true"', body)
+        self.assertIn('DOMPurify.sanitize', body)
+        self.assertIn('function escapeHtml', body)
 
         # 2. 触发 API 刷新建议
         response = self.client.post('/api/teacher/generate_suggestions', data=json.dumps({

@@ -90,6 +90,10 @@ class FeedbackCenterTestCase(unittest.TestCase):
         self.assertIn('role="alert"'.encode(), response.data)
         self.assertIn('feedback-category'.encode(), response.data)
         self.assertIn('feedback-message'.encode(), response.data)
+        self.assertIn('aria-invalid="true"'.encode(), response.data)
+        self.assertIn('aria-describedby="feedback-category-help feedback-category-error"'.encode(), response.data)
+        self.assertIn('id="feedback-category-error"'.encode(), response.data)
+        self.assertIn('id="feedback-message-error"'.encode(), response.data)
         with self.app.app_context():
             self.assertEqual(
                 SystemLog.query.filter_by(log_type='反馈提交').count(),

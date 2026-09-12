@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="CodeSense 酷森思 - 基于机器学习的代码能力评估平台">
     <title>{% block title %}CodeSense 酷森思{% endblock %}</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/favicon.svg') }}">
 
     <!-- 导航栏紧急修复样式 -->
     <style>
@@ -100,6 +101,7 @@
 
 <body>
     <a class="skip-link" href="#main-content">跳转到主要内容</a>
+    <div id="codesense-live-region" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
     <!-- 导航栏 -->
     <nav class="navbar" aria-label="全局导航">
         <div class="container navbar-container">
@@ -424,6 +426,20 @@
         }
     </script>
 
+    <script>
+        // Shared, non-blocking announcements for streamed and form-driven UI.
+        window.CodeSenseUI = window.CodeSenseUI || {};
+        window.CodeSenseUI.announce = function (message, politeness) {
+            var region = document.getElementById('codesense-live-region');
+            if (!region) return;
+            region.setAttribute('aria-live', politeness || 'polite');
+            region.textContent = '';
+            window.setTimeout(function () {
+                region.textContent = String(message || '');
+            }, 0);
+        };
+    </script>
+
     <!-- 全局 Markdown 渲染（marked.js + DOMPurify） -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
@@ -471,25 +487,44 @@
             var toggleBtn = document.getElementById('navbar-menu-toggle');
             var menuWrapper = document.getElementById('navbar-menu-wrapper');
             if (toggleBtn && menuWrapper) {
+                var lastFocusedElement = null;
+                var closeMenu = function(restoreFocus) {
+                    if (!menuWrapper.classList.contains('active')) return;
+                    menuWrapper.classList.remove('active');
+                    toggleBtn.setAttribute('aria-expanded', 'false');
+                    var icon = toggleBtn.querySelector('i');
+                    if (icon) icon.className = 'bi bi-list';
+                    if (restoreFocus && lastFocusedElement && typeof lastFocusedElement.focus === 'function') {
+                        lastFocusedElement.focus();
+                    }
+                    lastFocusedElement = null;
+                };
+
                 toggleBtn.addEventListener('click', function(e) {
                     e.stopPropagation();
-                    menuWrapper.classList.toggle('active');
-                    toggleBtn.setAttribute('aria-expanded', menuWrapper.classList.contains('active') ? 'true' : 'false');
-                    var icon = toggleBtn.querySelector('i');
-                    if (menuWrapper.classList.contains('active')) {
-                        icon.className = 'bi bi-x';
+                    var isOpening = !menuWrapper.classList.contains('active');
+                    if (isOpening) {
+                        lastFocusedElement = document.activeElement;
+                        menuWrapper.classList.add('active');
+                        toggleBtn.setAttribute('aria-expanded', 'true');
+                        var icon = toggleBtn.querySelector('i');
+                        if (icon) icon.className = 'bi bi-x';
                     } else {
-                        icon.className = 'bi bi-list';
+                        closeMenu(true);
                     }
                 });
 
-                // 点击外部关闭菜单
+                menuWrapper.addEventListener('keydown', function(event) {
+                    if (event.key === 'Escape') {
+                        event.preventDefault();
+                        closeMenu(true);
+                    }
+                });
+
+                // 点击外部关闭菜单；焦点已在外部时不抢回焦点。
                 document.addEventListener('click', function(e) {
                     if (menuWrapper.classList.contains('active') && !menuWrapper.contains(e.target) && e.target !== toggleBtn) {
-                        menuWrapper.classList.remove('active');
-                        toggleBtn.setAttribute('aria-expanded', 'false');
-                        var icon = toggleBtn.querySelector('i');
-                        icon.className = 'bi bi-list';
+                        closeMenu(false);
                     }
                 });
             }

@@ -181,10 +181,12 @@
             </div>
         </div>
 
-        <h1 class="status-text" id="status-heading">AI 编程助手正在为您打分...</h1>
-        <p class="sub-text">大语言模型正在对您的代码进行深度语义分析，并同步在云端沙箱运行测试用例。这通常需要 10-20 秒，请勿刷新页面。</p>
+        <div id="evaluation-status" role="status" aria-live="polite" aria-atomic="true" aria-busy="true">
+            <h1 class="status-text" id="status-heading">AI 编程助手正在为您打分...</h1>
+            <p class="sub-text">大语言模型正在对您的代码进行深度语义分析，并同步在云端沙箱运行测试用例。这通常需要 10-20 秒，请勿刷新页面。</p>
+        </div>
 
-        <div class="progress-steps">
+        <div class="progress-steps" id="evaluation-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="评测进度">
             <div class="progress-line"></div>
             <div class="progress-line-active" id="progress-line"></div>
 
@@ -203,10 +205,16 @@
         </div>
 
         <div class="mt-5" id="error-container" style="display: none;">
-            <div class="alert alert-danger shadow-sm py-3">
-                <i class="bi bi-exclamation-octagon-fill me-2"></i>
+            <div class="alert alert-danger shadow-sm py-3" role="alert" tabindex="-1">
+                <i class="bi bi-exclamation-octagon-fill me-2" aria-hidden="true"></i>
                 <span id="error-message">打分过程中遇到了一些问题，可能是 AI 服务暂时不可用。</span>
             </div>
+            <button type="button" class="btn btn-outline-primary px-4 py-2 me-2" id="retry-status" hidden>
+                重新检查状态
+            </button>
+            <a href="{{ url_for('users.view_submissions') }}" class="btn btn-link px-2 py-2">
+                查看提交记录
+            </a>
             <a href="{{ url_for('assignments.submit_code', assignment_id=submission.assignment_id) }}"
                 class="btn btn-primary px-5 py-2 shadow-sm">
                 重新提交
@@ -223,14 +231,18 @@
     const maxPollAttempts = 60;
     let pollAttempts = 0;
     let secondsElapsed = 0;
+    let pollTimer = null;
     const finalResultUrl = "{{ url_for('assignments.view_submission', submission_id=submission.id) }}";
 
     function updateProgressBar() {
         secondsElapsed += 2;
-        const progressBar = document.getElementById('progress-line');
+        const progressLine = document.getElementById('progress-line');
+        const progressBar = document.getElementById('evaluation-progress');
+        if (!progressLine || !progressBar) return;
 
         if (secondsElapsed >= 5 && secondsElapsed < 12) {
-            progressBar.style.width = '40%';
+            progressLine.style.width = '40%';
+            progressBar.setAttribute('aria-valuenow', '40');
             const aiStep = document.getElementById('step-ai');
             if (aiStep.classList.contains('active')) {
                 aiStep.classList.remove('active');
@@ -238,7 +250,8 @@
                 document.getElementById('step-sandbox').classList.add('active');
             }
         } else if (secondsElapsed >= 13) {
-            progressBar.style.width = '80%';
+            progressLine.style.width = '80%';
+            progressBar.setAttribute('aria-valuenow', '80');
             const sandboxStep = document.getElementById('step-sandbox');
             if (sandboxStep.classList.contains('active')) {
                 sandboxStep.classList.remove('active');
@@ -254,6 +267,35 @@
         document.getElementById('error-container').style.display = 'block';
         document.querySelector('.loader-wrapper').style.display = 'none';
         document.querySelector('.progress-steps').style.opacity = '0.3';
+        document.getElementById('evaluation-status').setAttribute('aria-busy', 'false');
+        const retryButton = document.getElementById('retry-status');
+        if (retryButton) {
+            retryButton.hidden = false;
+        }
+        const alert = document.querySelector('#error-container [role="alert"]');
+        if (alert) alert.focus();
+        else if (retryButton) retryButton.focus();
+        if (window.CodeSenseUI) window.CodeSenseUI.announce(message, 'assertive');
+    }
+
+    function retryStatusCheck() {
+        if (pollTimer) {
+            clearTimeout(pollTimer);
+            pollTimer = null;
+        }
+        pollAttempts = 0;
+        secondsElapsed = 0;
+        document.getElementById('error-container').style.display = 'none';
+        document.querySelector('.loader-wrapper').style.display = '';
+        document.querySelector('.progress-steps').style.opacity = '1';
+        document.getElementById('progress-line').style.width = '0%';
+        document.getElementById('evaluation-progress').setAttribute('aria-valuenow', '0');
+        document.getElementById('evaluation-status').setAttribute('aria-busy', 'true');
+        document.getElementById('status-heading').innerText = '正在重新检查评测状态...';
+        document.getElementById('step-ai').className = 'step-item active';
+        document.getElementById('step-sandbox').className = 'step-item';
+        document.getElementById('step-result').className = 'step-item';
+        checkSubmissionStatus();
     }
 
     async function checkSubmissionStatus() {
@@ -271,6 +313,9 @@
 
             if (data.status === 'evaluated') {
                 document.getElementById('progress-line').style.width = '100%';
+                document.getElementById('evaluation-progress').setAttribute('aria-valuenow', '100');
+                document.getElementById('evaluation-status').setAttribute('aria-busy', 'false');
+                if (window.CodeSenseUI) window.CodeSenseUI.announce('评测完成，正在打开结果。');
                 setTimeout(() => {
                     window.location.href = finalResultUrl;
                 }, 800);
@@ -280,18 +325,22 @@
                 showPollingError('评测队列暂时不可用，请稍后刷新或重新提交。');
             } else {
                 updateProgressBar();
-                setTimeout(checkSubmissionStatus, pollInterval);
+                pollTimer = setTimeout(checkSubmissionStatus, pollInterval);
             }
         } catch (error) {
             console.warn('评测状态暂时无法获取');
             if (pollAttempts >= maxPollAttempts) {
                 showPollingError('暂时无法确认评测结果，请稍后刷新或重新提交。');
             } else {
-                setTimeout(checkSubmissionStatus, pollInterval);
+                pollTimer = setTimeout(checkSubmissionStatus, pollInterval);
             }
         }
     }
 
-    document.addEventListener('DOMContentLoaded', checkSubmissionStatus);
+    document.addEventListener('DOMContentLoaded', function () {
+        const retryButton = document.getElementById('retry-status');
+        if (retryButton) retryButton.addEventListener('click', retryStatusCheck);
+        checkSubmissionStatus();
+    });
 </script>
 {% endblock %}

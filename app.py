@@ -15,7 +15,7 @@ import uuid
 from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 from logging import FileHandler
 
-from flask import Flask, request, session, flash, redirect, url_for, g, jsonify
+from flask import Flask, request, session, flash, redirect, url_for, g, jsonify, render_template
 from flask_login import LoginManager
 from werkzeug.middleware.proxy_fix import ProxyFix
 # Flask-Session导入优化
@@ -323,6 +323,7 @@ def setup_logging(app):
         request_id = getattr(g, 'codesense_request_id', None)
         if not request_id:
             request_id = str(uuid.uuid4())
+        response.headers.setdefault('X-Request-ID', request_id)
         is_static = request.endpoint in ['static', 'favicon']
         metrics = app.extensions.get('codesense_metrics')
         if metrics:
@@ -516,6 +517,65 @@ def create_app(config_name='default'):
     app.register_blueprint(classes)
     app.register_blueprint(thinking)  # /thinking/*
     app.register_blueprint(grades)
+
+    def request_prefers_json_error():
+        """Return whether the client expects a machine-readable error."""
+
+        if request.path.startswith('/api/'):
+            return True
+        return (
+            request.accept_mimetypes.accept_json
+            and not request.accept_mimetypes.accept_html
+        )
+
+    def error_request_id():
+        return getattr(g, 'codesense_request_id', None) or str(uuid.uuid4())
+
+    def error_json(code, error_name, message):
+        return jsonify({
+            'error': error_name,
+            'message': message,
+            'request_id': error_request_id(),
+        }), code
+
+    @app.errorhandler(404)
+    def handle_not_found(error):
+        del error
+        request_id = error_request_id()
+        if request_prefers_json_error():
+            return error_json(404, 'not_found', '请求的资源不存在')
+        return render_template(
+            '404.html',
+            request_id=request_id,
+            from_page=request.path,
+        ), 404
+
+    @app.errorhandler(405)
+    def handle_method_not_allowed(error):
+        del error
+        request_id = error_request_id()
+        if request_prefers_json_error():
+            return error_json(405, 'method_not_allowed', '请求方法不被支持')
+        return render_template(
+            '404.html',
+            title='请求方法不可用',
+            heading='这个操作暂时不可用',
+            message='请返回上一页，或通过反馈中心告诉我们你刚才进行了什么操作。',
+            request_id=request_id,
+            from_page=request.path,
+        ), 405
+
+    @app.errorhandler(500)
+    def handle_internal_error(error):
+        del error
+        request_id = error_request_id()
+        if request_prefers_json_error():
+            return error_json(500, 'internal_server_error', '服务暂时不可用，请稍后重试')
+        return render_template(
+            '500.html',
+            request_id=request_id,
+            from_page=request.path,
+        ), 500
 
     @app.after_request
     def compress_text_response(response):
