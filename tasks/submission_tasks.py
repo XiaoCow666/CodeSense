@@ -86,6 +86,12 @@ def _mark_submission_failed(submission_id: int, message: str) -> None:
     db.session.commit()
 
 
+def mark_submission_failed(submission_id: int, message: str) -> None:
+    """Expose the shared failure transition to submission entry points."""
+
+    _mark_submission_failed(submission_id, message)
+
+
 def evaluate_submission_async(
     app, submission_id, assignment_title, demo_run_id=None, *, run_inline=False
 ):
