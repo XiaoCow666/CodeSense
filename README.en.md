@@ -302,7 +302,7 @@ python -m pip install -r requirements-test.txt
 python -m pytest tests -q
 ```
 
-> Compatibility note: Flask/Werkzeug upgraded from 2.2.3 to 2.3.x, Flask-Session from 0.4.0 to 0.8.0, to support Python 3.12+ (ast.Str deprecated in 3.12, removed in 3.14; Flask 2.3 removed the `session_cookie_name` app attribute, which Flask-Session 0.4.0 depended on during initialization). Flask-Session 0.8.0 requires `SESSION_PERMANENT=True` to ensure server-side session persistence.
+> Compatibility note: Flask/Werkzeug upgraded from 2.2.3 to 2.3.x, Flask-Session from 0.4.0 to 0.8.0, to support Python 3.12+ (ast.Str deprecated in 3.12, removed in 3.14; Flask 2.3 removed the `session_cookie_name` app attribute, which Flask-Session 0.4.0 depended on during initialization). Non-permanent sessions under Flask-Session 0.8.0 are persisted via an `after_request` hook that explicitly marks `session.modified`, preserving browser session cookie semantics.
 >
 > - **Declared support**: Python 3.8–3.14
 > - **Verified to start**: Python 3.10, 3.11, 3.14.7 (`python run.py` starts successfully, `/login` returns 200)
