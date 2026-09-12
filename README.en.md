@@ -284,6 +284,14 @@ sudo apt install g++
 
 ### 4. Start the development server
 
+On Windows PowerShell, activate the virtual environment first:
+
+```powershell
+.venv\Scripts\Activate.ps1
+```
+
+Then start:
+
 ```bash
 python run.py
 ```
