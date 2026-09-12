@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 import platform
 import re
+import signal
 import threading
 import time
 from typing import Any, Dict, List, Tuple
@@ -118,9 +119,37 @@ def _close_pipe(stream) -> None:
         pass
 
 
-def _terminate_process(process) -> None:
-    """Terminate a direct child process and wait briefly for it to exit."""
+def _process_creation_kwargs() -> Dict[str, Any]:
+    """Create each sandbox command in an isolated process group/session."""
 
+    if os.name == 'nt':
+        return {
+            'creationflags': getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0),
+        }
+    return {'start_new_session': True}
+
+
+def _terminate_process(process) -> None:
+    """Terminate a sandbox process and any descendants, then wait briefly."""
+
+    try:
+        if process.poll() is None:
+            if os.name == 'nt':
+                subprocess.run(
+                    ['taskkill', '/PID', str(process.pid), '/T', '/F'],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                    timeout=2,
+                )
+            else:
+                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+    except (OSError, ProcessLookupError):
+        pass
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+
+    # Keep the previous direct-child fallback for launch/session edge cases.
     try:
         if process.poll() is None:
             process.kill()
@@ -168,6 +197,7 @@ def _run_bounded_process(
             stderr=subprocess.PIPE,
             cwd=work_dir,
             env=env,
+            **_process_creation_kwargs(),
         )
     except Exception as exc:
         return {
