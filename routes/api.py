@@ -290,6 +290,13 @@ def submit_code():
         assignment = Assignment.query.get(assignment_id)
         if not assignment:
             return error_response("作业不存在", 404)
+
+        if (
+            current_user.usertype == '学生'
+            and assignment.due_date
+            and assignment.due_date < datetime.utcnow()
+        ):
+            return error_response("该作业已截止，不再接受新的提交", 409)
         
         # 创建新的提交记录，状态为pending
         submission = Submission(

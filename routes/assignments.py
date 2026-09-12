@@ -500,6 +500,16 @@ def submit_code(assignment_id):
     if not student_id:
         flash('会话已过期，请重新登录')
         return redirect(url_for('auth.login'))
+
+    if (
+        current_user.usertype == '学生'
+        and assignment.due_date
+        and assignment.due_date < datetime.utcnow()
+    ):
+        flash('该作业已截止，不再接受新的提交。', 'warning')
+        return redirect(
+            url_for('assignments.view_assignment', assignment_id=assignment_id)
+        )
         
     # 获取用户最近的提交及提交历史
     latest_submission = Submission.query.filter_by(
