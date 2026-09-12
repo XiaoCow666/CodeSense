@@ -290,7 +290,7 @@ python -m pip install -r requirements-test.txt
 python -m pytest tests -q
 ~~~
 
-> 兼容性说明：Flask/Werkzeug 已从 2.2.3 升级至 2.3.x，Flask-Session 从 0.4.0 升级至 0.8.0，以支持 Python 3.12+（ast.Str 在 3.12 废弃、3.14 移除；Flask 2.3 移除了 `session_cookie_name` 应用属性，旧版 Flask-Session 0.4.0 依赖该属性导致初始化失败）。Flask-Session 0.8.0 需配合 `SESSION_PERMANENT=True` 才能确保服务端会话持久化。
+> 兼容性说明：Flask/Werkzeug 已从 2.2.3 升级至 2.3.x，Flask-Session 从 0.4.0 升级至 0.8.0，以支持 Python 3.12+（ast.Str 在 3.12 废弃、3.14 移除；Flask 2.3 移除了 `session_cookie_name` 应用属性，旧版 Flask-Session 0.4.0 依赖该属性导致初始化失败）。Flask-Session 0.8.0 下非永久会话通过 `after_request` 钩子显式标记 `session.modified` 确保持久化，不改变浏览器 Cookie 会话语义。
 >
 > - **声明支持**：Python 3.8–3.14
 > - **已验证启动**：Python 3.10、3.11、3.14.7（`python run.py` 启动成功，`/login` 返回 200）
