@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -109,6 +110,52 @@ def test_regular_form_uses_durable_submission_evaluation_path(queue_context, mon
     with app.app_context():
         submission = Submission.query.one()
         assert submission.status == "pending"
+
+
+def test_regular_form_rejects_new_submission_after_deadline(queue_context, monkeypatch):
+    app, client, assignment_id = queue_context
+    with app.app_context():
+        assignment = db.session.get(Assignment, assignment_id)
+        assignment.due_date = datetime.utcnow() - timedelta(minutes=1)
+        db.session.commit()
+
+    monkeypatch.setattr(
+        assignments_routes,
+        "evaluate_submission_async",
+        lambda *args, **kwargs: pytest.fail(
+            "an expired assignment must not start evaluation"
+        ),
+    )
+
+    response = client.post(
+        f"/submit/{assignment_id}",
+        data={"code": "int main() { return 0; }", "language": "cpp"},
+    )
+
+    assert response.status_code in {302, 303}
+    assert response.headers["Location"].endswith(
+        f"/view_assignment/{assignment_id}"
+    )
+    with app.app_context():
+        assert Submission.query.count() == 0
+
+
+def test_api_rejects_new_submission_after_deadline(queue_context):
+    app, client, assignment_id = queue_context
+    with app.app_context():
+        assignment = db.session.get(Assignment, assignment_id)
+        assignment.due_date = datetime.utcnow() - timedelta(minutes=1)
+        db.session.commit()
+
+    response = client.post(
+        "/api/submit",
+        json={"assignment_id": assignment_id, "code": "int main(){}"},
+    )
+
+    assert response.status_code == 409
+    assert response.json["message"] == "该作业已截止，不再接受新的提交"
+    with app.app_context():
+        assert Submission.query.count() == 0
 
 
 def test_owned_submission_status_exposes_safe_queue_state(queue_context, monkeypatch):
