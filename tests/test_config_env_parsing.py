@@ -2,9 +2,16 @@
 
 ``_env_bool`` and ``_env_int`` parse every ``*_ENABLED`` / pool-size / TTL
 environment variable listed in ``config.py``. They are documented to never
-raise on bad operator input: malformed values fall back to the coded default
-and out-of-range integers are clamped to the declared ``minimum`` /
-``maximum`` instead of crashing startup.
+raise on bad operator input, and their fallback semantics differ:
+
+- ``_env_bool``: only an *unset* variable falls back to the coded default.
+  Any set value outside the accepted truthy set evaluates to ``False``,
+  even when the coded default is ``True`` — a typo degrades to the safe
+  "off" state.
+- ``_env_int``: an *unset* variable falls back to the coded default; a
+  malformed value also falls back to the coded default, and the result
+  (parsed or default) is clamped to the declared ``minimum`` / ``maximum``
+  instead of crashing startup.
 
 These helpers depend on the standard library only (``os.environ``) and do not
 build a Flask app, touch the database, or open sockets, so ``monkeypatch`` is
@@ -67,6 +74,15 @@ def test_env_int_falls_back_to_default_on_bad_input(monkeypatch, raw):
     # the default instead of aborting startup.
     monkeypatch.setenv("TEST_ENV_INT", raw)
     assert config._env_int("TEST_ENV_INT", 180, minimum=30, maximum=900) == 180
+
+
+@pytest.mark.parametrize("raw", ["not-a-number", "12abc"])
+def test_env_int_bad_input_falls_back_then_clamps_default(monkeypatch, raw):
+    # Combined case: a malformed value plus an out-of-bounds default must
+    # still end up clamped, proving the fallback default passes through the
+    # same clamping path as a parsed value.
+    monkeypatch.setenv("TEST_ENV_INT", raw)
+    assert config._env_int("TEST_ENV_INT", 1, minimum=30, maximum=86400) == 30
 
 
 def test_env_int_clamps_below_minimum(monkeypatch):
