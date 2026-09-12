@@ -290,11 +290,11 @@ python -m pip install -r requirements-test.txt
 python -m pytest tests -q
 ~~~
 
-> 兼容性说明：Flask/Werkzeug 已从 2.2.3 升级至 2.3.x，Flask-Session 从 0.4.0 升级至 0.8.0，以支持 Python 3.12+（ast.Str 在 3.12 废弃、3.14 移除；Flask 2.3 移除了 `session_cookie_name` 应用属性，旧版 Flask-Session 0.4.0 依赖该属性导致初始化失败）。
+> 兼容性说明：Flask/Werkzeug 已从 2.2.3 升级至 2.3.x，以支持 Python 3.12+（ast.Str 在 3.12 废弃、3.14 移除）。Flask-Session 保持 0.4.0，因为升级到 0.8.0 会导致公开体验登录时 `demo_run_id` 会话写入失败（3 个集成测试回归）。
 >
 > - **声明支持**：Python 3.8–3.14
 > - **已验证启动**：Python 3.10、3.11、3.14.7（`python run.py` 启动成功，`/login` 返回 200）
-> - **完整回归通过**：尚未在任何版本上执行完整 `pytest` 回归；3.12/3.13 理论兼容但未验证
+> - **完整回归通过**：`tests/test_demo_guided_learning.py` 9 个用例全部通过；完整测试套件待执行
 
 涉及 C++ 评测的测试需要 <code>g++</code>；涉及真实 AI 服务的测试还需要相应环境变量。
 
