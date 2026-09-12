@@ -482,13 +482,13 @@ def create_app(config_name='default'):
 
         # Flask-Session 0.8.0 兼容性：非永久会话（SESSION_PERMANENT=False）
         # 的 modified 标记在部分请求路径中未被正确检测，导致服务端 session
-        # 数据（如 demo_run_id）不保存。此钩子在 session 非空时显式标记
-        # modified，确保数据持久化到文件系统/Redis，同时不改变浏览器
-        # Cookie 的会话语义（仍为浏览器关闭即失效）。
+        # 数据（如 demo_run_id）不保存。此钩子显式标记 modified，确保数据
+        # 持久化到文件系统/Redis，同时不改变浏览器 Cookie 的会话语义
+        # （仍为浏览器关闭即失效）。不使用 if session: 判断，因为
+        # ServerSideSession.__bool__() 在数据未加载时可能返回 False。
         @app.after_request
         def _ensure_session_persisted(response):
-            if session:
-                session.modified = True
+            session.modified = True
             return response
     else:
         print("⚠️ Flask-Session不可用，使用默认session实现")
