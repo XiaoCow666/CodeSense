@@ -117,7 +117,7 @@ class DemoGuidedLearningTestCase(unittest.TestCase):
     def test_public_demo_shortcuts_can_move_shared_session_through_all_stages(self):
         base_url = 'https://experience.codesense.test'
         self.client.get('/demo-login/student', base_url=base_url)
-        with self.client.session_transaction() as client_session:
+        with self.client.session_transaction(base_url=base_url) as client_session:
             run_id = client_session['demo_run_id']
         with self.app.app_context():
             self.assertTrue(activate_demo_run(run_id))
@@ -169,7 +169,7 @@ class DemoGuidedLearningTestCase(unittest.TestCase):
 
         self.client.get('/logout', base_url=base_url)
         self.client.get('/demo-login/student', base_url=base_url)
-        with self.client.session_transaction() as client_session:
+        with self.client.session_transaction(base_url=base_url) as client_session:
             run_id = client_session['demo_run_id']
         with self.app.app_context():
             self.assertTrue(activate_demo_run(run_id))
