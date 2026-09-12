@@ -171,3 +171,34 @@ def test_partial_passing_score_not_capped(app_with_submission):
             # 部分通过时 final_score ≈ 3.333，归一化后为 3，不受 compile_error 限制
             assert updated.score == 3
             assert updated.score > 1
+
+
+def test_compile_error_with_zero_passed_scores_zero(app_with_submission):
+    """真实编译失败场景（passed=0）：最终分数应为 0，上限不会被误改为固定 1。"""
+    app, submission_id, assignment_title = app_with_submission
+
+    with patch.object(
+        worker_tasks,
+        "evaluate_cpp_code",
+        return_value=(80, "AI feedback"),
+    ), patch.object(
+        worker_tasks,
+        "run_test_cases",
+        return_value={
+            "status": "compile_error",
+            "passed": 0,  # 真实编译失败：没有通过的用例
+            "total": 2,   # sandbox_score = 0/2*5 = 0
+            "details": [],
+        },
+    ):
+        with app.app_context():
+            worker_tasks.run_submission_evaluation(
+                app, submission_id, assignment_title
+            )
+            updated = db.session.get(Submission, submission_id)
+            assert updated.status == "evaluated"
+            assert updated.sandbox_status == "compile_error"
+            # compile_error 且 passed=0 时 final_score = min(0, 1) = 0
+            # 验证上限是 min() 而非固定赋值 1
+            assert updated.score == 0
+            assert updated.score <= 1
