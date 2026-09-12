@@ -386,7 +386,9 @@ def create_app(config_name='default'):
     )
     
     # 动态会话配置
-    app.config['SESSION_PERMANENT'] = False
+    # Flask-Session 0.8.0 要求 SESSION_PERMANENT=True 才能确保服务端会话
+    # 持久化到文件系统/Redis；False 时公开体验登录的 demo_run_id 会丢失。
+    app.config['SESSION_PERMANENT'] = True
     app.config['SESSION_USE_SIGNER'] = True
     app.config['PERMANENT_SESSION_LIFETIME'] = 86400  # 会话有效期1天
 
