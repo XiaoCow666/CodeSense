@@ -129,6 +129,108 @@ def _process_creation_kwargs() -> Dict[str, Any]:
     return {'start_new_session': True}
 
 
+def _create_process_job(process):
+    """Attach a Windows child to a kill-on-close job when available."""
+
+    if os.name != 'nt':
+        return None
+
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class _BasicLimitInformation(ctypes.Structure):
+            _fields_ = [
+                ('PerProcessUserTimeLimit', ctypes.c_longlong),
+                ('PerJobUserTimeLimit', ctypes.c_longlong),
+                ('LimitFlags', wintypes.DWORD),
+                ('MinimumWorkingSetSize', ctypes.c_size_t),
+                ('MaximumWorkingSetSize', ctypes.c_size_t),
+                ('ActiveProcessLimit', wintypes.DWORD),
+                ('Affinity', ctypes.c_size_t),
+                ('PriorityClass', wintypes.DWORD),
+                ('SchedulingClass', wintypes.DWORD),
+            ]
+
+        class _IoCounters(ctypes.Structure):
+            _fields_ = [
+                ('ReadOperationCount', ctypes.c_ulonglong),
+                ('WriteOperationCount', ctypes.c_ulonglong),
+                ('OtherOperationCount', ctypes.c_ulonglong),
+                ('ReadTransferCount', ctypes.c_ulonglong),
+                ('WriteTransferCount', ctypes.c_ulonglong),
+                ('OtherTransferCount', ctypes.c_ulonglong),
+            ]
+
+        class _ExtendedLimitInformation(ctypes.Structure):
+            _fields_ = [
+                ('BasicLimitInformation', _BasicLimitInformation),
+                ('IoInfo', _IoCounters),
+                ('ProcessMemoryLimit', ctypes.c_size_t),
+                ('JobMemoryLimit', ctypes.c_size_t),
+                ('PeakProcessMemoryUsed', ctypes.c_size_t),
+                ('PeakJobMemoryUsed', ctypes.c_size_t),
+            ]
+
+        kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+        kernel32.CreateJobObjectW.argtypes = [wintypes.LPVOID, wintypes.LPCWSTR]
+        kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+        kernel32.SetInformationJobObject.argtypes = [
+            wintypes.HANDLE,
+            wintypes.INT,
+            wintypes.LPVOID,
+            wintypes.DWORD,
+        ]
+        kernel32.SetInformationJobObject.restype = wintypes.BOOL
+        kernel32.AssignProcessToJobObject.argtypes = [
+            wintypes.HANDLE,
+            wintypes.HANDLE,
+        ]
+        kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+
+        job_handle = kernel32.CreateJobObjectW(None, None)
+        if not job_handle:
+            return None
+
+        limits = _ExtendedLimitInformation()
+        # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        limits.BasicLimitInformation.LimitFlags = 0x2000
+        if not kernel32.SetInformationJobObject(
+            job_handle,
+            9,  # JobObjectExtendedLimitInformation
+            ctypes.byref(limits),
+            ctypes.sizeof(limits),
+        ) or not kernel32.AssignProcessToJobObject(
+            job_handle, wintypes.HANDLE(int(process._handle))
+        ):
+            kernel32.CloseHandle(job_handle)
+            return None
+
+        return kernel32, job_handle
+    except (AttributeError, OSError, TypeError, ValueError):
+        return None
+
+
+def _close_process_job(job) -> None:
+    if not job:
+        return
+    kernel32, job_handle = job
+    try:
+        kernel32.CloseHandle(job_handle)
+    except (OSError, TypeError, ValueError):
+        pass
+
+
+def _terminate_process_group(process_group_id) -> None:
+    if os.name != 'nt' and process_group_id is not None:
+        try:
+            os.killpg(process_group_id, signal.SIGKILL)
+        except (OSError, ProcessLookupError):
+            pass
+
+
 def _terminate_process(process) -> None:
     """Terminate a sandbox process and any descendants, then wait briefly."""
 
@@ -209,6 +311,8 @@ def _run_bounded_process(
             'time_ms': int((time.monotonic() - started_at) * 1000),
         }
 
+    process_job = _create_process_job(process)
+    process_group_id = process.pid if os.name != 'nt' else None
     stdout_reader = _BoundedPipeReader(
         process.stdout, MAX_OUTPUT_LEN, 'sandbox-stdout-reader'
     )
@@ -252,12 +356,16 @@ def _run_bounded_process(
         if timed_out or stdout_reader.exceeded or stderr_reader.exceeded:
             _terminate_process(process)
         else:
+            _terminate_process_group(process_group_id)
             try:
                 process.wait(timeout=1)
             except subprocess.TimeoutExpired:
                 timed_out = True
                 _terminate_process(process)
 
+        # Closing a kill-on-close job also handles descendants after the
+        # direct child has already exited normally.
+        _close_process_job(process_job)
         _close_pipe(process.stdin)
         input_writer.join(timeout=1)
 
