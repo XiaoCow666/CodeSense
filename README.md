@@ -272,6 +272,14 @@ sudo apt install g++
 
 ### 4. 启动开发服务
 
+Windows PowerShell 中先激活虚拟环境：
+
+~~~powershell
+.venv\Scripts\Activate.ps1
+~~~
+
+然后启动：
+
 ~~~bash
 python run.py
 ~~~
