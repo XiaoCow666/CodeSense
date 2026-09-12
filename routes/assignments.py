@@ -7,7 +7,7 @@ from models import db, User, Assignment, Submission, SystemLog, AssignmentThinki
 from forms import AssignmentForm, SubmissionForm
 from utils.auth import login_required, admin_required, teacher_required, admin_or_teacher_required
 from utils.code_evaluator import evaluate_cpp_code
-from tasks.submission_tasks import evaluate_submission_async
+from tasks.submission_tasks import evaluate_submission_async, mark_submission_failed
 from services.demo_database import current_demo_run_id
 from services.demo_experience import ensure_demo_guided_preset, is_demo_guided_assignment
 from io import BytesIO
@@ -575,6 +575,13 @@ def submit_code(assignment_id):
                 return redirect(url_for('assignments.evaluating_submission', submission_id=submission.id))
             except Exception as async_err:
                 print(f"启动异步评测失败: {async_err}")
+                try:
+                    mark_submission_failed(
+                        submission.id,
+                        '后台评测启动失败，请稍后重试。',
+                    )
+                except Exception:
+                    db.session.rollback()
                 flash(f'后台评测系统启动失败，请稍后重试: {str(async_err)}', 'danger')
                 return redirect(url_for('assignments.submit_code', assignment_id=assignment_id))
 

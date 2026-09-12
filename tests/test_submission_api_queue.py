@@ -112,6 +112,38 @@ def test_regular_form_uses_durable_submission_evaluation_path(queue_context, mon
         assert submission.status == "pending"
 
 
+def test_regular_form_marks_submission_failed_when_evaluation_cannot_start(
+    queue_context, monkeypatch
+):
+    app, client, assignment_id = queue_context
+
+    def fail_to_start(*args, **kwargs):
+        raise RuntimeError("worker unavailable")
+
+    monkeypatch.setattr(
+        assignments_routes,
+        "evaluate_submission_async",
+        fail_to_start,
+    )
+
+    response = client.post(
+        f"/submit/{assignment_id}",
+        data={"code": "int main() { return 0; }", "language": "cpp"},
+    )
+
+    assert response.status_code in {302, 303}
+    assert f"/submit/{assignment_id}" in response.headers["Location"]
+    with app.app_context():
+        submission = Submission.query.one()
+        submission_id = submission.id
+        assert submission.status == "failed"
+        assert submission.feedback == "后台评测启动失败，请稍后重试。"
+
+    status_response = client.get(f"/api/submissions/{submission_id}/status")
+    assert status_response.status_code == 200
+    assert status_response.json["status"] == "failed"
+
+
 def test_regular_form_rejects_new_submission_after_deadline(queue_context, monkeypatch):
     app, client, assignment_id = queue_context
     with app.app_context():
