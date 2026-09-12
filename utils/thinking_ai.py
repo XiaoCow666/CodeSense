@@ -1322,9 +1322,16 @@ def check_quiz_equivalence(student_answer: str, correct_answer: str, question: s
             clean_res = clean_res.strip()
             
             data = json.loads(clean_res)
+            if not isinstance(data, dict) or not isinstance(data.get('equivalent'), bool):
+                raise ValueError("equivalent 必须是 JSON 布尔值")
+
+            reason = data.get('reason', '')
+            if not isinstance(reason, str):
+                raise ValueError("reason 必须是字符串")
+
             return {
-                'equivalent': bool(data.get('equivalent', False)),
-                'reason': data.get('reason', '')
+                'equivalent': data['equivalent'],
+                'reason': reason
             }
         except Exception as e:
             print(f"解析等价性检查 JSON 失败: {e}, 原始响应: {response}")
