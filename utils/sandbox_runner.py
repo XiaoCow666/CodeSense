@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 import platform
 import re
+import signal
 import threading
 import time
 from typing import Any, Dict, List, Tuple
@@ -21,6 +22,7 @@ RUN_TIMEOUT = 5
 MAX_OUTPUT_LEN = 4096
 _READ_CHUNK_SIZE = 4096
 _MAX_ERROR_DETAIL_LEN = 500
+_WINDOWS_CREATE_SUSPENDED = 0x00000004
 
 
 def _normalize_output(s: str) -> str:
@@ -118,9 +120,177 @@ def _close_pipe(stream) -> None:
         pass
 
 
-def _terminate_process(process) -> None:
-    """Terminate a direct child process and wait briefly for it to exit."""
+def _process_creation_kwargs() -> Dict[str, Any]:
+    """Create each sandbox command isolated and suspended until setup completes."""
 
+    if os.name == 'nt':
+        return {
+            'creationflags': (
+                getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0)
+                | _WINDOWS_CREATE_SUSPENDED
+            ),
+        }
+    return {'start_new_session': True}
+
+
+def _create_process_job(process):
+    """Attach a Windows child to a kill-on-close job when available."""
+
+    if os.name != 'nt':
+        return None
+
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class _BasicLimitInformation(ctypes.Structure):
+            _fields_ = [
+                ('PerProcessUserTimeLimit', ctypes.c_longlong),
+                ('PerJobUserTimeLimit', ctypes.c_longlong),
+                ('LimitFlags', wintypes.DWORD),
+                ('MinimumWorkingSetSize', ctypes.c_size_t),
+                ('MaximumWorkingSetSize', ctypes.c_size_t),
+                ('ActiveProcessLimit', wintypes.DWORD),
+                ('Affinity', ctypes.c_size_t),
+                ('PriorityClass', wintypes.DWORD),
+                ('SchedulingClass', wintypes.DWORD),
+            ]
+
+        class _IoCounters(ctypes.Structure):
+            _fields_ = [
+                ('ReadOperationCount', ctypes.c_ulonglong),
+                ('WriteOperationCount', ctypes.c_ulonglong),
+                ('OtherOperationCount', ctypes.c_ulonglong),
+                ('ReadTransferCount', ctypes.c_ulonglong),
+                ('WriteTransferCount', ctypes.c_ulonglong),
+                ('OtherTransferCount', ctypes.c_ulonglong),
+            ]
+
+        class _ExtendedLimitInformation(ctypes.Structure):
+            _fields_ = [
+                ('BasicLimitInformation', _BasicLimitInformation),
+                ('IoInfo', _IoCounters),
+                ('ProcessMemoryLimit', ctypes.c_size_t),
+                ('JobMemoryLimit', ctypes.c_size_t),
+                ('PeakProcessMemoryUsed', ctypes.c_size_t),
+                ('PeakJobMemoryUsed', ctypes.c_size_t),
+            ]
+
+        kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+        kernel32.CreateJobObjectW.argtypes = [wintypes.LPVOID, wintypes.LPCWSTR]
+        kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+        kernel32.SetInformationJobObject.argtypes = [
+            wintypes.HANDLE,
+            wintypes.INT,
+            wintypes.LPVOID,
+            wintypes.DWORD,
+        ]
+        kernel32.SetInformationJobObject.restype = wintypes.BOOL
+        kernel32.AssignProcessToJobObject.argtypes = [
+            wintypes.HANDLE,
+            wintypes.HANDLE,
+        ]
+        kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+
+        job_handle = kernel32.CreateJobObjectW(None, None)
+        if not job_handle:
+            return None
+
+        limits = _ExtendedLimitInformation()
+        # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        limits.BasicLimitInformation.LimitFlags = 0x2000
+        if not kernel32.SetInformationJobObject(
+            job_handle,
+            9,  # JobObjectExtendedLimitInformation
+            ctypes.byref(limits),
+            ctypes.sizeof(limits),
+        ) or not kernel32.AssignProcessToJobObject(
+            job_handle, wintypes.HANDLE(int(process._handle))
+        ):
+            kernel32.CloseHandle(job_handle)
+            return None
+
+        return kernel32, job_handle
+    except (AttributeError, OSError, TypeError, ValueError):
+        return None
+
+
+def _close_process_job(job) -> None:
+    if not job:
+        return
+    kernel32, job_handle = job
+    try:
+        kernel32.CloseHandle(job_handle)
+    except (OSError, TypeError, ValueError):
+        pass
+
+
+def _resume_process(process) -> Tuple[bool, str]:
+    """Resume a Windows process after its kill-on-close job is attached."""
+
+    if os.name != 'nt':
+        return True, ''
+
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        ntdll = ctypes.WinDLL('ntdll', use_last_error=True)
+        ntdll.NtResumeProcess.argtypes = [wintypes.HANDLE]
+        ntdll.NtResumeProcess.restype = wintypes.LONG
+        status = ntdll.NtResumeProcess(wintypes.HANDLE(int(process._handle)))
+        if status != 0:
+            unsigned_status = ctypes.c_ulong(status).value
+            return False, f'NtResumeProcess failed with NTSTATUS 0x{unsigned_status:08x}'
+        return True, ''
+    except (AttributeError, OSError, TypeError, ValueError) as exc:
+        return False, str(exc)
+
+
+def _close_process_handle(process) -> None:
+    """Close the Popen process handle after a failed isolated launch."""
+
+    handle = getattr(process, '_handle', None)
+    close = getattr(handle, 'Close', None)
+    if close is None:
+        return
+    try:
+        close()
+    except (OSError, TypeError, ValueError):
+        pass
+
+
+def _terminate_process_group(process_group_id) -> None:
+    if os.name != 'nt' and process_group_id is not None:
+        try:
+            os.killpg(process_group_id, signal.SIGKILL)
+        except (OSError, ProcessLookupError):
+            pass
+
+
+def _terminate_process(process) -> None:
+    """Terminate a sandbox process and any descendants, then wait briefly."""
+
+    try:
+        if process.poll() is None:
+            if os.name == 'nt':
+                subprocess.run(
+                    ['taskkill', '/PID', str(process.pid), '/T', '/F'],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                    timeout=2,
+                )
+            else:
+                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+    except (OSError, ProcessLookupError):
+        pass
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+
+    # Keep the previous direct-child fallback for launch/session edge cases.
     try:
         if process.poll() is None:
             process.kill()
@@ -168,6 +338,7 @@ def _run_bounded_process(
             stderr=subprocess.PIPE,
             cwd=work_dir,
             env=env,
+            **_process_creation_kwargs(),
         )
     except Exception as exc:
         return {
@@ -179,6 +350,42 @@ def _run_bounded_process(
             'time_ms': int((time.monotonic() - started_at) * 1000),
         }
 
+    process_job = None
+    if os.name == 'nt':
+        process_job = _create_process_job(process)
+        if process_job is None:
+            _terminate_process(process)
+            _close_pipe(process.stdin)
+            _close_pipe(process.stdout)
+            _close_pipe(process.stderr)
+            _close_process_handle(process)
+            return {
+                'returncode': process.returncode,
+                'stdout': '',
+                'stderr': '',
+                'reason': 'launch_error',
+                'error': '无法建立 Windows 沙箱进程隔离（Job Object 创建或分配失败）',
+                'time_ms': int((time.monotonic() - started_at) * 1000),
+            }
+
+        resumed, resume_error = _resume_process(process)
+        if not resumed:
+            _terminate_process(process)
+            _close_process_job(process_job)
+            _close_pipe(process.stdin)
+            _close_pipe(process.stdout)
+            _close_pipe(process.stderr)
+            _close_process_handle(process)
+            return {
+                'returncode': process.returncode,
+                'stdout': '',
+                'stderr': '',
+                'reason': 'launch_error',
+                'error': f'无法恢复已隔离的 Windows 沙箱进程：{resume_error}',
+                'time_ms': int((time.monotonic() - started_at) * 1000),
+            }
+
+    process_group_id = process.pid if os.name != 'nt' else None
     stdout_reader = _BoundedPipeReader(
         process.stdout, MAX_OUTPUT_LEN, 'sandbox-stdout-reader'
     )
@@ -222,12 +429,16 @@ def _run_bounded_process(
         if timed_out or stdout_reader.exceeded or stderr_reader.exceeded:
             _terminate_process(process)
         else:
+            _terminate_process_group(process_group_id)
             try:
                 process.wait(timeout=1)
             except subprocess.TimeoutExpired:
                 timed_out = True
                 _terminate_process(process)
 
+        # Closing a kill-on-close job also handles descendants after the
+        # direct child has already exited normally.
+        _close_process_job(process_job)
         _close_pipe(process.stdin)
         input_writer.join(timeout=1)
 
