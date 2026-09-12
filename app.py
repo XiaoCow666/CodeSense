@@ -386,9 +386,7 @@ def create_app(config_name='default'):
     )
     
     # 动态会话配置
-    # Flask-Session 0.8.0 要求 SESSION_PERMANENT=True 才能确保服务端会话
-    # 持久化到文件系统/Redis；False 时公开体验登录的 demo_run_id 会丢失。
-    app.config['SESSION_PERMANENT'] = True
+    app.config['SESSION_PERMANENT'] = False
     app.config['SESSION_USE_SIGNER'] = True
     app.config['PERMANENT_SESSION_LIFETIME'] = 86400  # 会话有效期1天
 
@@ -481,6 +479,17 @@ def create_app(config_name='default'):
     if HAS_FLASK_SESSION and Session is not None:
         Session(app)
         print("✓ Flask-Session初始化成功")
+
+        # Flask-Session 0.8.0 兼容性：非永久会话（SESSION_PERMANENT=False）
+        # 的 modified 标记在部分请求路径中未被正确检测，导致服务端 session
+        # 数据（如 demo_run_id）不保存。此钩子在 session 非空时显式标记
+        # modified，确保数据持久化到文件系统/Redis，同时不改变浏览器
+        # Cookie 的会话语义（仍为浏览器关闭即失效）。
+        @app.after_request
+        def _ensure_session_persisted(response):
+            if session:
+                session.modified = True
+            return response
     else:
         print("⚠️ Flask-Session不可用，使用默认session实现")
     
