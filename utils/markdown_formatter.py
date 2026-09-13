@@ -51,7 +51,10 @@ class MarkdownFormatter:
 
         # 确保标题前后有空行
         text = re.sub(r'([^\n])(#{1,6}\s)', r'\1\n\n\2', text)
-        text = re.sub(r'(#{1,6}[^\n]+)([^\n])', r'\1\n\n\2', text)
+        # 仅在标题行末（字面换行处）插入空行；lookahead 确保下一行非空，
+        # 避免重复插入（幂等）。不得用 [^\n] 匹配行尾之后的内容——
+        # 那会回溯吞掉标题行内的字符（历史缺陷：标题末字符被拆走）。
+        text = re.sub(r'(?m)^(#{1,6}[^\n]+\n)(?=[^\n])', r'\1\n', text)
 
         # 确保代码块格式正确
         text = MarkdownFormatter._fix_code_blocks(text, default_lang)

@@ -8,8 +8,9 @@ tests import it directly: no Flask app, database, Redis, or network access.
 
 The assertions pin behavior verified against the current implementation that
 is also implied by the docstrings. The heading-spacing pass in ``enhance``
-has known quirks on isolated heading lines; that path is deliberately not
-pinned here so a future fix to it stays green.
+previously corrupted heading text (``"# Title"`` became ``"# Titl\n\ne"``);
+it is fixed and covered by the dedicated "heading integrity" regression
+tests at the end of this file.
 """
 
 import pytest
@@ -230,3 +231,46 @@ def test_render_html_escapes_angle_brackets_inside_code_blocks():
         "if (a &lt; b && c &gt; d) {}\n"
         "</code></pre>"
     )
+
+
+# ---------------------------------------------------------------------------
+# heading integrity (regression: the "blank line after heading" pass used to
+# split the last character off every heading line, e.g. "# Title" became
+# "# Titl\n\ne", and re-running enhance() kept shredding the tail further)
+# ---------------------------------------------------------------------------
+
+def test_enhance_preserves_isolated_heading_text():
+    # Before the fix: "# Titl\n\ne"
+    assert MarkdownFormatter.enhance("# Title") == "# Title"
+
+
+def test_enhance_inserts_blank_line_between_heading_and_paragraph():
+    # The pass may insert whitespace, but must never move existing characters.
+    # Before the fix: "# Titl\n\ne\nBody text"
+    assert MarkdownFormatter.enhance("# Title\nBody text") == "# Title\n\nBody text"
+
+
+def test_enhance_heading_spacing_is_idempotent():
+    # State-consistency check: enhancing an already-enhanced document must be
+    # a no-op. Before the fix the tail kept degrading on every pass
+    # ("Title" -> "Titl" + "e" -> "Tit" + "l" + "e" ...).
+    once = MarkdownFormatter.enhance("# Title\nBody text")
+    assert MarkdownFormatter.enhance(once) == once
+
+
+def test_enhance_leaves_existing_blank_line_after_heading_alone():
+    text = "# Title\n\nBody text"
+    assert MarkdownFormatter.enhance(text) == text
+
+
+def test_enhance_leaves_heading_with_trailing_newline_alone():
+    text = "# Title\n"
+    assert MarkdownFormatter.enhance(text) == text
+
+
+def test_render_html_keeps_heading_text_intact():
+    # User-visible symptom: the corrupted heading leaked into rendered HTML.
+    # Before the fix: "<h1>Titl</h1>\n<p>e</p>"
+    html = MarkdownFormatter.render_html("# Title")
+    assert "<h1>Title</h1>" in html
+    assert "<p>e</p>" not in html
