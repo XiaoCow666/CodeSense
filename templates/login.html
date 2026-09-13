@@ -5,7 +5,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="CodeSense 酷森思 - 基于机器学习的代码能力评估平台">
+    <meta name="description" content="CodeSense 酷森思 - 面向高校编程教学的 AI 引导式评测与学习平台">
     <title>登录 - CodeSense 酷森思</title>
 
     <!-- 字体（项目同源静态资源，网络不可用时仍保持一致的排版） -->
@@ -205,7 +205,6 @@
         .header-logo {
             display: flex;
             align-items: center;
-            gap: 12px;
             margin-bottom: 3rem;
         }
 
@@ -215,33 +214,10 @@
             }
         }
 
-        .logo-box {
-            width: 40px;
-            height: 40px;
-            background: var(--color-surface-dark);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-        }
-
-        .logo-box i {
-            color: var(--color-brand-blue);
-            font-size: 1.5rem;
-        }
-
-        .header-title {
-            font-size: 1.5rem;
-            font-weight: 700;
-            color: var(--color-surface-dark);
-            letter-spacing: -0.5px;
-        }
-
-        .header-title span {
-            font-weight: 400;
-            opacity: 0.5;
-            margin-left: 4px;
+        .header-logo-image {
+            display: block;
+            width: min(100%, 250px);
+            height: auto;
         }
 
         .login-title-box {
@@ -554,19 +530,16 @@
         <div class="login-box">
             <!-- 头部 logo -->
             <header class="header-logo">
-                <div class="logo-box">
-                    <i class="bi bi-terminal"></i>
-                </div>
-                <span class="header-title">
-                    CodeSense <span>酷森思</span>
-                </span>
+                <img class="header-logo-image"
+                    src="{{ url_for('static', filename='img/codesense-logo-final.png') }}"
+                    alt="CodeSense 酷森思" width="2169" height="725">
             </header>
 
             <!-- 主表单 -->
             <main>
                 <div class="login-title-box">
                     <h2 class="login-title">欢迎登录 CodeSense</h2>
-                    <p class="login-subtitle">登录以访问CodeSense能力评估平台。</p>
+                    <p class="login-subtitle">登录以访问 CodeSense 的 AI 引导式编程评测与学习平台。</p>
                 </div>
 
                 <!-- 闪现消息提示 -->

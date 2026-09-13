@@ -6,7 +6,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="CodeSense 酷森思 - 基于机器学习的代码能力评估平台">
+    <meta name="description" content="CodeSense 酷森思 - 面向高校编程教学的 AI 引导式评测与学习平台">
     <title>用户注册 - CodeSense 酷森思</title>
     
     <!-- 字体（项目同源静态资源，网络不可用时仍保持一致的排版） -->
@@ -70,12 +70,11 @@
             text-align: center;
         }
         
-        .auth-logo i {
-            font-size: 2.5rem;
-            background: linear-gradient(135deg, #2563eb, #4f46e5);
-            -webkit-background-clip: text;
-            background-clip: text;
-            -webkit-text-fill-color: transparent;
+        .auth-logo img {
+            display: block;
+            width: min(100%, 240px);
+            height: auto;
+            margin: 0 auto;
         }
         
         .auth-title {
@@ -238,11 +237,12 @@
         <div class="auth-decoration"></div>
         
         <div class="auth-logo">
-            <i class="bi bi-code-square"></i>
+            <img src="{{ url_for('static', filename='img/codesense-logo-final.png') }}"
+                alt="CodeSense 酷森思" width="2169" height="725">
         </div>
         
         <h1 class="auth-title">创建账户</h1>
-        <p class="auth-subtitle">CodeSense 酷森思</p>
+        <p class="auth-subtitle">面向高校编程教学的 AI 引导式评测与学习平台</p>
         
         <!-- 错误消息显示 -->
         {% with messages = get_flashed_messages(with_categories=true) %}

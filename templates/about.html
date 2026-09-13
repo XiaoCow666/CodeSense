@@ -42,6 +42,16 @@
         font-weight: 700;
         margin-bottom: 1rem;
     }
+
+    .about-brand-logo {
+        display: block;
+        width: min(100%, 360px);
+        height: auto;
+        margin: 0 auto 1.5rem;
+        padding: 0.9rem 1.2rem;
+        background: rgba(255, 255, 255, 0.96);
+        border-radius: 0.75rem;
+    }
     
     .hero-subtitle {
         font-size: 1.25rem;
@@ -298,158 +308,122 @@
 
 {% block content %}
 <div class="about-container">
-    <div class="hero-section">
+    <section class="hero-section">
         <div class="hero-content">
-            <h1 class="hero-title">CodeSense 酷森思 - 基于机器学习的代码能力评价系统</h1>
-            <p class="hero-subtitle">融合智谱GLM-4-Flash大模型与多维度混合式评分机制，打造智能化、全方位的编程能力评估平台</p>
+            <img class="about-brand-logo" src="{{ url_for('static', filename='img/codesense-logo-final.png') }}"
+                alt="CodeSense 酷森思正式 Logo" width="2169" height="725">
+            <h1 class="hero-title">让编程学习走向会思考</h1>
+            <p class="hero-subtitle">CodeSense（酷森思）是面向高校编程教学的 AI 引导式评测与学习平台，把思路、代码、执行证据和学习反馈连接成一个可回顾的闭环。</p>
             <div class="hero-badges">
-                <div class="badge"><i class="bi bi-robot"></i> 智谱GLM-4-Flash</div>
-                <div class="badge"><i class="bi bi-stars"></i> 混合式评分</div>
-                <div class="badge"><i class="bi bi-lightning-charge"></i> 实时反馈</div>
-                <div class="badge"><i class="bi bi-graph-up-arrow"></i> 多维度分析</div>
+                <div class="badge"><i class="bi bi-robot"></i> 智谱 GLM-4.5-Flash</div>
+                <div class="badge"><i class="bi bi-signpost-split"></i> 三阶段引导式学习</div>
+                <div class="badge"><i class="bi bi-shield-check"></i> Causal Sandbox</div>
+                <div class="badge"><i class="bi bi-bar-chart-line"></i> 教师学情视图</div>
             </div>
         </div>
-    </div>
-    
+    </section>
+
     <div class="feature-grid">
-        <div class="feature-card">
-            <div class="feature-icon">
-                <i class="bi bi-cpu"></i>
-            </div>
-            <h3 class="feature-title">智能评估引擎</h3>
-            <p class="feature-description">采用智谱最新推出的GLM-4-Flash大模型，结合深度学习技术，对代码进行多维度分析与评估。我们的系统不仅能理解代码语法，还能分析算法思路、识别代码模式和评估整体设计思想。</p>
+        <article class="feature-card">
+            <div class="feature-icon"><i class="bi bi-signpost-split"></i></div>
+            <h3 class="feature-title">从思路到理解</h3>
+            <p class="feature-description">学生先描述解题思路，再逐步组装程序步骤、完成代码实践，最后用自己的话解释实现过程。系统把“会写”与“能说清楚”放在同一条学习路径里。</p>
             <div class="feature-highlight">
-                <div class="feature-highlight-title">核心技术优势</div>
-                <p>GLM-4-Flash大模型拥有1760亿参数，在代码理解与生成方面表现卓越，能够分析最复杂的编程模式和算法实现，为学生提供专业级别的代码评估。</p>
+                <div class="feature-highlight-title">三阶段闭环</div>
+                <p>思路描述 → 步骤组装 → 费曼式解释与修正；每个阶段都保留可回顾的学习记录。</p>
             </div>
-        </div>
-        
-        <div class="feature-card">
-            <div class="feature-icon">
-                <i class="bi bi-graph-up"></i>
-            </div>
-            <h3 class="feature-title">多模型混合式评分系统</h3>
-            <p class="feature-description">我们创新性地结合了CNN模型、启发式规则评分以及大模型自评分三种技术路线，构建了权重自适应的混合式评分体系。这种多模型融合方法大幅提高了评分的准确性和全面性。</p>
+        </article>
+
+        <article class="feature-card">
+            <div class="feature-icon"><i class="bi bi-shield-check"></i></div>
+            <h3 class="feature-title">以执行证据辅助评测</h3>
+            <p class="feature-description">Causal Sandbox 统一收集编译、运行、测试结果和错误信息，再交给规则与模型分析，帮助学生从“哪里错了”继续追问“为什么错”。</p>
             <div class="feature-highlight">
-                <div class="feature-highlight-title">评分机制详解</div>
-                <ul style="margin: 0.5rem 0; padding-left: 1.5rem; list-style-type: none;">
-                    <li style="margin-bottom: 0.5rem;"><b>CNN模型评分</b>：分析代码结构和质量，识别代码复杂度与规范性</li>
-                    <li style="margin-bottom: 0.5rem;"><b>启发式规则评分</b>：基于编程最佳实践，评估算法效率和编码风格</li>
-                    <li style="margin-bottom: 0.5rem;"><b>大模型自评分赋权</b>：利用GLM-4-Flash对评分进行智能加权，实现更符合专家评价的综合评分</li>
-                </ul>
+                <div class="feature-highlight-title">边界说明</div>
+                <p>当前实现适合课程内受控实验；公网运行仍需配合操作系统或容器级隔离、低权限账户和资源配额。</p>
             </div>
-        </div>
-        
-        <div class="feature-card">
-            <div class="feature-icon">
-                <i class="bi bi-person-workspace"></i>
-            </div>
-            <h3 class="feature-title">个性化学习指导</h3>
-            <p class="feature-description">基于学生的编程能力数据画像，利用智谱GLM-4-Flash生成针对性的学习建议和改进方案。系统能够识别学生的编程思维模式，找出知识盲点，提供定制化的学习路径。</p>
+        </article>
+
+        <article class="feature-card">
+            <div class="feature-icon"><i class="bi bi-person-workspace"></i></div>
+            <h3 class="feature-title">让教师看见学习过程</h3>
+            <p class="feature-description">教师可以围绕作业、班级、提交记录、知识点和能力画像查看学习情况，把一次提交放回连续的学习过程里理解。</p>
             <div class="feature-highlight">
-                <div class="feature-highlight-title">智能指导特色</div>
-                <p>系统会根据学生历史提交分析其能力薄弱点，从算法思维、代码结构、错误处理等多个维度提供针对性建议，并推荐适合的练习题目和学习资源。</p>
+                <div class="feature-highlight-title">反馈原则</div>
+                <p>AI 建议用于启发和整理证据，不能替代程序评测、教师判断或对学习结果的人工复核。</p>
             </div>
-        </div>
+        </article>
     </div>
-    
-    <div class="workflow-section">
-        <h2 class="workflow-title">系统工作流程</h2>
+
+    <section class="workflow-section">
+        <h2 class="workflow-title">一条可回顾的学习路径</h2>
         <div class="workflow-steps">
             <div class="workflow-step">
                 <div class="step-number">1</div>
-                <h3 class="step-title">代码提交</h3>
-                <p class="step-description">学生提交编程任务代码，系统支持C++、Python和Java等主流编程语言，并提供语法高亮和自动格式化功能。</p>
+                <h3 class="step-title">描述思路</h3>
+                <p class="step-description">先用自然语言说明问题理解、算法方向和关键边界，形成自己的解题计划。</p>
             </div>
             <div class="workflow-step">
                 <div class="step-number">2</div>
-                <h3 class="step-title">多维度评估</h3>
-                <p class="step-description">系统对提交的代码进行多层次评估，包括功能正确性、代码质量、算法效率、编程风格等方面，全方位分析学生的编程能力。</p>
+                <h3 class="step-title">组装步骤</h3>
+                <p class="step-description">把计划拆成程序步骤并查看代码预览，在动手前检查顺序和逻辑。</p>
             </div>
             <div class="workflow-step">
                 <div class="step-number">3</div>
-                <h3 class="step-title">智能评分</h3>
-                <p class="step-description">通过CNN模型、启发式规则和GLM-4-Flash大模型的混合评分机制，生成客观公正的评分结果，确保评价的准确性和权威性。</p>
+                <h3 class="step-title">提交实践</h3>
+                <p class="step-description">提交代码后获得编译、运行、测试和错误等执行证据，再结合反馈定位问题。</p>
             </div>
             <div class="workflow-step">
                 <div class="step-number">4</div>
-                <h3 class="step-title">反馈与建议</h3>
-                <p class="step-description">系统生成详细的代码分析报告，指出代码中的优点和不足，并提供针对性的改进建议和学习资源推荐。</p>
+                <h3 class="step-title">解释与修正</h3>
+                <p class="step-description">通过费曼式追问解释程序，修正代码并再次提交，把反馈转化为下一次尝试。</p>
             </div>
         </div>
-    </div>
-    
-    <div class="tech-stack">
-        <h2 class="tech-title">核心技术栈</h2>
+    </section>
+
+    <section class="tech-stack">
+        <h2 class="tech-title">当前产品与技术组成</h2>
         <div class="tech-grid">
             <div class="tech-item">
-                <div class="tech-icon">
-                    <i class="bi bi-robot"></i>
-                </div>
-                <div class="tech-name">智谱GLM-4-Flash</div>
-                <div class="tech-description">最新一代大模型，在代码理解与评估方面表现卓越</div>
+                <div class="tech-icon"><i class="bi bi-robot"></i></div>
+                <div class="tech-name">智谱 GLM-4.5-Flash</div>
+                <div class="tech-description">用于 AI 引导、代码分析和学习建议；可通过 ZHIPU_MODEL 配置。</div>
             </div>
             <div class="tech-item">
-                <div class="tech-icon">
-                    <i class="bi bi-braces-asterisk"></i>
-                </div>
-                <div class="tech-name">CNN评分模型</div>
-                <div class="tech-description">专为代码质量评估训练的深度卷积神经网络</div>
+                <div class="tech-icon"><i class="bi bi-shield-check"></i></div>
+                <div class="tech-name">Causal Sandbox</div>
+                <div class="tech-description">记录受限编译、运行、测试和错误证据。</div>
             </div>
             <div class="tech-item">
-                <div class="tech-icon">
-                    <i class="bi bi-code-slash"></i>
-                </div>
-                <div class="tech-name">Python</div>
-                <div class="tech-description">系统后端开发与机器学习模型实现</div>
+                <div class="tech-icon"><i class="bi bi-code-slash"></i></div>
+                <div class="tech-name">Python · Flask</div>
+                <div class="tech-description">承载教学页面、评测流程、教师端和 API。</div>
             </div>
             <div class="tech-item">
-                <div class="tech-icon">
-                    <i class="bi bi-diagram-3"></i>
-                </div>
-                <div class="tech-name">Flask</div>
-                <div class="tech-description">轻量级Web应用框架，提供灵活的API支持</div>
+                <div class="tech-icon"><i class="bi bi-database"></i></div>
+                <div class="tech-name">学习数据记录</div>
+                <div class="tech-description">保存提交、反馈、知识点和能力趋势等教学记录。</div>
             </div>
             <div class="tech-item">
-                <div class="tech-icon">
-                    <i class="bi bi-database"></i>
-                </div>
-                <div class="tech-name">MySQL</div>
-                <div class="tech-description">高性能关系型数据库，存储学生数据与评估结果</div>
-            </div>
-            <div class="tech-item">
-                <div class="tech-icon">
-                    <i class="bi bi-graph-up"></i>
-                </div>
-                <div class="tech-name">TensorFlow</div>
-                <div class="tech-description">构建和训练机器学习模型的开源平台</div>
+                <div class="tech-icon"><i class="bi bi-people"></i></div>
+                <div class="tech-name">CoDeBuGo</div>
+                <div class="tech-description">CodeSense 与 Caifusi 共用的组织级协作入口。</div>
             </div>
         </div>
-    </div>
-    
-    <div class="team-section">
-        <h2 class="team-title">开发团队</h2>
+    </section>
+
+    <section class="team-section">
+        <h2 class="team-title">团队与公开入口</h2>
         <div class="team-card">
-            <div class="team-logo">
-                <i class="bi bi-building"></i>
-            </div>
-            <h3 class="team-name">沈阳航空航天大学分布式系统研究室</h3>
-            <p class="team-description">致力于计算机科学与技术领域的研究与创新，专注于教育信息化和人工智能应用研究。团队在机器学习、自然语言处理和教育技术领域具有丰富的研究经验，曾主持多项国家级和省部级科研项目。</p>
+            <div class="team-logo"><i class="bi bi-people"></i></div>
+            <h3 class="team-name">Team CoDeBuGo · CodeSense</h3>
+            <p class="team-description">CoDeBuGo 围绕代码、调试、协作与行动组织知识与项目。CodeSense 是其中面向高校编程教学的项目，相关申报学校为沈阳航空航天大学。</p>
             <div class="contact-info">
-                <div class="contact-item">
-                    <i class="bi bi-envelope contact-icon"></i>
-                    <span>daiyupeng5@gmail.com</span>
-                </div>
-                <div class="contact-item">
-                    <i class="bi bi-telephone contact-icon"></i>
-                    <span>15042774955</span>
-                </div>
-                <div class="contact-item">
-                    <i class="bi bi-geo-alt contact-icon"></i>
-                    <span>中国辽宁沈阳道义经济开发区道义南大街37号</span>
-                </div>
+                <div class="contact-item"><i class="bi bi-globe2 contact-icon"></i><a href="https://saucodesense.com">在线体验：saucodesense.com</a></div>
+                <div class="contact-item"><i class="bi bi-github contact-icon"></i><a href="https://github.com/XiaoCow666/CodeSense">GitHub：XiaoCow666/CodeSense</a></div>
+                <div class="contact-item"><i class="bi bi-chat-square-text contact-icon"></i><a href="{{ url_for('main.feedback', from_page=request.path) }}">提交使用反馈</a></div>
             </div>
         </div>
-    </div>
+    </section>
 </div>
-{% endblock %} 
+{% endblock %}

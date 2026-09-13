@@ -94,8 +94,8 @@
     <header class="navbar navbar-expand-lg navbar-light bg-light border-bottom">
         <div class="container">
             <a class="navbar-brand" href="{{ url_for('auth.index') }}">
-                <i class="bi bi-code-square text-primary"></i>
-                <span class="ms-2">CodeSense 酷森思</span>
+                <img class="navbar-brand-logo" src="{{ url_for('static', filename='img/codesense-logo-final.png') }}"
+                    alt="CodeSense 酷森思" width="156" height="52">
             </a>
 
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
@@ -213,7 +213,7 @@
     <!-- 页脚 -->
     <footer class="footer mt-auto py-3 bg-light border-top">
         <div class="container text-center">
-            <span class="text-muted">© 2024 CodeSense 酷森思 | 基于机器学习的代码评估</span>
+            <span class="text-muted">© {{ now().year }} CodeSense 酷森思 | 面向高校编程教学的 AI 引导式评测</span>
         </div>
     </footer>
 

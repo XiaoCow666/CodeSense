@@ -293,63 +293,53 @@
 
 {% block content %}
 <div class="help-container">
-    <div class="help-header">
+    <section class="help-header">
         <div class="help-content">
-            <h1 class="help-title">智能评估系统使用指南</h1>
-            <p class="help-subtitle">基于GLM-4-Flash大模型和混合式评分机制，助力您提升编程能力</p>
+            <h1 class="help-title">CodeSense 使用指南</h1>
+            <p class="help-subtitle">面向高校编程教学的 AI 引导式评测与学习平台</p>
             <div class="badge-container">
-                <div class="feature-badge"><i class="bi bi-robot"></i> 智谱GLM-4-Flash</div>
-                <div class="feature-badge"><i class="bi bi-stars"></i> 混合式评分</div>
-                <div class="feature-badge"><i class="bi bi-cpu"></i> CNN模型分析</div>
-                <div class="feature-badge"><i class="bi bi-clipboard-data"></i> 多维度评估</div>
+                <div class="feature-badge"><i class="bi bi-robot"></i> 智谱 GLM-4.5-Flash</div>
+                <div class="feature-badge"><i class="bi bi-signpost-split"></i> 三阶段学习</div>
+                <div class="feature-badge"><i class="bi bi-shield-check"></i> Causal Sandbox</div>
+                <div class="feature-badge"><i class="bi bi-clipboard-data"></i> 学情记录</div>
             </div>
         </div>
-    </div>
-    
-    <div class="guide-section">
-        <h2 class="section-title">
-            <i class="bi bi-person-plus"></i>
-            注册与登录
-        </h2>
-        <p class="section-intro">
-            创建您的专属账号，开始使用强大的智能编程评估系统。我们将为您建立个性化的能力数据画像，追踪您的编程进步轨迹。
-        </p>
+    </section>
+
+    <section class="guide-section">
+        <h2 class="section-title"><i class="bi bi-person-plus"></i> 开始使用</h2>
+        <p class="section-intro">CodeSense 将提交结果、学习过程和反馈记录在同一条路径中。没有账号时，可以先从登录页进入学生或教师体验，查看完整流程。</p>
         <div class="step-list">
             <div class="step-item">
                 <div class="step-number">1</div>
                 <div class="step-content">
-                    <h3 class="step-title">注册账号</h3>
-                    <p class="step-description">点击右上角的"注册"按钮，填写必要信息（用户名、学号、密码等）完成注册。请确保填写真实信息，以便系统为您提供更准确的评估和个性化的学习建议。</p>
+                    <h3 class="step-title">先体验</h3>
+                    <p class="step-description">在登录页选择“学生体验”或“教师体验”，无需注册即可查看对应的学习或教学流程。</p>
                 </div>
             </div>
             <div class="step-item">
                 <div class="step-number">2</div>
                 <div class="step-content">
-                    <h3 class="step-title">登录系统</h3>
-                    <p class="step-description">使用注册的用户名和密码登录系统。登录后，您将看到个人中心页面，可以开始使用系统的各项功能，包括代码提交、智能评估、学情分析等。</p>
+                    <h3 class="step-title">注册账号</h3>
+                    <p class="step-description">正式使用时，可选择学生名单注册或邮箱注册。邮箱注册完成后需要先点击验证邮件，再使用邮箱或用户名登录。</p>
                 </div>
             </div>
         </div>
-    </div>
-    
-    <div class="guide-section">
-        <h2 class="section-title">
-            <i class="bi bi-code-square"></i>
-            代码提交与智能评估
-        </h2>
-        <p class="section-intro">
-            我们的系统采用了智谱GLM-4-Flash大模型和CNN深度学习技术进行代码智能评估，能够理解代码含义、识别算法模式、评估代码质量。
-        </p>
+    </section>
+
+    <section class="guide-section">
+        <h2 class="section-title"><i class="bi bi-code-square"></i> 学生学习路径</h2>
+        <p class="section-intro">一次练习不是只看最终对错，而是沿着“思路描述 → 步骤组装 → 代码实践 → 解释与修正”的路径逐步完成。</p>
         <div class="highlight-box">
             <div class="highlight-title">
-                <i class="bi bi-stars"></i>混合式评分系统
+                <i class="bi bi-stars"></i>评测结果怎么看
             </div>
             <div class="highlight-content">
-                <p>我们的评分系统融合了三种先进技术：</p>
+                <p>系统会结合程序执行结果、错误信息、代码内容和学习记录生成反馈。AI 建议用于启发和整理证据，最终判断仍应以可复现的评测结果和教师复核为准。</p>
                 <ul>
-                    <li style="list-style-type: none;"><strong>CNN模型评分</strong>：分析代码结构和质量，识别代码复杂度与规范性</li>
-                    <li style="list-style-type: none;"><strong>启发式规则评分</strong>：基于编程最佳实践，评估算法效率和编码风格</li>
-                    <li style="list-style-type: none;"><strong>GLM-4-Flash大模型评分</strong>：利用1760亿参数的强大语言模型，对代码进行深度理解和专业评估</li>
+                    <li style="list-style-type: none;"><strong>执行证据</strong>：查看编译、运行、测试结果和错误信息。</li>
+                    <li style="list-style-type: none;"><strong>学习反馈</strong>：结合思路、提交和历史记录定位下一步。</li>
+                    <li style="list-style-type: none;"><strong>模型辅助</strong>：配置智谱服务时使用当前的 GLM-4.5-Flash 参与分析和建议。</li>
                 </ul>
             </div>
         </div>
@@ -357,196 +347,136 @@
             <div class="step-item">
                 <div class="step-number">1</div>
                 <div class="step-content">
-                    <h3 class="step-title">选择作业</h3>
-                    <p class="step-description">在作业列表中选择要提交的作业，查看作业要求和评分标准。系统支持多种编程语言，包括C++、Python和Java，每种语言都有针对性的评估标准。</p>
+                    <h3 class="step-title">描述思路</h3>
+                    <p class="step-description">阅读作业要求后，先用自然语言写出算法方向、关键步骤和边界情况。</p>
                 </div>
             </div>
             <div class="step-item">
                 <div class="step-number">2</div>
                 <div class="step-content">
-                    <h3 class="step-title">编写代码</h3>
-                    <p class="step-description">使用系统提供的高级代码编辑器编写代码。编辑器支持语法高亮、自动补全、代码格式化等功能，并提供智能提示，帮助您更高效地编写高质量代码。</p>
+                    <h3 class="step-title">组装步骤</h3>
+                    <p class="step-description">把解题思路拆成程序步骤并查看代码预览，先检查逻辑顺序，再进入代码实践。</p>
                 </div>
             </div>
             <div class="step-item">
                 <div class="step-number">3</div>
                 <div class="step-content">
-                    <h3 class="step-title">提交评估</h3>
-                    <p class="step-description">点击"提交"按钮，系统将激活混合评分机制对您的代码进行全方位评估。评估过程包括功能测试、代码质量分析、算法效率评估、编程规范检查等多个维度。</p>
+                    <h3 class="step-title">提交实践</h3>
+                    <p class="step-description">提交代码后，系统会执行编译和测试，并返回可用于定位问题的运行证据。</p>
+                </div>
+            </div>
+            <div class="step-item">
+                <div class="step-number">4</div>
+                <div class="step-content">
+                    <h3 class="step-title">解释与修正</h3>
+                    <p class="step-description">用自己的话解释程序，结合提示修正代码，再次提交验证理解是否真正落实。</p>
                 </div>
             </div>
         </div>
-        <div class="evaluation-chart">
-            <h3 class="chart-title">多维度评估指标</h3>
-            <div class="scoring-dimensions">
-                <div class="dimension-item">
-                    <div class="dimension-name">代码正确性 (20%)</div>
-                    <div class="dimension-description">评估代码是否正确实现了所需功能，能否通过所有测试用例。</div>
-                </div>
-                <div class="dimension-item">
-                    <div class="dimension-name">算法效率 (20%)</div>
-                    <div class="dimension-description">评估算法的时间复杂度和空间复杂度，以及在大规模数据上的性能表现。</div>
-                </div>
-                <div class="dimension-item">
-                    <div class="dimension-name">代码结构 (15%)</div>
-                    <div class="dimension-description">评估代码的组织结构、模块化程度和架构设计的合理性。</div>
-                </div>
-                <div class="dimension-item">
-                    <div class="dimension-name">编程规范 (15%)</div>
-                    <div class="dimension-description">评估代码是否遵循良好的编程规范和最佳实践。</div>
-                </div>
-                <div class="dimension-item">
-                    <div class="dimension-name">代码可读性 (15%)</div>
-                    <div class="dimension-description">评估代码的命名、注释、缩进等方面，判断代码的易读性。</div>
-                </div>
-                <div class="dimension-item">
-                    <div class="dimension-name">错误处理 (15%)</div>
-                    <div class="dimension-description">评估代码是否有完善的错误处理机制，能否优雅地处理异常情况。</div>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <div class="guide-section">
-        <h2 class="section-title">
-            <i class="bi bi-graph-up"></i>
-            查看评估结果与学习分析
-        </h2>
-        <p class="section-intro">
-            利用我们的多维度可视化分析工具，深入了解您的编程能力表现，发现优势和不足，有针对性地提升您的编程技能。
-        </p>
+    </section>
+
+    <section class="guide-section">
+        <h2 class="section-title"><i class="bi bi-graph-up"></i> 查看反馈与学习记录</h2>
+        <p class="section-intro">提交完成后，先看执行证据，再看 AI 辅助建议和历史趋势。不要只根据一次模型输出判断自己的能力。</p>
         <div class="highlight-box">
             <div class="highlight-title">
-                <i class="bi bi-lightbulb"></i>人工智能学习建议
+                <i class="bi bi-lightbulb"></i>AI 建议的使用方式
             </div>
             <div class="highlight-content">
-                <p>智谱GLM-4-Flash大模型会根据您的评估结果和历史提交记录，生成个性化的学习建议和改进方案。这些建议不仅指出代码中的问题，还提供具体的改进方法和学习资源，帮助您快速提升编程能力。</p>
+                <p>GLM-4.5-Flash 会在已配置并启用智谱服务时参与代码分析、提示和学习建议。模型可能产生错误或不完整的判断，请结合代码、测试结果和教师反馈复核。</p>
             </div>
         </div>
         <div class="step-list">
             <div class="step-item">
                 <div class="step-number">1</div>
                 <div class="step-content">
-                    <h3 class="step-title">查看详细评估</h3>
-                    <p class="step-description">在提交记录中查看每次提交的详细评估结果。系统会提供多维度分析报告，包括代码质量评分、算法效率分析、编程规范检查等，并用雷达图直观展示您的能力分布。</p>
+                    <h3 class="step-title">先核对运行结果</h3>
+                    <p class="step-description">确认编译、测试、运行时错误和输出是否符合题目要求；如果结果异常，优先根据执行证据定位。</p>
                 </div>
             </div>
             <div class="step-item">
                 <div class="step-number">2</div>
                 <div class="step-content">
-                    <h3 class="step-title">查看智能建议</h3>
-                    <p class="step-description">系统会基于GLM-4-Flash大模型分析，生成针对性的代码改进建议和学习指导。这些建议包括代码重构方案、算法优化思路、学习资源推荐等，帮助您有的放矢地提升能力。</p>
+                    <h3 class="step-title">再阅读辅助建议</h3>
+                    <p class="step-description">把模型建议当作提问和检查清单，自己验证每条建议是否适合当前作业，不直接照搬完整答案。</p>
                 </div>
             </div>
             <div class="step-item">
                 <div class="step-number">3</div>
                 <div class="step-content">
-                    <h3 class="step-title">能力发展追踪</h3>
-                    <p class="step-description">系统会记录您的历史提交数据，生成编程能力发展曲线，让您清晰地看到自己的进步轨迹。同时，系统还会定期生成学情分析报告，帮助您了解自己的学习情况和编程能力发展方向。</p>
+                    <h3 class="step-title">用历史记录复盘</h3>
+                    <p class="step-description">对比多次提交的思路、错误和修正过程，观察知识点与能力趋势，而不是把单次分数当作最终结论。</p>
                 </div>
             </div>
         </div>
-    </div>
-    
-    <div class="faq-section">
+    </section>
+
+    <section class="guide-section">
+        <h2 class="section-title"><i class="bi bi-person-workspace"></i> 教师功能指南</h2>
+        <p class="section-intro">教师端围绕作业、班级、提交记录、知识点和能力画像组织教学信息，帮助教师查看连续的学习过程。</p>
+        <div class="step-list">
+            <div class="step-item">
+                <div class="step-number">1</div>
+                <div class="step-content">
+                    <h3 class="step-title">管理作业与班级</h3>
+                    <p class="step-description">创建作业、维护测试用例、组织班级和花名册，并查看作业完成情况。</p>
+                </div>
+            </div>
+            <div class="step-item">
+                <div class="step-number">2</div>
+                <div class="step-content">
+                    <h3 class="step-title">查看提交与知识点</h3>
+                    <p class="step-description">从提交记录、知识点得分和能力趋势了解学生遇到的共性问题与个体差异。</p>
+                </div>
+            </div>
+            <div class="step-item">
+                <div class="step-number">3</div>
+                <div class="step-content">
+                    <h3 class="step-title">复核 AI 建议</h3>
+                    <p class="step-description">将模型生成的学情建议作为辅助材料，结合代码、执行证据和教学情境作出最终判断。</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="faq-section">
         <h2 class="faq-title">常见问题</h2>
         <div class="faq-list">
             <div class="faq-item">
-                <h3 class="faq-question">Q: 系统使用的是什么评估技术？</h3>
-                <p class="faq-answer">A: 我们的系统采用了先进的混合式评分技术，融合了CNN深度学习模型、启发式规则评分和智谱GLM-4-Flash大模型评估。这种多模型融合的评分方式能够更全面、更准确地评估代码质量和编程能力。</p>
+                <h3 class="faq-question">Q：系统使用什么 AI 模型？</h3>
+                <p class="faq-answer">A：当前智谱配置使用 GLM-4.5-Flash；也可以按部署配置使用其他已接入的 AI provider。实际调用以服务器环境变量和服务状态为准。</p>
             </div>
             <div class="faq-item">
-                <h3 class="faq-question">Q: 系统支持哪些编程语言？</h3>
-                <p class="faq-answer">A: 目前系统支持C++、Python和Java三种主流编程语言。每种语言都有专门的评估标准和优化建议，能够针对不同语言的特点进行精准评估。</p>
+                <h3 class="faq-question">Q：系统支持哪些编程语言？</h3>
+                <p class="faq-answer">A：实际可用语言取决于作业类型、评测配置和部署环境。公开体验主要围绕 C++ 代码评测；请以当前作业页面显示的要求为准。</p>
             </div>
             <div class="faq-item">
-                <h3 class="faq-question">Q: 系统如何保证评分的公正性？</h3>
-                <p class="faq-answer">A: 我们的混合式评分系统综合了多种评分方法，并经过大量真实代码样本的训练和校准，确保评分的客观性和公正性。此外，系统还会定期优化评估模型，保持评分的准确性和一致性。</p>
+                <h3 class="faq-question">Q：AI 输出可以直接当成评分结论吗？</h3>
+                <p class="faq-answer">A：不可以。程序评测和教师判断优先；模型输出可能有误，遇到冲突时应回到代码、测试结果和具体上下文复核。</p>
             </div>
             <div class="faq-item">
-                <h3 class="faq-question">Q: 如何获取更个性化的学习建议？</h3>
-                <p class="faq-answer">A: 系统会根据您的提交历史和能力数据画像，利用GLM-4-Flash大模型生成针对性的学习建议。建议您多提交代码，多查看评估结果和建议，系统能够从您的数据中学习，提供更精准的个性化指导。</p>
+                <h3 class="faq-question">Q：没有配置 AI 密钥还能使用吗？</h3>
+                <p class="faq-answer">A：登录、基础页面和不依赖 AI 的功能仍可用于检查；需要模型分析的操作会提示服务不可用或失败，不会把预设文字伪装成真实 AI 结果。</p>
             </div>
             <div class="faq-item">
-                <h3 class="faq-question">Q: 系统能否帮助我准备面试或竞赛？</h3>
-                <p class="faq-answer">A: 能。我们的系统不仅评估基础编程能力，还会分析算法思维和代码质量，这些都是面试和竞赛的重要考察点。系统提供的能力分析和针对性建议能够帮助您有效提升竞争力，为面试和竞赛做好充分准备。</p>
+                <h3 class="faq-question">Q：Causal Sandbox 是完整的安全沙箱吗？</h3>
+                <p class="faq-answer">A：不是。它负责统一收集受限编译与运行证据；面向公网部署仍需要操作系统或容器级隔离、低权限账户、网络限制和资源配额。</p>
             </div>
         </div>
-    </div>
-    
-    <div class="support-section">
+    </section>
+
+    <section class="support-section">
         <div class="support-icon">
             <i class="bi bi-headset"></i>
         </div>
         <h2 class="support-title">需要更多帮助？</h2>
-        <p class="support-description">如果您在使用过程中遇到任何问题，或者对系统有任何建议，请随时联系我们的技术支持团队</p>
+        <p class="support-description">如果遇到功能异常或有改进建议，请进入反馈中心，并尽量附上页面、复现步骤和反馈编号。</p>
         <div class="support-contact">
-            <div class="contact-item">
-                <i class="bi bi-envelope contact-icon"></i>
-                <span>daiyupeng5@gmail.com</span>
-            </div>
-            <div class="contact-item">
-                <i class="bi bi-telephone contact-icon"></i>
-                <span>15042774955</span>
-            </div>
+            <a class="contact-item text-decoration-none" href="{{ url_for('main.feedback', from_page=request.path) }}">
+                <i class="bi bi-chat-square-text contact-icon"></i>
+                <span>前往反馈中心</span>
+            </a>
         </div>
-    </div>
-
-
-    <div class="guide-section">
-        <h2 class="section-title"><i class="bi bi-person-workspace"></i> 教师功能指南</h2>
-        <p class="section-intro">教师账号由管理员通过邀请链接创建，登录后可使用以下功能：</p>
-        <div class="step-list">
-            <div class="step-item">
-                <div class="step-number">1</div>
-                <div class="step-content">
-                    <h3 class="step-title">班级管理</h3>
-                    <p class="step-description">在"管理我的班级"中查看所负责的班级列表，点击班级名称进入班级详情，查看学生名单和整体学情。</p>
-                </div>
-            </div>
-            <div class="step-item">
-                <div class="step-number">2</div>
-                <div class="step-content">
-                    <h3 class="step-title">班级对比分析</h3>
-                    <p class="step-description">通过"班级对比"功能横向比较各班级的平均分、提交数量和知识点掌握情况，辅助教学决策。</p>
-                </div>
-            </div>
-            <div class="step-item">
-                <div class="step-number">3</div>
-                <div class="step-content">
-                    <h3 class="step-title">学生详情查看</h3>
-                    <p class="step-description">点击学生姓名可查看该生的提交记录、得分趋势和AI评估建议，帮助教师精准掌握个体学情。</p>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="guide-section">
-        <h2 class="section-title"><i class="bi bi-shield-check"></i> 管理员功能指南</h2>
-        <p class="section-intro">管理员账号拥有系统最高权限，负责用户和系统的日常管理：</p>
-        <div class="step-list">
-            <div class="step-item">
-                <div class="step-number">1</div>
-                <div class="step-content">
-                    <h3 class="step-title">用户管理</h3>
-                    <p class="step-description">在"用户管理"页面查看所有用户（学生、教师、管理员），支持搜索、筛选、查看详情及删除操作。</p>
-                </div>
-            </div>
-            <div class="step-item">
-                <div class="step-number">2</div>
-                <div class="step-content">
-                    <h3 class="step-title">邀请教师注册</h3>
-                    <p class="step-description">通过"邀请教师"功能生成24小时有效且仅限单次使用的注册链接，将链接发送给待注册教师即可。</p>
-                </div>
-            </div>
-            <div class="step-item">
-                <div class="step-number">3</div>
-                <div class="step-content">
-                    <h3 class="step-title">系统仪表盘</h3>
-                    <p class="step-description">管理员仪表盘展示系统级监控指标：总用户数、提交总量、活跃度趋势、系统日志等，帮助管理员掌握平台整体运行状态。</p>
-                </div>
-            </div>
-        </div>
-    </div>
+    </section>
 </div>
-{% endblock %} 
+{% endblock %}

@@ -4,6 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="CodeSense 酷森思 - 面向高校编程教学的 AI 引导式评测与学习平台">
     <title>教师注册 - CodeSense 酷森思</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='modern.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap-icons/1.10.5/font/bootstrap-icons.min.css') }}?v=1.10.5">
@@ -21,6 +22,16 @@
             border-radius: 12px;
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
             padding: 2.5rem;
+        }
+        .auth-logo {
+            margin-bottom: 1.5rem;
+            text-align: center;
+        }
+        .auth-logo img {
+            display: block;
+            width: min(100%, 220px);
+            height: auto;
+            margin: 0 auto;
         }
         .auth-title {
             font-size: 1.75rem;
@@ -66,6 +77,10 @@
 
 <body>
     <div class="auth-form-container">
+        <div class="auth-logo">
+            <img src="{{ url_for('static', filename='img/codesense-logo-final.png') }}"
+                alt="CodeSense 酷森思" width="2169" height="725">
+        </div>
         <h1 class="auth-title">教师账户注册</h1>
         <p class="auth-subtitle">您正在通过邀请链接创建教师账户</p>
         

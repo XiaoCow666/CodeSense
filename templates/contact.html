@@ -372,50 +372,50 @@
 <div class="contact-container">
     <div class="contact-header">
         <div class="contact-content">
-            <h1 class="contact-title">联系我们</h1>
-            <p class="contact-subtitle">沈阳航空航天大学分布式系统研究室，专注于人工智能教育应用与编程能力评估研究</p>
+            <h1 class="contact-title">CoDeBuGo · CodeSense</h1>
+            <p class="contact-subtitle">面向高校编程教学的 AI 引导式评测与学习平台，围绕代码、调试、协作与行动持续迭代。</p>
             <div class="contact-badges">
-                <div class="badge"><i class="bi bi-robot"></i> 智谱GLM-4-Flash</div>
-                <div class="badge"><i class="bi bi-stars"></i> CNN模型评分</div>
-                <div class="badge"><i class="bi bi-graph-up-arrow"></i> 编程能力分析</div>
-                <div class="badge"><i class="bi bi-mortarboard"></i> 教育科技创新</div>
+                <div class="badge"><i class="bi bi-robot"></i> 智谱 GLM-4.5-Flash</div>
+                <div class="badge"><i class="bi bi-list-check"></i> 三阶段引导式学习</div>
+                <div class="badge"><i class="bi bi-terminal"></i> Causal Sandbox</div>
+                <div class="badge"><i class="bi bi-mortarboard"></i> 教师学情视图</div>
             </div>
         </div>
     </div>
     
-    <h2 class="section-title">我们的研究团队</h2>
+    <h2 class="section-title">项目团队</h2>
     <div class="contact-grid">
         <div class="team-card">
             <div class="team-header">
                 <div class="team-logo">
-                    <i class="bi bi-building"></i>
+                    <i class="bi bi-people"></i>
                 </div>
-                <h3 class="team-name">分布式系统研究室</h3>
-                <div class="team-role">核心研发团队</div>
+                <h3 class="team-name">Team CoDeBuGo</h3>
+                <div class="team-role">CodeSense 项目团队</div>
             </div>
             <div class="team-body">
                 <p class="team-description">
-                    致力于计算机科学与技术领域的研究与创新，专注于教育信息化和人工智能应用研究。我们的团队在机器学习、自然语言处理和教育技术领域有丰富的研究经验，致力于将前沿技术应用于提升教育质量。
+                    CoDeBuGo 是 CodeSense 与 Caifusi 共用的组织入口。CodeSense 面向高校程序设计课程，连接思路描述、步骤组装、代码实践、受限执行、费曼式解释与反馈再提交，帮助学习者从“写出代码”走向“理解代码”。
                 </p>
                 <div class="research-interests">
-                    <span class="interest-label">机器学习</span>
-                    <span class="interest-label">教育信息化</span>
-                    <span class="interest-label">代码智能分析</span>
-                    <span class="interest-label">深度学习</span>
-                    <span class="interest-label">自然语言处理</span>
+                    <span class="interest-label">AI 引导式学习</span>
+                    <span class="interest-label">代码评测</span>
+                    <span class="interest-label">Causal Sandbox</span>
+                    <span class="interest-label">教师学情</span>
+                    <span class="interest-label">开源协作</span>
                 </div>
                 <ul class="team-contact-list">
                     <li class="team-contact-item">
-                        <i class="bi bi-envelope"></i>
-                        <span>daiyupeng5@gmail.com</span>
+                        <i class="bi bi-building"></i>
+                        <span>关联学校：沈阳航空航天大学</span>
                     </li>
                     <li class="team-contact-item">
-                        <i class="bi bi-telephone"></i>
-                        <span>15042774955</span>
+                        <i class="bi bi-globe2"></i>
+                        <a href="https://saucodesense.com" target="_blank" rel="noopener noreferrer">CodeSense 公开入口</a>
                     </li>
                     <li class="team-contact-item">
-                        <i class="bi bi-geo-alt"></i>
-                        <span>中国辽宁沈阳道义经济开发区道义南大街37号</span>
+                        <i class="bi bi-github"></i>
+                        <a href="https://github.com/XiaoCow666/CodeSense" target="_blank" rel="noopener noreferrer">GitHub 源码仓库</a>
                     </li>
                 </ul>
             </div>
@@ -424,64 +424,54 @@
     
     <div class="location-card">
         <div class="location-header">
-            <i class="bi bi-geo-alt-fill"></i>
-            <h3>我们的位置</h3>
+            <i class="bi bi-box-arrow-up-right"></i>
+            <h3>项目与公开入口</h3>
         </div>
         <div class="location-body">
             <div class="location-info">
-                <p><strong>地址：</strong>中国辽宁沈阳道义经济开发区道义南大街37号</p>
-                <p><strong>学院：</strong>计算机科学与技术学院</p>
-                <p><strong>邮编：</strong>110136</p>
+                <p><strong>产品：</strong>CodeSense 酷森思智能编程教育平台</p>
+                <p><strong>方向：</strong>代码评测、AI 语义分析、安全执行与教师学情管理</p>
+                <p><strong>组织：</strong>CoDeBuGo</p>
             </div>
             <div class="location-description">
-                <p>我们位于沈阳航空航天大学计算机科学与技术学院，交通便利，环境优美。欢迎来访交流！</p>
-            </div>
-            <div class="campus-image" style="margin-top: 1.5rem; border-radius: 0.5rem; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-                <img src="{{ url_for('static', filename='images/campus.jpg') }}" 
-                     alt="沈阳航空航天大学校园" 
-                     style="width: 100%; height: auto; display: block;"
-                     onerror="this.onerror=null; this.src='{{ url_for('static', filename='img/empty-state.svg') }}';">
-                <div style="background: rgba(0,123,255,0.1); padding: 0.75rem; text-align: center; color: #4b5563;">
-                    <i class="bi bi-info-circle"></i> 沈阳航空航天大学校园风光
-                </div>
+                <p>公开入口用于了解产品与项目进展；源码仓库是实现和部署状态的事实来源。页面内容会随已验证的产品能力和配置同步更新。</p>
             </div>
         </div>
     </div>
     
     <div class="achievement-section">
-        <h2 class="section-title">研究方向与愿景</h2>
+        <h2 class="section-title">我们关注的方向</h2>
         <p style="color: #4b5563; margin-bottom: 2rem;">
-            我们的团队致力于将人工智能技术与教育深度融合，打造智能化的编程教学评价体系。
-            通过持续探索和创新，我们期望为编程教育提供更科学、更全面的评估工具。
+            我们把学习过程中的思路、代码、执行结果和解释都作为可回看的证据，持续完善学生与教师都能使用的编程学习闭环。
         </p>
         <div class="achievement-grid">
             <div class="achievement-item">
                 <div class="achievement-icon">
                     <i class="bi bi-lightbulb"></i>
                 </div>
-                <div style="font-size: 1.25rem; font-weight: 600; margin-bottom: 0.5rem; color: #1a1a1a;">智能评估</div>
-                <div class="achievement-text">探索大模型与传统机器学习相结合的代码评估方法</div>
+                <div style="font-size: 1.25rem; font-weight: 600; margin-bottom: 0.5rem; color: #1a1a1a;">学习闭环</div>
+                <div class="achievement-text">从思路描述、步骤推演到代码实践和反馈再提交，逐步形成可理解的学习路径</div>
             </div>
             <div class="achievement-item">
                 <div class="achievement-icon">
                     <i class="bi bi-graph-up"></i>
                 </div>
-                <div style="font-size: 1.25rem; font-weight: 600; margin-bottom: 0.5rem; color: #1a1a1a;">学习分析</div>
-                <div class="achievement-text">构建学生编程能力的多维度画像与发展轨迹分析</div>
+                <div style="font-size: 1.25rem; font-weight: 600; margin-bottom: 0.5rem; color: #1a1a1a;">证据优先</div>
+                <div class="achievement-text">结合编译、运行、测试和错误信息，让评测反馈能够回到真实的代码行为</div>
             </div>
             <div class="achievement-item">
                 <div class="achievement-icon">
                     <i class="bi bi-person-check"></i>
                 </div>
-                <div style="font-size: 1.25rem; font-weight: 600; margin-bottom: 0.5rem; color: #1a1a1a;">个性化教学</div>
-                <div class="achievement-text">基于评估结果提供针对性的学习建议与资源推荐</div>
+                <div style="font-size: 1.25rem; font-weight: 600; margin-bottom: 0.5rem; color: #1a1a1a;">教师可读</div>
+                <div class="achievement-text">围绕作业、提交、知识点和能力维度整理学习信息，支持教师了解班级与个人进展</div>
             </div>
             <div class="achievement-item">
                 <div class="achievement-icon">
                     <i class="bi bi-globe"></i>
                 </div>
-                <div style="font-size: 1.25rem; font-weight: 600; margin-bottom: 0.5rem; color: #1a1a1a;">教育生态</div>
-                <div class="achievement-text">构建开放的智能编程教育平台与评估生态系统</div>
+                <div style="font-size: 1.25rem; font-weight: 600; margin-bottom: 0.5rem; color: #1a1a1a;">持续协作</div>
+                <div class="achievement-text">以 CoDeBuGo 为组织入口，沉淀项目文档、设计资产、反馈和可复现的改进记录</div>
             </div>
         </div>
     </div>

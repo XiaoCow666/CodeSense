@@ -105,6 +105,19 @@ a:hover {
   margin-right: var(--spacing-sm);
 }
 
+.navbar-brand-logo {
+  width: auto;
+  height: 34px;
+  margin-right: 0 !important;
+  object-fit: contain;
+}
+
+@media (max-width: 576px) {
+  .navbar-brand-logo {
+    height: 30px;
+  }
+}
+
 .navbar-nav {
   display: flex;
   list-style: none;
