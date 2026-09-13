@@ -22,8 +22,8 @@
   <a href="https://github.com/XiaoCow666/CodeSense/network/members"><img src="https://img.shields.io/github/forks/XiaoCow666/CodeSense?style=flat-square&logo=github" alt="GitHub forks"></a>
   <a href="https://github.com/XiaoCow666/CodeSense/blob/main/LICENSE"><img src="https://img.shields.io/github/license/XiaoCow666/CodeSense?style=flat-square" alt="License"></a>
   <img src="https://img.shields.io/badge/version-v1.0.0-2563eb?style=flat-square" alt="v1.0.0">
-  <img src="https://img.shields.io/badge/Python-3.8--3.13-3776ab?style=flat-square&logo=python&logoColor=white" alt="Python 3.8–3.13">
-  <img src="https://img.shields.io/badge/Flask-2.2.3-000000?style=flat-square&logo=flask&logoColor=white" alt="Flask 2.2.3">
+  <img src="https://img.shields.io/badge/Python-3.8--3.14-3776ab?style=flat-square&logo=python&logoColor=white" alt="Python 3.8–3.14">
+  <img src="https://img.shields.io/badge/Flask-2.3.3-000000?style=flat-square&logo=flask&logoColor=white" alt="Flask 2.3.3">
 </p>
 
 > 当前版本：<a href="https://github.com/XiaoCow666/CodeSense/releases/tag/v1.0.0"><code>v1.0.0</code></a>。
@@ -212,7 +212,7 @@ flowchart LR
 
 ### 环境要求
 
-- Python 3.8–3.13；当前锁定的 Flask/Werkzeug 2.2.3 组合在 Python 3.14 下存在已知的路由初始化兼容性错误。
+- Python 3.8–3.14；Flask/Werkzeug 已升级至 2.3.x 以兼容 Python 3.12+（ast.Str 在 3.12 废弃、3.14 移除）。
 - C++ 评测需要可执行的 <code>g++</code>，并确保它在 <code>PATH</code> 中；
 - 开发环境可以使用 SQLite，生产环境需要配置 <code>DATABASE_URL</code>；
 - AI 引导、代码建议和部分学情分析需要智谱或 OpenAI API 密钥。
@@ -284,6 +284,14 @@ sudo apt install g++
 
 ### 4. 启动开发服务
 
+Windows PowerShell 中先激活虚拟环境：
+
+~~~powershell
+.venv\Scripts\Activate.ps1
+~~~
+
+然后启动：
+
 ~~~bash
 python run.py
 ~~~
@@ -302,7 +310,11 @@ python -m pip install -r requirements-test.txt
 python -m pytest tests -q
 ~~~
 
-> 兼容性边界：在 Python 3.14 下，当前 Flask/Werkzeug 2.2.3 组合会在路由初始化阶段触发 `ast.Str` 兼容性错误。本次仅记录边界，不升级框架依赖；如需支持 Python 3.14，应单独评审 Flask/Werkzeug 升级并执行完整回归。
+> 兼容性说明：Flask/Werkzeug 已从 2.2.3 升级至 2.3.x，Flask-Session 从 0.4.0 升级至 0.8.0，以支持 Python 3.12+（ast.Str 在 3.12 废弃、Python 3.14 移除；Flask 2.3 移除了 `session_cookie_name` 应用属性，旧版 Flask-Session 0.4.0 依赖该属性导致初始化失败）。Flask-Session 0.8.0 使用标准的 session modified 检测机制，无需额外钩子。
+>
+> - **声明支持**：Python 3.8–3.14
+> - **已验证启动**：Python 3.10、3.11、3.14.7（`python run.py` 启动成功，`/login` 返回 200）
+> - **专项回归通过**：`tests/test_demo_guided_learning.py` 9 个用例、`tests/test_compile_error_scoring.py` 4 个用例；完整测试套件待执行
 
 涉及 C++ 评测的测试需要 <code>g++</code>；涉及真实 AI 服务的测试还需要相应环境变量。
 

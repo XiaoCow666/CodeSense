@@ -53,7 +53,7 @@ def stage3_trace_context(tmp_path, monkeypatch):
         db.session.commit()
         session_id = session.id
     client = app.test_client()
-    client.post("/login", data={"username": "student-1", "password": "password"})
+    client.post("/login", data={"username": "student-1", "password": "password"}, base_url="http://example.com")
     yield app, client, session_id
     with app.app_context():
         db.session.remove()
