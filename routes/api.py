@@ -326,6 +326,17 @@ def submit_code():
                     demo_run_id=None,
                 )
             except SubmissionQueueUnavailable:
+                # The row was committed before queueing so the worker can
+                # resolve it by id.  If queueing fails, close the same state
+                # transition here; otherwise the student would poll a
+                # permanently pending submission with no job behind it.
+                submission.status = 'failed'
+                submission.feedback = '后台评测启动失败，请稍后重试。'
+                db.session.commit()
+                current_app.logger.warning(
+                    '提交 %s 的评测队列不可用，已标记为 failed',
+                    submission.id,
+                )
                 return error_response(
                     "提交评测队列暂时不可用，请稍后重试",
                     503,

@@ -307,6 +307,16 @@ def test_queue_unavailability_is_a_stable_submission_error(queue_context, monkey
     assert response.status_code == 503
     assert response.json["message"] == "提交评测队列暂时不可用，请稍后重试"
     assert "isolated.invalid" not in response.get_data(as_text=True)
+    with app.app_context():
+        submission = Submission.query.one()
+        submission_id = submission.id
+        assert submission.status == "failed"
+        assert submission.feedback == "后台评测启动失败，请稍后重试。"
+
+    status_response = client.get(f"/api/submissions/{submission_id}/status")
+    assert status_response.status_code == 200
+    assert status_response.json["status"] == "failed"
+    assert status_response.json["queue_status"] == "unavailable"
 
 
 def test_ajax_submission_client_handles_queued_status():
