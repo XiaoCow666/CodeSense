@@ -3,6 +3,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from app import create_app
 from config import config
@@ -127,6 +128,21 @@ class SubmissionReviewCollaborationTestCase(unittest.TestCase):
             data={'username': username, 'password': password},
             follow_redirects=False,
         )
+
+    def test_testing_login_does_not_enqueue_background_trend_work(self):
+        with patch('utils.async_tasks.add_ability_trend_task') as enqueue:
+            response = self.login('review_student', 'student_password')
+
+        self.assertEqual(response.status_code, 302)
+        enqueue.assert_not_called()
+
+    def test_testing_submission_history_does_not_start_background_analysis(self):
+        self.assertEqual(self.login('review_student', 'student_password').status_code, 302)
+        with patch('tasks.ability_analysis.generate_ability_analysis_async') as generate:
+            response = self.client.get('/view_submission')
+
+        self.assertEqual(response.status_code, 200)
+        generate.assert_not_called()
 
     def test_request_is_idempotent_and_messages_reopen_resolved_review(self):
         with self.app.app_context():

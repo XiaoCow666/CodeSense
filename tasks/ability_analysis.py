@@ -215,6 +215,13 @@ def trigger_analysis_if_needed(student_id, force=False, demo_run_id=None):
     if demo_run_id and not _demo_database_is_available(demo_run_id):
         return False
 
+    # Test applications own short-lived SQLite databases.  Do not start a
+    # daemon thread that can retain one after the test has disposed its app;
+    # callers that explicitly exercise the worker can still invoke the worker
+    # entry points directly.
+    if current_app.testing and not demo_run_id:
+        return False
+
     trend = AbilityTrend.query.filter_by(student_id=student_id).first()
 
     if not demo_run_id and current_app.config.get(

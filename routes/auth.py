@@ -136,12 +136,13 @@ def login():
                 user_id=user.student_id
             )
             current_app.logger.info(f"登录成功 - 用户: {user.username} ({user.full_name}), 类型: {user.usertype}, IP: {request.remote_addr}")
-            try:
-                from utils.async_tasks import add_ability_trend_task
-                task_id = add_ability_trend_task(user.student_id)
-                current_app.logger.info(f"用户 {user.student_id} 登录成功，已触发能力趋势分析任务: {task_id}")
-            except Exception as e:
-                current_app.logger.warning(f"触发能力趋势分析任务失败: {e}")
+            if not current_app.testing:
+                try:
+                    from utils.async_tasks import add_ability_trend_task
+                    task_id = add_ability_trend_task(user.student_id)
+                    current_app.logger.info(f"用户 {user.student_id} 登录成功，已触发能力趋势分析任务: {task_id}")
+                except Exception as e:
+                    current_app.logger.warning(f"触发能力趋势分析任务失败: {e}")
             flash('登录成功！', 'success')
             return redirect(url_for('main.home'))
         else:
