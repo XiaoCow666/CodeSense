@@ -70,6 +70,11 @@
 
 全量 warning 主要来自既有依赖和测试环境：Werkzeug `ast.Str`、`datetime.utcnow`、SQLAlchemy legacy API、Flask-Session/Redis fallback，以及测试夹具的异步/数据库生命周期提示。本轮没有通过静默 warning 或修改生产配置掩盖它们。
 
+### 独立审查状态
+
+- 已按审查流程请求独立只读审查；前两次代理调用分别未找到目标、在完成测试后未返回可读取结论，已停止并明确不计为“审查通过”。第三次窄范围审查请求截至本报告整理时也未返回结果。
+- 因此本轮不宣称存在独立 reviewer approval；可复核依据是完整测试、针对性测试、静态检查、浏览器验收，以及提交前的变更范围/权限边界检查。上线前仍应由人工 reviewer 复核最终 diff。
+
 ### 临时环境浏览器验收
 
 使用临时 SQLite、临时 Flask server 和本机 Chromium/Playwright 完成学生—教师闭环：学生申请 → 教师队列 → `in_review` → 教师留言 → 学生回复/AI 信号 → `resolved` → 学生追问重新打开 → 通知收件箱 → 全部已读。
