@@ -156,6 +156,29 @@ class StructuredDecisionModel:
         except Exception:
             return self._fallback("CLIENT_ERROR")
 
+    def _chat_with_trace_kind(self, messages: List[Dict[str, str]]):
+        """Keep injected legacy clients usable while labeling real calls."""
+        try:
+            return self.client.chat(
+                messages,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                request_kind="stage3",
+            )
+        except TypeError as error:
+            # Tests and integrations may inject an older client whose method
+            # predates the optional trace keyword.  A Python signature error
+            # happens before the provider call, so this fallback cannot replay
+            # a partially completed model request.
+            if "unexpected keyword argument 'request_kind'" not in str(error):
+                raise
+            legacy_chat = self.client.chat
+            return legacy_chat(
+                messages,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+            )
+
     def _is_available(self) -> bool:
         try:
             return bool(self.client.is_available())
@@ -178,7 +201,8 @@ class StructuredDecisionModel:
             # compatibility failure; do not hide a provider TypeError.
             if "request_kind" not in str(error):
                 raise
-            return self.client.chat(
+            legacy_chat = self.client.chat
+            return legacy_chat(
                 messages,
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,

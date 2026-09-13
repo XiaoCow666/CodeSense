@@ -488,37 +488,18 @@
     
     <div class="row">
         <div class="col-md-12">
-            <h2 class="section-title">联系我们</h2>
+            <h2 class="section-title">联系与反馈</h2>
             <div class="feedback-form">
                 <div class="feedback-info" style="margin-bottom: 1.5rem;">
                     <p style="color: #4b5563;">
-                        如有任何问题、建议或合作意向，请填写以下表单与我们联系。我们会尽快回复您的消息。
+                        团队介绍和公开联系信息在本页展示。若要报告功能异常、提交使用建议或补充复现步骤，
+                        请进入反馈中心；提交后会获得一个可追踪的反馈编号。
                     </p>
                 </div>
-                
-                <form method="POST" action="{{ url_for('main.contact') }}">
-                    <div class="form-group">
-                        <label for="name">姓名</label>
-                        <input type="text" class="form-control" id="name" name="name" required>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="email">电子邮箱</label>
-                        <input type="email" class="form-control" id="email" name="email" required>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="subject">主题</label>
-                        <input type="text" class="form-control" id="subject" name="subject" required>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="message">留言内容</label>
-                        <textarea class="form-control" id="message" name="message" required></textarea>
-                    </div>
-                    
-                    <button type="submit" class="btn-submit">提交反馈</button>
-                </form>
+                <a class="btn-submit d-inline-block text-center text-decoration-none"
+                    href="{{ url_for('main.feedback', from_page=request.path) }}">
+                    前往反馈中心
+                </a>
             </div>
         </div>
     </div>

@@ -1,9 +1,8 @@
 """Small helpers for consistent Server-Sent Events responses.
 
-The project has several older SSE endpoints with slightly different payload
-shapes.  New endpoints use the ``type`` field while retaining the commonly
-used ``content``/``token``/``done`` fields where that is useful for existing
-clients.
+All AI SSE endpoints use the same small envelope: ``start``, optional
+``status``/``data``, text ``delta`` events with a ``content`` field, and one
+terminal ``done`` or ``error`` event.
 """
 
 import json
@@ -29,6 +28,32 @@ def sse_event(payload: Any, event: Optional[str] = None) -> str:
     encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     prefix = f"event: {event}\n" if event else ""
     return f"{prefix}data: {encoded}\n\n"
+
+
+def stream_text_chunks(text: str, *, max_chars: int = 160) -> Iterable[str]:
+    """Split already-available text into readable, bounded stream chunks.
+
+    Provider streams should be forwarded as they arrive.  This helper is for
+    cached or precomputed text, where a one-character-at-a-time animation only
+    adds artificial latency.  Prefer paragraph/punctuation boundaries when a
+    reasonably sized chunk is available, including for Chinese text.
+    """
+
+    if not text:
+        return
+    max_chars = max(1, int(max_chars))
+    boundaries = "\n。！？；.!?;:："
+    start = 0
+    text_length = len(text)
+    while start < text_length:
+        end = min(text_length, start + max_chars)
+        if end < text_length:
+            candidate = text[start:end]
+            boundary = max(candidate.rfind(char) for char in boundaries)
+            if boundary >= max_chars // 2:
+                end = start + boundary + 1
+        yield text[start:end]
+        start = end
 
 
 def sse_response(events: Iterable[str]) -> Response:
@@ -63,7 +88,6 @@ def sse_text_events(
             if not text:
                 continue
             collected.append(text)
-            # ``content`` is intentionally kept for older fetch readers.
             yield sse_event({"type": "delta", "content": text})
         payload = {"type": "done", "done": True, "content": "".join(collected)}
         if done_payload:

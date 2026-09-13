@@ -1,0 +1,560 @@
+import json
+import os
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+from app import create_app
+from config import config
+from models import Assignment, Class, Submission, SystemLog, User, db
+from services.notifications import list_notifications
+from services.submission_reviews import (
+    ReviewPermissionError,
+    ReviewStatusError,
+    ReviewValidationError,
+    add_review_message,
+    count_open_reviews,
+    create_review_request,
+    get_ai_feedback_signal,
+    get_review_summaries,
+    get_submission_review,
+    list_review_queue,
+    save_ai_feedback_signal,
+    transition_review,
+)
+
+
+class SubmissionReviewCollaborationTestCase(unittest.TestCase):
+    def setUp(self):
+        self.db_fd, self.db_path = tempfile.mkstemp()
+        os.close(self.db_fd)
+        config['testing'].SQLALCHEMY_DATABASE_URI = f'sqlite:///{self.db_path}'
+        self.app = create_app('testing')
+        self.app.config['TESTING'] = True
+        self.app.config['WTF_CSRF_ENABLED'] = False
+        self.client = self.app.test_client()
+
+        with self.app.app_context():
+            self.teacher = User(
+                student_id='review_teacher',
+                username='review_teacher',
+                usertype='教师',
+                full_name='复核教师',
+            )
+            self.teacher.password = 'teacher_password'
+            self.other_teacher = User(
+                student_id='other_teacher',
+                username='other_teacher',
+                usertype='教师',
+                full_name='其他教师',
+            )
+            self.other_teacher.password = 'teacher_password'
+            self.student = User(
+                student_id='review_student',
+                username='review_student',
+                usertype='学生',
+                full_name='复核学生',
+                email='review@example.com',
+            )
+            self.student.password = 'student_password'
+            self.outsider = User(
+                student_id='review_outsider',
+                username='review_outsider',
+                usertype='学生',
+                full_name='无关学生',
+            )
+            self.outsider.password = 'student_password'
+            self.admin = User(
+                student_id='review_admin',
+                username='review_admin',
+                usertype='管理员',
+                full_name='复核管理员',
+            )
+            self.admin.password = 'admin_password'
+            db.session.add_all([
+                self.teacher,
+                self.other_teacher,
+                self.student,
+                self.outsider,
+                self.admin,
+            ])
+            db.session.flush()
+
+            self.classroom = Class(
+                name='复核测试班',
+                teacher_id=self.teacher.student_id,
+            )
+            db.session.add(self.classroom)
+            db.session.flush()
+            self.student.class_id = self.classroom.id
+            assignment = Assignment(
+                title='复核测试作业',
+                description='用于复核协作测试',
+                target_classes=self.classroom.name,
+                creator_id=self.teacher.student_id,
+            )
+            db.session.add(assignment)
+            db.session.flush()
+            self.submission = Submission(
+                student_id=self.student.student_id,
+                assignment_id=assignment.id,
+                code='int main() { return 0; }',
+                score=2,
+                status='evaluated',
+                ai_feedback='可以先检查边界条件，再比较测试输出。',
+            )
+            db.session.add(self.submission)
+            db.session.commit()
+            self.teacher_id = 'review_teacher'
+            self.other_teacher_id = 'other_teacher'
+            self.student_id = 'review_student'
+            self.outsider_id = 'review_outsider'
+            self.admin_id = 'review_admin'
+            self.submission_id = self.submission.id
+            self.assignment_id = assignment.id
+
+    def tearDown(self):
+        with self.app.app_context():
+            db.session.remove()
+            db.drop_all()
+            db.engine.dispose()
+        if os.path.exists(self.db_path):
+            os.unlink(self.db_path)
+
+    def login(self, username, password):
+        return self.client.post(
+            '/login',
+            data={'username': username, 'password': password},
+            follow_redirects=False,
+        )
+
+    def test_testing_login_does_not_enqueue_background_trend_work(self):
+        with patch('utils.async_tasks.add_ability_trend_task') as enqueue:
+            response = self.login('review_student', 'student_password')
+
+        self.assertEqual(response.status_code, 302)
+        enqueue.assert_not_called()
+
+    def test_testing_submission_history_does_not_start_background_analysis(self):
+        self.assertEqual(self.login('review_student', 'student_password').status_code, 302)
+        with patch('tasks.ability_analysis.generate_ability_analysis_async') as generate:
+            response = self.client.get('/view_submission')
+
+        self.assertEqual(response.status_code, 200)
+        generate.assert_not_called()
+
+    def test_request_is_idempotent_and_messages_reopen_resolved_review(self):
+        with self.app.app_context():
+            submission = db.session.get(Submission, self.submission_id)
+            student = db.session.get(User, self.student_id)
+            teacher = db.session.get(User, self.teacher_id)
+
+            first, created = create_review_request(
+                submission,
+                student.student_id,
+                '隐藏测试用例失败后，我想确认应该先检查哪个边界条件。',
+            )
+            second, duplicate = create_review_request(
+                submission,
+                student.student_id,
+                '重复点击不应创建第二个复核线程。',
+            )
+            self.assertTrue(created)
+            self.assertFalse(duplicate)
+            self.assertEqual(first['review_id'], second['review_id'])
+            self.assertEqual(
+                SystemLog.query.filter_by(log_type='提交复核').count(),
+                1,
+            )
+
+            review, _ = transition_review(submission, teacher, 'in_review')
+            self.assertEqual(review['status'], 'in_review')
+            review, _ = add_review_message(
+                submission,
+                teacher,
+                '我会先看输入为空和重复值两类边界，请补充你的观察。',
+            )
+            self.assertEqual(review['status'], 'waiting_student')
+            review, _ = add_review_message(
+                submission,
+                student,
+                '我复现了空输入分支，下一步会补一个测试用例。',
+            )
+            self.assertEqual(review['status'], 'in_review')
+            review, _ = transition_review(submission, teacher, 'resolved')
+            self.assertEqual(review['status'], 'resolved')
+            review, _ = add_review_message(
+                submission,
+                student,
+                '我已经补测并重新提交，想继续确认结果。',
+            )
+            self.assertEqual(review['status'], 'in_review')
+            self.assertEqual(
+                [event['event'] for event in review['events']],
+                ['request', 'status', 'status', 'message', 'status', 'message', 'status', 'status', 'message'],
+            )
+
+    def test_status_machine_rejects_skip_duplicate_and_student_mutation(self):
+        with self.app.app_context():
+            submission = db.session.get(Submission, self.submission_id)
+            student = db.session.get(User, self.student_id)
+            teacher = db.session.get(User, self.teacher_id)
+            create_review_request(submission, student.student_id, '请帮我复核。')
+
+            with self.assertRaises(ReviewStatusError):
+                transition_review(submission, teacher, 'resolved')
+            with self.assertRaises(ReviewStatusError):
+                transition_review(submission, teacher, 'requested')
+            transition_review(submission, teacher, 'in_review')
+            with self.assertRaises(ReviewStatusError):
+                transition_review(submission, teacher, 'in_review')
+            with self.assertRaises(ReviewPermissionError):
+                transition_review(submission, student, 'waiting_student')
+
+    def test_queue_is_scoped_to_managed_class_and_filters_status(self):
+        with self.app.app_context():
+            submission = db.session.get(Submission, self.submission_id)
+            student = db.session.get(User, self.student_id)
+            teacher = db.session.get(User, self.teacher_id)
+            other_teacher = db.session.get(User, self.other_teacher_id)
+            admin = db.session.get(User, self.admin_id)
+            create_review_request(submission, student.student_id, '需要教师复核。')
+
+            teacher_queue = list_review_queue(teacher)
+            self.assertEqual(len(teacher_queue), 1)
+            self.assertEqual(teacher_queue[0]['submission'].id, self.submission_id)
+            self.assertEqual(list_review_queue(other_teacher), [])
+            self.assertEqual(len(list_review_queue(admin)), 1)
+            self.assertEqual(list_review_queue(teacher, status='in_review'), [])
+            self.assertEqual(
+                get_review_summaries([self.submission_id], actor=other_teacher),
+                {},
+            )
+            transition_review(submission, teacher, 'in_review')
+            self.assertEqual(len(list_review_queue(teacher, status='in_review')), 1)
+            self.assertEqual(count_open_reviews(teacher), 1)
+            add_review_message(submission, teacher, '请补充一次边界输入的运行结果。')
+            with self.assertRaises(ReviewStatusError):
+                transition_review(submission, teacher, 'resolved')
+            add_review_message(submission, student, '已补充运行结果，请继续复核。')
+            transition_review(submission, teacher, 'resolved')
+            self.assertEqual(count_open_reviews(teacher), 0)
+
+    def test_ai_feedback_signal_is_owner_only_and_upserted(self):
+        with self.app.app_context():
+            save_ai_feedback_signal(
+                self.submission_id,
+                self.student_id,
+                'helpful',
+            )
+            save_ai_feedback_signal(
+                self.submission_id,
+                self.student_id,
+                'needs_clarification',
+            )
+            self.assertEqual(
+                get_ai_feedback_signal(self.submission_id, self.student_id),
+                'needs_clarification',
+            )
+            self.assertEqual(
+                SystemLog.query.filter_by(log_type='AI反馈信号').count(),
+                1,
+            )
+            with self.assertRaises(ReviewPermissionError):
+                save_ai_feedback_signal(
+                    self.submission_id,
+                    self.outsider_id,
+                    'helpful',
+                )
+            with self.assertRaises(ReviewValidationError):
+                save_ai_feedback_signal(
+                    self.submission_id,
+                    self.student_id,
+                    'unknown',
+                )
+
+    def test_ai_feedback_signal_requires_existing_feedback(self):
+        with self.app.app_context():
+            submission = db.session.get(Submission, self.submission_id)
+            submission.ai_feedback = None
+            db.session.commit()
+
+            with self.assertRaises(ReviewValidationError):
+                save_ai_feedback_signal(
+                    self.submission_id,
+                    self.student_id,
+                    'helpful',
+                )
+            self.assertEqual(
+                SystemLog.query.filter_by(log_type='AI反馈信号').count(),
+                0,
+            )
+
+    def test_shared_pages_have_a_valid_icon_and_cancel_stream_on_navigation(self):
+        project_root = Path(__file__).resolve().parents[1]
+        base_template = (project_root / 'templates' / 'base.html').read_text(
+            encoding='utf-8'
+        )
+        student_home = (project_root / 'templates' / 'student_home.html').read_text(
+            encoding='utf-8'
+        )
+        self.assertIn('img/favicon.svg', base_template)
+        self.assertTrue((project_root / 'static' / 'img' / 'favicon.svg').is_file())
+        self.assertIn("addEventListener('pagehide'", student_home)
+        self.assertIn('abilityStreamController.abort()', student_home)
+        icon_response = self.client.get('/favicon.ico')
+        self.assertEqual(icon_response.status_code, 200)
+        self.assertTrue(icon_response.content_type.startswith('image/svg+xml'))
+
+    def test_stored_events_are_versioned_and_do_not_contain_code_snapshot(self):
+        with self.app.app_context():
+            submission = db.session.get(Submission, self.submission_id)
+            create_review_request(submission, self.student_id, '请看一下边界条件。')
+            log = SystemLog.query.filter_by(log_type='提交复核').first()
+            payload = json.loads(log.content)
+            self.assertEqual(payload['schema_version'], 1)
+            self.assertNotIn('code', payload)
+            self.assertNotIn('code_snapshot', payload)
+            self.assertNotIn('int main()', log.content)
+
+    def test_submission_review_routes_render_and_enforce_participants(self):
+        anonymous = self.client.post(
+            f'/submission/{self.submission_id}/review/request',
+            data={'body': '未登录不能提交复核。'},
+            follow_redirects=False,
+        )
+        self.assertEqual(anonymous.status_code, 302)
+        self.assertIn('/login', anonymous.headers['Location'])
+
+        self.assertEqual(self.login('review_student', 'student_password').status_code, 302)
+        detail = self.client.get(f'/view_submission/{self.submission_id}')
+        self.assertEqual(detail.status_code, 200)
+        self.assertIn('申请教师复核', detail.get_data(as_text=True))
+
+        request_response = self.client.post(
+            f'/submission/{self.submission_id}/review/request',
+            data={'body': '隐藏测试用例失败后，我想确认应该先检查哪个边界条件。'},
+            follow_redirects=False,
+        )
+        duplicate_response = self.client.post(
+            f'/submission/{self.submission_id}/review/request',
+            data={'body': '重复点击不应创建第二个复核线程。'},
+            follow_redirects=False,
+        )
+        self.assertEqual(request_response.status_code, 302)
+        self.assertEqual(duplicate_response.status_code, 302)
+
+        with self.app.app_context():
+            self.assertEqual(
+                SystemLog.query.filter_by(log_type='提交复核').count(),
+                1,
+            )
+
+        self.client.get('/logout')
+        self.assertEqual(self.login('review_teacher', 'teacher_password').status_code, 302)
+        teacher_detail = self.client.get(f'/view_submission/{self.submission_id}')
+        self.assertEqual(teacher_detail.status_code, 200)
+        self.assertIn('待教师查看', teacher_detail.get_data(as_text=True))
+        teacher_message = self.client.post(
+            f'/submission/{self.submission_id}/review/message',
+            data={'body': '请补充一个失败输入的最小复现。'},
+            follow_redirects=False,
+        )
+        self.assertEqual(teacher_message.status_code, 302)
+
+        self.client.get('/logout')
+        self.assertEqual(self.login('other_teacher', 'teacher_password').status_code, 302)
+        outsider_response = self.client.post(
+            f'/submission/{self.submission_id}/review/message',
+            data={'body': '无关班级教师不应写入复核。'},
+            follow_redirects=False,
+        )
+        self.assertEqual(outsider_response.status_code, 403)
+
+        self.client.get('/logout')
+        self.assertEqual(self.login('review_student', 'student_password').status_code, 302)
+        oversized = self.client.post(
+            f'/submission/{self.submission_id}/review/message',
+            data={'body': 'x' * 2001},
+            follow_redirects=False,
+        )
+        self.assertEqual(oversized.status_code, 302)
+
+        with self.app.app_context():
+            review = get_submission_review(self.submission_id)
+            self.assertEqual(review['status'], 'waiting_student')
+            self.assertEqual(
+                len([event for event in review['events'] if event['event'] == 'message']),
+                1,
+            )
+
+    def test_teacher_review_queue_and_status_routes_are_scoped(self):
+        with self.app.app_context():
+            submission = db.session.get(Submission, self.submission_id)
+            create_review_request(
+                submission,
+                self.student_id,
+                '请在教师队列中处理这条复核。',
+            )
+
+        self.assertEqual(self.login('review_teacher', 'teacher_password').status_code, 302)
+        requested_queue = self.client.get('/teacher/reviews?status=requested')
+        self.assertEqual(requested_queue.status_code, 200)
+        requested_html = requested_queue.get_data(as_text=True)
+        self.assertIn('复核测试作业', requested_html)
+        self.assertIn('待教师查看', requested_html)
+
+        status_response = self.client.post(
+            '/submission/{}/review/status?status=requested'.format(self.submission_id),
+            data={'status': 'in_review', 'note': '已安排教师复核。'},
+            follow_redirects=False,
+        )
+        self.assertEqual(status_response.status_code, 302)
+        self.assertIn('/teacher/reviews?status=requested', status_response.headers['Location'])
+
+        in_review_queue = self.client.get('/teacher/reviews?status=in_review')
+        self.assertEqual(in_review_queue.status_code, 200)
+        in_review_html = in_review_queue.get_data(as_text=True)
+        self.assertIn('复核测试作业', in_review_html)
+        self.assertIn('复核中', in_review_html)
+
+        dashboard = self.client.get('/teacher_dashboard')
+        self.assertEqual(dashboard.status_code, 200)
+        self.assertIn('待处理复核', dashboard.get_data(as_text=True))
+
+        self.client.get('/logout')
+        self.assertEqual(self.login('other_teacher', 'teacher_password').status_code, 302)
+        other_queue = self.client.get('/teacher/reviews')
+        self.assertEqual(other_queue.status_code, 200)
+        self.assertNotIn('复核测试作业', other_queue.get_data(as_text=True))
+
+        self.client.get('/logout')
+        self.assertEqual(self.login('review_admin', 'admin_password').status_code, 302)
+        admin_queue = self.client.get('/teacher/reviews')
+        self.assertEqual(admin_queue.status_code, 200)
+        self.assertIn('复核测试作业', admin_queue.get_data(as_text=True))
+
+        self.client.get('/logout')
+        self.assertEqual(self.login('review_student', 'student_password').status_code, 302)
+        student_status = self.client.post(
+            f'/submission/{self.submission_id}/review/status',
+            data={'status': 'resolved'},
+            follow_redirects=False,
+        )
+        self.assertEqual(student_status.status_code, 403)
+
+    def test_review_notifications_are_participant_scoped_and_idempotent(self):
+        self.assertEqual(self.login('review_student', 'student_password').status_code, 302)
+        first_request = self.client.post(
+            f'/submission/{self.submission_id}/review/request',
+            data={'body': '请把这条申请通知给任课教师。'},
+            follow_redirects=False,
+        )
+        duplicate_request = self.client.post(
+            f'/submission/{self.submission_id}/review/request',
+            data={'body': '重复申请不应再发通知。'},
+            follow_redirects=False,
+        )
+        self.assertEqual(first_request.status_code, 302)
+        self.assertEqual(duplicate_request.status_code, 302)
+
+        with self.app.app_context():
+            teacher_notifications = list_notifications(self.teacher_id)
+            self.assertEqual(len(teacher_notifications), 1)
+            self.assertEqual(teacher_notifications[0]['kind'], 'submission_review')
+            self.assertIn('/view_submission/', teacher_notifications[0]['url'])
+
+        self.client.get('/logout')
+        self.assertEqual(self.login('review_teacher', 'teacher_password').status_code, 302)
+        teacher_message = self.client.post(
+            f'/submission/{self.submission_id}/review/message',
+            data={'body': '请补充一个失败输入的最小复现。'},
+            follow_redirects=False,
+        )
+        self.assertEqual(teacher_message.status_code, 302)
+
+        self.client.get('/logout')
+        self.assertEqual(self.login('review_student', 'student_password').status_code, 302)
+        self.client.get('/notifications')
+        with self.app.app_context():
+            student_notifications = list_notifications(self.student_id)
+            self.assertEqual(len(student_notifications), 1)
+            self.assertIn('复核', student_notifications[0]['title'])
+
+        self.client.post(
+            f'/submission/{self.submission_id}/review/message',
+            data={'body': '我已补充复现步骤，继续请教下一步。'},
+            follow_redirects=False,
+        )
+        with self.app.app_context():
+            teacher_notifications = list_notifications(self.teacher_id)
+            self.assertEqual(len(teacher_notifications), 2)
+
+        self.client.get('/logout')
+        self.assertEqual(self.login('review_teacher', 'teacher_password').status_code, 302)
+        self.client.post(
+            f'/submission/{self.submission_id}/review/status',
+            data={'status': 'resolved', 'note': '已完成本轮复核。'},
+            follow_redirects=False,
+        )
+        self.client.get('/logout')
+        self.assertEqual(self.login('review_student', 'student_password').status_code, 302)
+        with self.app.app_context():
+            student_notifications = list_notifications(self.student_id)
+            self.assertEqual(len(student_notifications), 2)
+            self.assertTrue(all(item['url'].startswith('/view_submission/') for item in student_notifications))
+
+    def test_ai_signal_route_and_student_lists_show_next_action(self):
+        self.assertEqual(self.login('review_student', 'student_password').status_code, 302)
+        self.client.post(
+            f'/submission/{self.submission_id}/review/request',
+            data={'body': '请在提交列表里保留复核状态。'},
+            follow_redirects=False,
+        )
+
+        first_signal = self.client.post(
+            f'/submission/{self.submission_id}/ai-feedback-signal',
+            data={'value': 'helpful'},
+            follow_redirects=False,
+        )
+        second_signal = self.client.post(
+            f'/submission/{self.submission_id}/ai-feedback-signal',
+            data={'value': 'needs_clarification'},
+            follow_redirects=False,
+        )
+        self.assertEqual(first_signal.status_code, 302)
+        self.assertEqual(second_signal.status_code, 302)
+
+        with self.app.app_context():
+            self.assertEqual(
+                SystemLog.query.filter_by(log_type='AI反馈信号').count(),
+                1,
+            )
+
+        detail = self.client.get(f'/view_submission/{self.submission_id}')
+        self.assertEqual(detail.status_code, 200)
+        detail_html = detail.get_data(as_text=True)
+        self.assertIn('需要澄清', detail_html)
+        self.assertIn('这条建议对你有帮助吗', detail_html)
+
+        history = self.client.get(f'/submission-history/{self.assignment_id}')
+        self.assertEqual(history.status_code, 200)
+        self.assertIn('待教师查看', history.get_data(as_text=True))
+
+        learning = self.client.get('/view_submission')
+        self.assertEqual(learning.status_code, 200)
+        self.assertIn('待教师查看', learning.get_data(as_text=True))
+
+        self.client.get('/logout')
+        self.assertEqual(self.login('review_outsider', 'student_password').status_code, 302)
+        outsider_signal = self.client.post(
+            f'/submission/{self.submission_id}/ai-feedback-signal',
+            data={'value': 'helpful'},
+            follow_redirects=False,
+        )
+        self.assertEqual(outsider_signal.status_code, 403)
+
+
+if __name__ == '__main__':
+    unittest.main()

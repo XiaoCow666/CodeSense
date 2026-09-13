@@ -8,6 +8,8 @@ from models import db, User, Submission, SystemLog, Class, AbilityTrend, Knowled
 from utils.auth import login_required, admin_required, admin_or_teacher_required
 from tasks.ability_analysis import trigger_analysis_if_needed
 from services.demo_database import current_demo_run_id
+from services.profile import get_profile_settings, save_profile_settings
+from services.submission_reviews import get_review_summaries
 from sqlalchemy import desc, func
 from forms import AdminPasswordResetForm, ChangePasswordForm, EditProfileForm
 from services.password_reset import (
@@ -228,6 +230,11 @@ def view_submissions():
             item.setdefault('accuracy', 0)
             item.setdefault('average_difficulty', 0)
             knowledge_profile_rows.append({'key': key, 'name': name, **item})
+
+        review_summaries = get_review_summaries(
+            [submission.id for submission in submissions.items],
+            actor=current_user,
+        )
         
         # 5. 获取 AI 能力趋势分析
         ability_trend = AbilityTrend.query.filter_by(student_id=student_id).first()
@@ -248,7 +255,8 @@ def view_submissions():
                             knowledge_profile_rows=knowledge_profile_rows,
                             ability_trend=ability_trend,
                             comprehensive_score=comprehensive_score,
-                            strongest_dim=strongest_dim)
+                            strongest_dim=strongest_dim,
+                            review_summaries=review_summaries)
     except Exception as e:
         import traceback
         print(f'访问学情分析时出错: {str(e)}')
@@ -289,6 +297,7 @@ def edit_profile():
     """编辑个人资料"""
     user = User.query.get(session.get('student_id'))
     form = EditProfileForm()
+    profile_settings = get_profile_settings(getattr(user, 'student_id', None))
     
     # 教学班账号保留原有资料编辑入口；自由账号只能通过教师加入码入班，
     # 不能在个人资料页直接自选任意班级。
@@ -311,7 +320,21 @@ def edit_profile():
                 ).first()
                 if existing_email_user:
                     flash('邮箱已被其他账号使用', 'danger')
-                    return render_template('edit_profile.html', form=form, user=user)
+                    return render_template(
+                        'edit_profile.html',
+                        form=form,
+                        user=user,
+                        profile_settings=profile_settings,
+                    )
+
+            email_changed = email != _normalize_email(user.email)
+            email_registration_reverification = (
+                email_changed
+                and getattr(user, 'registration_method', '') == 'email'
+            )
+            if email_registration_reverification and not email:
+                flash('邮箱注册账号必须保留邮箱地址。', 'danger')
+                return render_template('edit_profile.html', form=form, user=user)
 
             # 更新用户信息
             user.username = form.username.data
@@ -337,8 +360,34 @@ def edit_profile():
                 else:
                     user.class_id = None
             
+            save_profile_settings(
+                user.student_id,
+                bio=form.bio.data,
+                profile_visibility=form.profile_visibility.data,
+                commit=False,
+            )
             db.session.commit()
-            flash('资料更新成功！', 'success')
+
+            if email_registration_reverification:
+                raw_token = None
+                try:
+                    raw_token = create_email_verification_token(
+                        user,
+                        requested_ip=request.remote_addr,
+                    )
+                    send_email_verification_email(user, raw_token)
+                except Exception:
+                    if raw_token:
+                        try:
+                            revoke_email_verification_token(raw_token)
+                        except Exception:
+                            db.session.rollback()
+                    current_app.logger.exception('邮箱变更后的验证邮件发送失败')
+                    flash('资料已更新，但新邮箱验证邮件发送失败，请稍后重新发送。', 'warning')
+                else:
+                    flash('资料已更新，请查收新邮箱验证邮件并完成验证。', 'success')
+            else:
+                flash('资料更新成功！', 'success')
             return redirect(url_for('users.view_submissions'))
         except Exception as e:
             db.session.rollback()
@@ -350,8 +399,15 @@ def edit_profile():
         form.full_name.data = user.full_name
         form.email.data = user.email
         form.class_name.data = user.class_name
-    
-    return render_template('edit_profile.html', form=form, user=user)
+        form.bio.data = profile_settings.get('bio', '')
+        form.profile_visibility.data = profile_settings.get('profile_visibility', 'private')
+
+    return render_template(
+        'edit_profile.html',
+        form=form,
+        user=user,
+        profile_settings=profile_settings,
+    )
 
 
 @users.route('/change_password', methods=['GET', 'POST'])

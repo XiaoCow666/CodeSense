@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -78,6 +79,16 @@ def chunk(text):
     )
 
 
+def trace_records(caplog):
+    records = []
+    for record in caplog.records:
+        message = record.getMessage()
+        if "llm_trace " not in message:
+            continue
+        records.append(json.loads(message.split("llm_trace ", 1)[1]))
+    return records
+
+
 def test_chat_retries_transient_connection_error(monkeypatch):
     fake = FakeProviderClient([ConnectionError("connection reset"), "恢复后的回答"])
     client = make_client({LLMProvider.ZHIPU: fake})
@@ -88,6 +99,56 @@ def test_chat_retries_transient_connection_error(monkeypatch):
     assert result == "恢复后的回答"
     assert len(fake.completions.calls) == 2
     assert client._provider_states[LLMProvider.ZHIPU].health.consecutive_failures == 0
+
+
+def test_chat_emits_redacted_trace_for_retry(caplog, monkeypatch):
+    fake = FakeProviderClient([ConnectionError("private prompt body"), "恢复后的回答"])
+    client = make_client({LLMProvider.ZHIPU: fake})
+    monkeypatch.setattr(llm_module.time, "sleep", lambda _seconds: None)
+    caplog.set_level(llm_module.logging.INFO, logger="services.llm_client")
+
+    result = client.chat(
+        [{"role": "user", "content": "private prompt body"}],
+        request_kind="stage3",
+        request_id="student@example.com",
+    )
+
+    assert result == "恢复后的回答"
+    trace = trace_records(caplog)[-1]
+    assert trace["event_name"] == "codesense.llm.request"
+    assert trace["schema_version"] == 1
+    assert trace["request_kind"] == "stage3"
+    assert trace["request_id"] != "student@example.com"
+    assert len(trace["request_id"]) == 32
+    assert trace["provider"] == "zhipu"
+    assert trace["model"] == "test-model"
+    assert trace["attempts"] == 2
+    assert trace["retry_count"] == 1
+    assert trace["fallback"] is False
+    assert trace["stop_reason"] == "completed"
+    assert "error_class" not in trace
+    assert "private prompt body" not in caplog.text
+    assert trace["duration_ms"] >= trace["llm_latency_ms"]
+
+
+def test_chat_trace_inherits_flask_request_id_without_logging_prompt(caplog):
+    fake = FakeProviderClient(["请求内回答"])
+    client = make_client({LLMProvider.ZHIPU: fake})
+    caplog.set_level(llm_module.logging.INFO, logger="services.llm_client")
+
+    from flask import Flask, g
+
+    app = Flask(__name__)
+    with app.test_request_context("/private/path"):
+        g.codesense_request_id = "11111111-1111-4111-8111-111111111111"
+        assert client.chat(
+            [{"role": "user", "content": "private prompt body"}],
+            request_kind="stage3",
+        ) == "请求内回答"
+
+    trace = trace_records(caplog)[-1]
+    assert trace["request_id"] == "11111111-1111-4111-8111-111111111111"
+    assert "private prompt body" not in caplog.text
 
 
 def test_chat_fails_over_to_second_provider_after_primary_is_down(monkeypatch):
@@ -102,6 +163,23 @@ def test_chat_fails_over_to_second_provider_after_primary_is_down(monkeypatch):
     assert len(primary.completions.calls) == 3
     assert len(backup.completions.calls) == 1
     assert client.provider == "openai"
+
+
+def test_chat_trace_marks_provider_fallback(caplog, monkeypatch):
+    primary = FakeProviderClient([ConnectionError("primary unavailable")] * 3)
+    backup = FakeProviderClient(["备用回答"])
+    client = make_client({LLMProvider.ZHIPU: primary, LLMProvider.OPENAI: backup})
+    monkeypatch.setattr(llm_module.time, "sleep", lambda _seconds: None)
+    caplog.set_level(llm_module.logging.INFO, logger="services.llm_client")
+
+    assert client.chat([{"role": "user", "content": "切换测试"}]) == "备用回答"
+
+    trace = trace_records(caplog)[-1]
+    assert trace["fallback"] is True
+    assert trace["providers_tried"] == ["zhipu", "openai"]
+    assert trace["attempts"] == 4
+    assert trace["stop_reason"] == "completed"
+    assert "error_class" not in trace
 
 
 def test_provider_model_is_not_sent_to_a_different_failover_provider():
@@ -128,6 +206,22 @@ def test_non_retryable_auth_error_is_not_repeated():
 
     assert client.chat([{"role": "user", "content": "测试鉴权"}]) is None
     assert len(fake.completions.calls) == 1
+
+
+def test_failed_chat_trace_uses_stable_error_class_without_exception_text(caplog):
+    error = RuntimeError("secret prompt and account@example.com")
+    error.status_code = 401
+    fake = FakeProviderClient([error])
+    client = make_client({LLMProvider.ZHIPU: fake})
+    caplog.set_level(llm_module.logging.INFO, logger="services.llm_client")
+
+    assert client.chat([{"role": "user", "content": "secret prompt"}]) is None
+
+    trace = trace_records(caplog)[-1]
+    assert trace["stop_reason"] == "provider_error"
+    assert trace["error_class"] == "AUTH_FAILED"
+    assert "secret prompt" not in caplog.text
+    assert "account@example.com" not in caplog.text
 
 
 def test_stream_retries_before_first_token(monkeypatch):
@@ -170,6 +264,29 @@ def test_stream_reports_interruption_after_output_without_replaying_prefix():
         list(client.chat_stream([{"role": "user", "content": "中断测试"}]))
 
     assert len(fake.completions.calls) == 1
+
+
+def test_stream_trace_records_interruption_without_payload(caplog):
+    class BrokenStream:
+        def __iter__(self):
+            yield chunk("已经输出")
+            raise ConnectionError("private stream payload")
+
+    fake = FakeProviderClient([BrokenStream()])
+    client = make_client({LLMProvider.ZHIPU: fake})
+    caplog.set_level(llm_module.logging.INFO, logger="services.llm_client")
+
+    with pytest.raises(LLMServiceError, match="STREAM_INTERRUPTED"):
+        list(client.chat_stream([{"role": "user", "content": "private stream payload"}]))
+
+    trace = trace_records(caplog)[-1]
+    assert trace["stream"] is True
+    assert trace["stop_reason"] == "stream_interrupted"
+    assert trace["error_class"] == "NETWORK_UNAVAILABLE"
+    assert trace["time_to_first_chunk_ms"] is not None
+    assert trace["stream_chunks"] == 1
+    assert trace["output_chars"] == len("已经输出")
+    assert "private stream payload" not in caplog.text
 
 
 def test_safe_zhipu_post_retries_error_code_1305(monkeypatch):

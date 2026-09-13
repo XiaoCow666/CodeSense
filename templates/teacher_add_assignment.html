@@ -179,70 +179,31 @@
             try {
                 setStatus('正在连接AI服务...');
 
-                const response = await fetch("{{ url_for('api.format_assignment') }}", {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ raw_text: rawText }),
-                });
-
-                if (!response.ok) {
-                    const errData = await response.json().catch(() => ({}));
-                    throw new Error(errData.message || `服务器错误: ${response.status}`);
-                }
-
                 setStatus('AI正在生成内容，实时接收中...');
-
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder();
-                let buffer = '';
-
-                // 实时读取流式响应
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-
-                    buffer += decoder.decode(value, { stream: true });
-                    // 按完整的 SSE 行（以 \n 结尾）处理，保留不完整的行到下一轮
-                    const lines = buffer.split('\n');
-                    buffer = lines.pop(); // 最后一个可能是不完整的行，留到下轮
-
-                    for (const line of lines) {
-                        if (line.startsWith('data:')) {
-                            const jsonStr = line.substring(5).trim();
-                            if (!jsonStr) continue;
-                            try {
-                                const data = JSON.parse(jsonStr);
-                                if (data.error) {
-                                    throw new Error(data.error);
-                                }
-                                if (data.override_id) {
-                                    // 后端返回真实可用ID，直接覆盖
-                                    assignmentIdField.value = data.override_id;
-                                }
-                                if (data.token) {
-                                    accumulatedText += data.token;
-                                    setStatus(`AI正在生成内容... 已接收 ${accumulatedText.length} 字符`);
-                                }
-                            } catch (e) {
-                                if (e.message && !e.message.includes('JSON')) {
-                                    throw e; // 是业务错误，重新抛出
-                                }
-                                // JSON解析失败是正常的（流还没结束），忽略
-                            }
-                        }
-                    }
-                }
-                // 处理 buffer 中剩余内容
-                if (buffer.startsWith('data:')) {
-                    const jsonStr = buffer.substring(5).trim();
-                    if (jsonStr) {
-                        try {
-                            const data = JSON.parse(jsonStr);
-                            if (data.token) accumulatedText += data.token;
-                            if (data.override_id) assignmentIdField.value = data.override_id;
-                        } catch (e) { }
-                    }
-                }
+                let streamError = null;
+                await window.consumeSSE("{{ url_for('api.format_assignment') }}", {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'text/event-stream'
+                    },
+                    body: JSON.stringify({ raw_text: rawText })
+                }, {
+                    onStatus: data => setStatus(data.message || 'AI正在生成内容，实时接收中...'),
+                    onDelta: data => {
+                        const content = data.content || data.token || '';
+                        accumulatedText += content;
+                        setStatus(`AI正在生成内容... 已接收 ${accumulatedText.length} 字符`);
+                    },
+                    onError: data => {
+                        streamError = new Error(data.message || data.error || '生成失败');
+                    },
+                    onDone: data => {
+                        if (data.override_id) assignmentIdField.value = data.override_id;
+                    },
+                    onMetrics: metrics => console.debug('[AI stream metrics] format-assignment', metrics)
+                });
+                if (streamError) throw streamError;
 
                 setStatus('AI生成完毕，正在解析结果...');
 

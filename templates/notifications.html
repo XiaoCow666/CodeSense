@@ -1,0 +1,178 @@
+{% extends "layout.html" %}
+
+{% block title %}站内通知 - CodeSense 酷森思{% endblock %}
+
+{% block extra_css %}
+<style>
+    .notification-page {
+        max-width: 900px;
+        margin: 0 auto;
+    }
+
+    .notification-header,
+    .notification-card,
+    .notification-empty {
+        border: 1px solid #e5e7eb;
+        border-radius: 0.9rem;
+        background: var(--white);
+        box-shadow: var(--shadow-sm);
+    }
+
+    .notification-header {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-bottom: 1rem;
+        padding: 1.5rem;
+    }
+
+    .notification-header p {
+        max-width: 38rem;
+        margin: 0.45rem 0 0;
+        color: var(--medium);
+        line-height: 1.6;
+    }
+
+    .notification-tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-bottom: 1rem;
+    }
+
+    .notification-tab {
+        padding: 0.5rem 0.8rem;
+        border-radius: 999px;
+        color: var(--dark-light);
+        background: #f1f5f9;
+        text-decoration: none;
+    }
+
+    .notification-tab[aria-current="page"] {
+        color: #1d4ed8;
+        background: #dbeafe;
+        font-weight: 700;
+    }
+
+    .notification-list {
+        display: grid;
+        gap: 0.8rem;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    .notification-card {
+        padding: 1rem 1.1rem;
+    }
+
+    .notification-card.is-unread {
+        border-left: 4px solid var(--primary-color);
+    }
+
+    .notification-card-header,
+    .notification-card-actions {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.6rem;
+    }
+
+    .notification-card h2 {
+        margin: 0;
+        color: var(--dark);
+        font-size: 1rem;
+    }
+
+    .notification-card time {
+        color: var(--medium);
+        font-size: 0.82rem;
+    }
+
+    .notification-card p {
+        margin: 0.65rem 0;
+        color: var(--dark-light);
+        line-height: 1.6;
+    }
+
+    .notification-card-actions {
+        justify-content: flex-start;
+    }
+
+    .notification-card-actions form {
+        margin: 0;
+    }
+
+    .notification-empty {
+        padding: 2.5rem 1.5rem;
+        color: var(--medium);
+        text-align: center;
+    }
+
+    @media (max-width: 640px) {
+        .notification-header {
+            align-items: stretch;
+            flex-direction: column;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="notification-page" aria-labelledby="notification-title">
+    <header class="notification-header">
+        <div>
+            <h1 id="notification-title" class="page-title">站内通知</h1>
+            <p>这里汇总与你的账号相关的处理结果。当前仅使用站内通知，不会向外部邮箱或手机号发送消息。</p>
+        </div>
+        {% if filter_name == 'all' and notification_unread_count %}
+        <form method="POST" action="{{ url_for('main.notifications_read_all') }}">
+            <button class="btn btn-outline-primary" type="submit">全部标为已读</button>
+        </form>
+        {% endif %}
+    </header>
+
+    <nav class="notification-tabs" aria-label="通知筛选">
+        <a class="notification-tab" href="{{ url_for('main.notifications', filter='all') }}"
+            {% if filter_name == 'all' %}aria-current="page"{% endif %}>全部</a>
+        <a class="notification-tab" href="{{ url_for('main.notifications', filter='unread') }}"
+            {% if filter_name == 'unread' %}aria-current="page"{% endif %}>未读</a>
+    </nav>
+
+    {% if notifications %}
+    <ol class="notification-list">
+        {% for notification in notifications %}
+        <li class="notification-card {% if not notification.read %}is-unread{% endif %}">
+            <div class="notification-card-header">
+                <h2>{{ notification.title }}{% if not notification.read %} <span class="visually-hidden">（未读）</span>{% endif %}</h2>
+                <time datetime="{{ notification.created_at }}">{{ notification.created_at }}</time>
+            </div>
+            {% if notification.kind == 'submission_review' %}
+            <span class="badge bg-primary mb-2">提交复核</span>
+            {% endif %}
+            <p>{{ notification.message }}</p>
+            <div class="notification-card-actions">
+                {% if notification.url %}
+                <a class="btn btn-sm btn-primary" href="{{ notification.url }}">查看详情</a>
+                {% endif %}
+                {% if not notification.read %}
+                <form method="POST" action="{{ url_for('main.notification_read', notification_id=notification.id) }}">
+                    <input type="hidden" name="next" value="{{ request.full_path }}">
+                    <button class="btn btn-sm btn-outline-secondary" type="submit">标记为已读</button>
+                </form>
+                {% else %}
+                <span class="text-muted">已读</span>
+                {% endif %}
+            </div>
+        </li>
+        {% endfor %}
+    </ol>
+    {% else %}
+    <div class="notification-empty" role="status">
+        {% if filter_name == 'unread' %}当前没有未读通知。{% else %}还没有站内通知。{% endif %}
+    </div>
+    {% endif %}
+</section>
+{% endblock %}

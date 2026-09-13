@@ -1,0 +1,23 @@
+[Unit]
+Description=Gunicorn daemon for CodeSense Project
+After=network.target
+
+[Service]
+User=codesense
+Group=codesense
+WorkingDirectory=/var/www/codesense
+EnvironmentFile=/var/www/codesense/.env
+Environment="PATH=/opt/codesense/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/codesense/venv/bin/python -m gunicorn --config /var/www/codesense/gunicorn_config.py --bind 127.0.0.1:8000 --workers 2 --worker-class gthread --threads 4 --timeout 180 --graceful-timeout 30 --keep-alive 5 app:app
+Restart=always
+RestartSec=5
+UMask=0027
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/www/codesense/logs /var/www/codesense/uploads /var/www/codesense/static/uploads /var/www/codesense/flask_session /var/www/codesense/instance
+
+[Install]
+WantedBy=multi-user.target

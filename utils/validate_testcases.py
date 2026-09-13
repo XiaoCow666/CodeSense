@@ -60,6 +60,7 @@ def _generate_solution_code(description: str, solution_index: int, api_key: str,
             temperature=0.5 + solution_index * 0.15 if not error_feedback else 0.3,
             max_tokens=2000,
             provider="zhipu",
+            request_kind="batch",
         )
         if not content:
             return ""

@@ -702,6 +702,13 @@
     let isAnalysisComplete = false;
     let markdownBuffer = ''; // Markdown内容缓冲区
     let currentSection = null; // 当前正在渲染的章节
+    let abilityStreamController = null;
+    let pageIsUnloading = false;
+
+    window.addEventListener('pagehide', function () {
+        pageIsUnloading = true;
+        if (abilityStreamController) abilityStreamController.abort();
+    });
 
     // 知识点映射
     const KNOWLEDGE_POINTS = {
@@ -767,82 +774,44 @@
         connectSSE();
     });
 
-    // 连接SSE流（使用fetch + ReadableStream替代EventSource）
+    // 连接统一 AI SSE 流。传输解析、delta 节流和指标采集由共享客户端负责。
     async function connectSSE() {
         console.log('🔌 正在连接流式API: /api/stream/ability-analysis');
 
         try {
-            const response = await fetch('/api/stream/ability-analysis', {
-                method: 'GET'
+            let streamReportedError = false;
+            abilityStreamController = typeof AbortController === 'function'
+                ? new AbortController()
+                : null;
+            const requestOptions = { method: 'GET' };
+            if (abilityStreamController) {
+                requestOptions.signal = abilityStreamController.signal;
+            }
+            await window.consumeSSE('/api/stream/ability-analysis', {
+                ...requestOptions
+            }, {
+                onStatus: handleProgress,
+                onStart: handleAnalysisStart,
+                onDelta: event => handleAnalysisChunk(event.content || ''),
+                onData: event => {
+                    if (event.name === 'knowledge_profile') handleKnowledgeProfile(event.data);
+                },
+                onDone: handleComplete,
+                onError: event => {
+                    streamReportedError = true;
+                    handleError(event.message || event.error || '分析流返回错误');
+                },
+                onMetrics: metrics => {
+                    console.debug('[AI stream metrics] ability-analysis', metrics);
+                }
             });
-
-            if (!response.ok) {
-                throw new Error(`HTTP错误: ${response.status}`);
-            }
-
-            console.log('✅ 连接已建立，开始接收数据流');
-
-            // 获取可读流
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = '';
-
-            // 循环读取流数据
-            while (true) {
-                const { done, value } = await reader.read();
-
-                if (done) {
-                    console.log('🏁 流式传输完成');
-                    break;
-                }
-
-                // 解码新数据并添加到缓冲区
-                buffer += decoder.decode(value, { stream: true });
-
-                // 按行分割处理SSE消息
-                const lines = buffer.split('\n');
-                buffer = lines.pop(); // 保留不完整的行
-
-                for (const line of lines) {
-                    if (line.startsWith('data: ')) {
-                        const dataStr = line.slice(6);
-                        try {
-                            const data = JSON.parse(dataStr);
-                            console.log('📦 收到消息:', data.type, data.content ? `(内容长度: ${data.content.length})` : '');
-
-                            // 根据消息类型分发处理
-                            switch (data.type) {
-                                case 'progress':
-                                    handleProgress(data);
-                                    break;
-                                case 'knowledge_profile':
-                                    handleKnowledgeProfile(data.data);
-                                    break;
-                                case 'analysis_start':
-                                    handleAnalysisStart();
-                                    break;
-                                case 'analysis_chunk':
-                                    handleAnalysisChunk(data.content);
-                                    break;
-                                case 'analysis_typo_delete':
-                                    handleTypoDelete(data.count);
-                                    break;
-                                case 'complete':
-                                    handleComplete();
-                                    return; // 完成后退出
-                                case 'error':
-                                    handleError(data.message);
-                                    return; // 错误后退出
-                            }
-                        } catch (error) {
-                            console.error('❌ 解析消息失败:', error, dataStr);
-                        }
-                    }
-                }
-            }
+            console.log('🏁 流式传输完成');
         } catch (error) {
+            if (pageIsUnloading || error.name === 'AbortError') return;
             console.error('❌ 流式传输错误:', error);
-            showError('连接中断，请刷新页面重试');
+            if (!streamReportedError) {
+                showError(`连接中断，请刷新页面重试（${error.message || '网络异常'}）`);
+            }
         }
     }
 
@@ -1039,30 +1008,14 @@
     function handleAnalysisChunk(content) {
         markdownBuffer += content;
 
-        // 使用防抖策略：累积一定数量的内容后再渲染，避免过于频繁的DOM操作
+        // 统一按 50ms 节流渲染，避免在每个网络小片段上重复解析 Markdown。
         if (renderTimeout) {
             clearTimeout(renderTimeout);
         }
-
-        // 每50ms渲染一次，或者累积了足够的内容（如换行符）立即渲染
-        const shouldRenderNow = content.includes('\n') || markdownBuffer.length % 100 === 0;
-
-        if (shouldRenderNow) {
+        renderTimeout = setTimeout(() => {
+            renderTimeout = null;
             renderMarkdownIncremental();
-        } else {
-            renderTimeout = setTimeout(() => {
-                renderMarkdownIncremental();
-            }, 50);
-        }
-    }
-
-    // 处理打错字删除
-    function handleTypoDelete(count) {
-        // 从缓冲区删除最后几个字符
-        if (markdownBuffer.length >= count) {
-            markdownBuffer = markdownBuffer.slice(0, -count);
-            renderMarkdownIncremental();
-        }
+        }, 50);
     }
 
     // 增量渲染Markdown（流式更新，不清空已有内容）
@@ -1284,7 +1237,7 @@
         }
     }
 
-    // 页面卸载时无需手动清理，fetch会自动处理
+    // pagehide 已经负责取消仍在进行的流，避免正常导航产生网络错误噪声。
     window.addEventListener('beforeunload', function () {
         console.log('🔌 页面卸载');
     });

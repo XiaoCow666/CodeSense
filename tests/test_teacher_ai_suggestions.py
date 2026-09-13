@@ -4,12 +4,17 @@ import tempfile
 import unittest
 import json
 from datetime import datetime as dt, timedelta
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from app import create_app
 from models import Assignment, Class, Submission, User, KnowledgePointScore, TeacherAISuggestion, db
-from services.teacher_ai_advisor import generate_class_suggestions, _generate_rule_based_markdown
+from services.teacher_ai_advisor import (
+    _generate_rule_based_markdown,
+    generate_class_suggestions,
+    generate_class_suggestions_stream,
+)
 
 class TeacherAISuggestionsTestCase(unittest.TestCase):
     def setUp(self):
@@ -197,6 +202,10 @@ class TeacherAISuggestionsTestCase(unittest.TestCase):
         body = response.get_data(as_text=True)
         self.assertIn('计科2405', body)
         self.assertIn('AI 教学个性化建议', body)
+        self.assertIn('role="status"', body)
+        self.assertIn('aria-busy="true"', body)
+        self.assertIn('DOMPurify.sanitize', body)
+        self.assertIn('function escapeHtml', body)
 
         # 2. 触发 API 刷新建议
         response = self.client.post('/api/teacher/generate_suggestions', data=json.dumps({
@@ -218,6 +227,69 @@ class TeacherAISuggestionsTestCase(unittest.TestCase):
         self.assertEqual(response.mimetype, 'text/event-stream')
         stream_data = response.get_data(as_text=True)
         self.assertIn('data:', stream_data)
+
+    def test_stream_uses_common_protocol_and_keeps_markdown_before_split_delimiter(self):
+        class FakeLLM:
+            def is_available(self):
+                return True
+
+            def chat_stream(self, messages, **kwargs):
+                self.request_kind = kwargs['request_kind']
+                return iter([
+                    '## JSON 只是正文里的词\n\n正文说明\n===JS',
+                    'ON===\n{"attention_students":[],"weak_knowledge_points":[],"suggested_assignments":[]}',
+                ])
+
+        fake_llm = FakeLLM()
+        with self.app.app_context(), patch(
+            'services.teacher_ai_advisor.SharedLLMClient', return_value=fake_llm
+        ):
+            events = [
+                json.loads(line[6:])
+                for line in generate_class_suggestions_stream(self.class_id, self.teacher_id)
+                if line.startswith('data: ')
+            ]
+
+        self.assertEqual(events[0]['type'], 'status')
+        self.assertIn('start', [event['type'] for event in events])
+        self.assertEqual(events[-1]['type'], 'done')
+        self.assertNotIn('chunk', [event['type'] for event in events])
+        self.assertNotIn('complete', [event['type'] for event in events])
+        visible = ''.join(event.get('content', '') for event in events if event['type'] == 'delta')
+        self.assertIn('JSON 只是正文里的词', visible)
+        self.assertIn('正文说明', visible)
+        self.assertNotIn('===JSON===', visible)
+        self.assertEqual(fake_llm.request_kind, 'interactive')
+
+    def test_stream_completes_with_markdown_when_legacy_json_tail_is_invalid(self):
+        class FakeLLM:
+            def is_available(self):
+                return True
+
+            def chat_stream(self, messages, **kwargs):
+                return iter([
+                    '## 可用的 AI 正文\n\n先给出教学建议。',
+                    '===JSON===\n{"attention_students": [',
+                ])
+
+        fake_llm = FakeLLM()
+        with self.app.app_context(), patch(
+            'services.teacher_ai_advisor.SharedLLMClient', return_value=fake_llm
+        ):
+            events = [
+                json.loads(line[6:])
+                for line in generate_class_suggestions_stream(self.class_id, self.teacher_id)
+                if line.startswith('data: ')
+            ]
+
+        self.assertEqual(events[-1]['type'], 'done')
+        self.assertNotIn('error', [event['type'] for event in events])
+        visible = ''.join(
+            event.get('content', '') for event in events if event['type'] == 'delta'
+        )
+        self.assertIn('可用的 AI 正文', visible)
+        self.assertNotIn('===JSON===', visible)
+        self.assertIn('attention_students', events[-1]['suggestion_json'])
 
 if __name__ == '__main__':
     unittest.main()

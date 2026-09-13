@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>验证邮箱 - CodeSense 酷森思</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap/5.2.3/css/bootstrap.min.css') }}">
+    <style>
+        :root { --brand: #007aff; --ink: #0f172a; --muted: #64748b; }
+        body { min-height: 100vh; display: grid; place-items: center; margin: 0; padding: 24px; background: #f8fafc; color: var(--ink); }
+        .auth-card { width: min(100%, 430px); padding: 36px; background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; box-shadow: 0 18px 45px rgba(15, 23, 42, .08); }
+        .brand { color: var(--ink); font-size: 1.1rem; font-weight: 700; text-decoration: none; }
+        .brand span { color: var(--brand); font-weight: 500; }
+        h1 { margin: 30px 0 8px; font-size: 1.8rem; }
+        .intro { color: var(--muted); line-height: 1.6; }
+        .btn-primary { width: 100%; margin-top: 22px; padding: 11px 14px; background: var(--brand); border-color: var(--brand); }
+        .back-link { display: block; margin-top: 20px; color: var(--brand); text-align: center; text-decoration: none; }
+    </style>
+</head>
+
+<body>
+    <main class="auth-card">
+        <a class="brand" href="{{ url_for('auth.login') }}">CodeSense <span>酷森思</span></a>
+        <h1>验证邮箱</h1>
+
+        {% if token_valid %}
+        <p class="intro">点击下方按钮完成邮箱验证。验证完成后，就可以使用注册邮箱和密码登录。</p>
+        <form method="post" action="{{ url_for('auth.verify_email') }}">
+            {{ form.hidden_tag() }}
+            {{ form.submit(class="btn btn-primary") }}
+        </form>
+        {% else %}
+        <div class="alert alert-warning mt-3">该邮箱验证链接已失效或已过期，请重新发送验证邮件。</div>
+        <a class="back-link" href="{{ url_for('auth.resend_verification') }}">重新发送验证邮件</a>
+        {% endif %}
+
+        <a class="back-link" href="{{ url_for('auth.login') }}">返回登录</a>
+    </main>
+</body>
+
+</html>

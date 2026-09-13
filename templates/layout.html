@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="CodeSense 酷森思 - 基于机器学习的代码能力评估平台">
     <title>{% block title %}CodeSense 酷森思{% endblock %}</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/favicon.svg') }}">
 
     <!-- 导航栏紧急修复样式 -->
     <style>
@@ -99,8 +100,10 @@
 </head>
 
 <body>
+    <a class="skip-link" href="#main-content">跳转到主要内容</a>
+    <div id="codesense-live-region" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
     <!-- 导航栏 -->
-    <nav class="navbar">
+    <nav class="navbar" aria-label="全局导航">
         <div class="container navbar-container">
             <a href="{{ url_for('main.home') }}" class="navbar-brand">
                 <i class="bi bi-code-square" style="margin-right: 12px;"></i>
@@ -108,7 +111,8 @@
             </a>
 
             <!-- Hamburger Button for Mobile -->
-            <button class="navbar-toggler-btn" id="navbar-menu-toggle" aria-label="Toggle navigation">
+            <button class="navbar-toggler-btn" id="navbar-menu-toggle" type="button"
+                aria-label="打开导航菜单" aria-controls="navbar-menu-wrapper" aria-expanded="false">
                 <i class="bi bi-list"></i>
             </button>
 
@@ -138,6 +142,8 @@
                     </li>
                     <li><a href="{{ url_for('grades.grade_statistics') }}"
                             class="navbar-link {% if request.path == url_for('grades.grade_statistics') %}active{% endif %}">成绩统计</a></li>
+                    <li><a href="{{ url_for('assignments.teacher_review_queue') }}"
+                            class="navbar-link {% if request.path.startswith('/teacher/reviews') %}active{% endif %}">提交复核</a></li>
                     {% endif %}
 
                     {# Admin Links #}
@@ -153,7 +159,22 @@
                             class="navbar-link {% if request.path == url_for('grades.grade_statistics') %}active{% endif %}">成绩统计</a></li>
                     <li><a href="{{ url_for('api.api_docs') }}"
                             class="navbar-link {% if 'api' in request.path %}active{% endif %}">API文档</a></li>
+                    <li><a href="{{ url_for('main.admin_feedback') }}"
+                            class="navbar-link {% if request.path.startswith('/admin/feedback') %}active{% endif %}">反馈中心</a></li>
+                    <li><a href="{{ url_for('assignments.teacher_review_queue') }}"
+                            class="navbar-link {% if request.path.startswith('/teacher/reviews') %}active{% endif %}">提交复核</a></li>
                     {% endif %}
+                    <li>
+                        <a href="{{ url_for('main.notifications') }}"
+                            class="navbar-link navbar-notification-link {% if request.path.startswith('/notifications') %}active{% endif %}"
+                            aria-label="站内通知{% if notification_unread_count %}，{{ notification_unread_count }} 条未读{% endif %}">
+                            <i class="bi bi-bell" aria-hidden="true"></i>
+                            <span>通知</span>
+                            {% if notification_unread_count %}
+                            <span class="notification-count" aria-label="{{ notification_unread_count }} 条未读">{{ notification_unread_count if notification_unread_count < 100 else '99+' }}</span>
+                            {% endif %}
+                        </a>
+                    </li>
                     {% else %}
                     <li><a href="{{ url_for('auth.login') }}"
                             class="navbar-link {% if request.path == url_for('auth.login') %}active{% endif %}">登录</a></li>
@@ -202,7 +223,7 @@
     </nav>
 
     <!-- 主内容区 -->
-    <main class="main-content">
+    <main class="main-content" id="main-content" tabindex="-1">
         <div class="container">
             <!-- 闪现消息 Toast 容器 -->
             <div class="toast-container">
@@ -210,7 +231,10 @@
                 {% if messages %}
                 {% for category, message in messages %}
                 {% set toast_type = category if category != 'message' else 'info' %}
-                <div class="toast toast-{{ toast_type }}" role="alert" aria-live="assertive" aria-atomic="true"
+                <div class="toast toast-{{ toast_type }}"
+                    role="{% if toast_type in ['danger', 'warning'] %}alert{% else %}status{% endif %}"
+                    aria-live="{% if toast_type in ['danger', 'warning'] %}assertive{% else %}polite{% endif %}"
+                    aria-atomic="true"
                     data-bs-delay="5000">
                     <div class="toast-header">
                         <i
@@ -221,7 +245,7 @@
                             {% elif toast_type == 'warning' %}警告
                             {% else %}提示{% endif %}
                         </strong>
-                        <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+                        <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="关闭提示"></button>
                     </div>
                     <div class="toast-body">
                         {{ message }}
@@ -243,11 +267,12 @@
     <!-- 页脚 -->
     <footer class="footer">
         <div class="container footer-content">
-            <div class="footer-links">
-                <a href="{{ url_for('main.about') }}">关于系统</a>
-                <a href="{{ url_for('main.help') }}">使用帮助</a>
-                <a href="{{ url_for('main.contact') }}">联系我们</a>
-            </div>
+            <nav class="footer-links" aria-label="辅助导航">
+                <a href="{{ url_for('main.about') }}" {% if request.endpoint == 'main.about' %}aria-current="page"{% endif %}>关于系统</a>
+                <a href="{{ url_for('main.help') }}" {% if request.endpoint == 'main.help' %}aria-current="page"{% endif %}>使用帮助</a>
+                <a href="{{ url_for('main.feedback', from_page=request.path) }}" {% if request.endpoint in ('main.feedback', 'main.feedback_receipt') %}aria-current="page"{% endif %}>反馈中心</a>
+            </nav>
+            <p class="footer-note">学习记录与反馈仅在授权范围内用于教学改进；如需协助，请保留反馈编号。</p>
             <div class="footer-copyright">
                 &copy; {{ now().year }} CodeSense 酷森思 - 版权所有
             </div>
@@ -384,23 +409,44 @@
             var toggleBtn = document.getElementById('navbar-menu-toggle');
             var menuWrapper = document.getElementById('navbar-menu-wrapper');
             if (toggleBtn && menuWrapper) {
+                var lastFocusedElement = null;
+                var closeMenu = function(restoreFocus) {
+                    if (!menuWrapper.classList.contains('active')) return;
+                    menuWrapper.classList.remove('active');
+                    toggleBtn.setAttribute('aria-expanded', 'false');
+                    var icon = toggleBtn.querySelector('i');
+                    if (icon) icon.className = 'bi bi-list';
+                    if (restoreFocus && lastFocusedElement && typeof lastFocusedElement.focus === 'function') {
+                        lastFocusedElement.focus();
+                    }
+                    lastFocusedElement = null;
+                };
+
                 toggleBtn.addEventListener('click', function(e) {
                     e.stopPropagation();
-                    menuWrapper.classList.toggle('active');
-                    var icon = toggleBtn.querySelector('i');
-                    if (menuWrapper.classList.contains('active')) {
-                        icon.className = 'bi bi-x';
+                    var isOpening = !menuWrapper.classList.contains('active');
+                    if (isOpening) {
+                        lastFocusedElement = document.activeElement;
+                        menuWrapper.classList.add('active');
+                        toggleBtn.setAttribute('aria-expanded', 'true');
+                        var icon = toggleBtn.querySelector('i');
+                        if (icon) icon.className = 'bi bi-x';
                     } else {
-                        icon.className = 'bi bi-list';
+                        closeMenu(true);
                     }
                 });
 
-                // 点击外部关闭菜单
+                menuWrapper.addEventListener('keydown', function(event) {
+                    if (event.key === 'Escape') {
+                        event.preventDefault();
+                        closeMenu(true);
+                    }
+                });
+
+                // 点击外部关闭菜单；焦点已在外部时不抢回焦点。
                 document.addEventListener('click', function(e) {
                     if (menuWrapper.classList.contains('active') && !menuWrapper.contains(e.target) && e.target !== toggleBtn) {
-                        menuWrapper.classList.remove('active');
-                        var icon = toggleBtn.querySelector('i');
-                        icon.className = 'bi bi-list';
+                        closeMenu(false);
                     }
                 });
             }

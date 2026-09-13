@@ -1,0 +1,28 @@
+[Unit]
+Description=CodeSense ability analysis RQ worker
+After=network-online.target redis-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=codesense
+Group=codesense
+WorkingDirectory=/var/www/codesense
+EnvironmentFile=-/var/www/codesense/.env
+Environment="PATH=/opt/codesense/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=CODESENSE_CONFIG=production
+ExecStart=/opt/codesense/venv/bin/python -m tasks.ability_worker
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/www/codesense/logs /var/www/codesense/uploads /var/www/codesense/static/uploads /var/www/codesense/flask_session /var/www/codesense/instance
+
+[Install]
+WantedBy=multi-user.target

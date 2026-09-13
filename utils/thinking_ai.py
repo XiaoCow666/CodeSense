@@ -22,7 +22,7 @@ def _single_text_stream(text: str):
 
 def _stream_chat_response(client: SharedLLMClient, messages: List[Dict],
                           fallback: str, *, temperature: float,
-                          max_tokens: int):
+                          max_tokens: int, request_kind: str):
     """Stream a chat response and fall back if the provider returns nothing."""
     if not client.is_available():
         yield from _single_text_stream(fallback)
@@ -31,7 +31,10 @@ def _stream_chat_response(client: SharedLLMClient, messages: List[Dict],
     emitted = False
     try:
         for chunk in client.chat_stream(
-            messages, temperature=temperature, max_tokens=max_tokens
+            messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            request_kind=request_kind,
         ):
             if chunk:
                 emitted = True
@@ -168,7 +171,7 @@ def generate_preset(assignment_title: str, assignment_description: str) -> Dict:
     code_response = client.chat(
         [{"role": "system", "content": "你是一个C++编程专家。你只输出纯C++源代码，不添加任何Markdown标记、代码块标记或解释文字。确保代码可以直接用g++编译运行。"},
          {"role": "user", "content": gen_prompt}],
-        temperature=0.2, max_tokens=2000
+        temperature=0.2, max_tokens=2000, request_kind="batch"
     )
     if code_response:
         # 提取代码块（兼容AI可能包裹在markdown中的情况）
@@ -219,7 +222,7 @@ def generate_preset(assignment_title: str, assignment_description: str) -> Dict:
     summary_response = client.chat(
         [{"role": "system", "content": "你是数据结构课程教师，善于用简洁的自然语言总结算法流程并提出启发性问题。请严格以JSON格式返回结果。"},
          {"role": "user", "content": summary_prompt}],
-        temperature=0.3, max_tokens=1000
+        temperature=0.3, max_tokens=1000, request_kind="batch"
     )
     
     summary_data = _parse_json_object(summary_response or '{}')
@@ -323,7 +326,7 @@ int main() {{
     quiz_response = client.chat(
         [{"role": "system", "content": "你是编程教育专家。请严格以JSON数组格式返回逐步选择/填空题数据。每道题必须包含 step_id, type, question, correct_answer, options, blank_hint, context_before, context_after, code_line, indent, part_name, part_header, part_footer, explanation 这些字段。"},
          {"role": "user", "content": quiz_steps_prompt}],
-        temperature=0.3, max_tokens=3000
+        temperature=0.3, max_tokens=3000, request_kind="batch"
     )
     result['quiz_steps'] = _parse_json_array(quiz_response, default=[])
 
@@ -547,7 +550,7 @@ def evaluate_description(description: str, key_steps: List[str],
     response = client.chat(
         [{"role": "system", "content": "你是一位鼓励型的编程教育评判员，评分时倾向于宽松，重点看学生是否理解了大方向。请以JSON格式返回评估结果。"},
          {"role": "user", "content": prompt}],
-        temperature=0.3, max_tokens=800
+        temperature=0.3, max_tokens=800, request_kind="stage1"
     )
 
     if not response:
@@ -604,10 +607,17 @@ def generate_stage1_hint(description: str, key_steps: List[str],
     fallback = "建议分三步描述：1. 定义所需变量并读取输入；2. 遍历数据进行核心逻辑判断；3. 打印最终结果。"
     if _stream:
         return _stream_chat_response(
-            client, messages, fallback, temperature=0.7, max_tokens=400
+            client,
+            messages,
+            fallback,
+            temperature=0.7,
+            max_tokens=400,
+            request_kind="stage1",
         )
 
-    response = client.chat(messages, temperature=0.7, max_tokens=400)
+    response = client.chat(
+        messages, temperature=0.7, max_tokens=400, request_kind="stage1"
+    )
 
     return sanitize_response(response) if response else fallback
 
@@ -660,10 +670,17 @@ def generate_stage2_hint(student_description: str, current_block_ids: List[str],
     fallback = "回想你在第一阶段描述的思路，下一步该做什么？"
     if _stream:
         return _stream_chat_response(
-            client, messages, fallback, temperature=0.7, max_tokens=250
+            client,
+            messages,
+            fallback,
+            temperature=0.7,
+            max_tokens=250,
+            request_kind="stage2",
         )
 
-    response = client.chat(messages, temperature=0.7, max_tokens=250)
+    response = client.chat(
+        messages, temperature=0.7, max_tokens=250, request_kind="stage2"
+    )
 
     return sanitize_response(response) if response else fallback
 
@@ -854,10 +871,20 @@ def companion_agent_chat(messages: List[Dict], assignment_title: str,
     fallback = "你能详细说说你目前卡在哪一步的思考逻辑上吗？"
     if _stream:
         return _stream_chat_response(
-            client, chat_messages, fallback, temperature=0.7, max_tokens=600
+            client,
+            chat_messages,
+            fallback,
+            temperature=0.7,
+            max_tokens=600,
+            request_kind="companion",
         )
 
-    response = client.chat(chat_messages, temperature=0.7, max_tokens=600)
+    response = client.chat(
+        chat_messages,
+        temperature=0.7,
+        max_tokens=600,
+        request_kind="companion",
+    )
     if response:
         # 移出生图标记（画图功能已暂时下线，若模型输出则直接过滤掉）
         response = re.sub(r'\[GENERATE_IMAGE:\s*(.*?)\]', '', response)
@@ -930,7 +957,9 @@ def teacher_agent_chat(messages: List[Dict], assignment_title: str,
     for msg in messages[-10:]:
         chat_messages.append({"role": msg['role'], "content": msg['content']})
 
-    response = client.chat(chat_messages, temperature=0.8, max_tokens=400)
+    response = client.chat(
+        chat_messages, temperature=0.8, max_tokens=400, request_kind="stage3"
+    )
     return sanitize_response(response) if response else "你能把你理解的内容用自己的话说一遍吗？"
 
 
@@ -989,7 +1018,9 @@ def student_agent_chat(messages: List[Dict], assignment_title: str,
     for msg in messages[-10:]:
         chat_messages.append({"role": msg['role'], "content": msg['content']})
 
-    response = client.chat(chat_messages, temperature=0.9, max_tokens=300)
+    response = client.chat(
+        chat_messages, temperature=0.9, max_tokens=300, request_kind="stage3"
+    )
     return response.strip() if response else "嗯...你能再解释一下吗？我有点没听懂。"
 
 
@@ -1034,7 +1065,7 @@ def student_agent_write_code(assignment_title: str, key_steps: List[str],
     response = client.chat(
         [{"role": "system", "content": "你是一个编程初学者，刚学会一道题并尝试写代码。以JSON格式返回。"},
          {"role": "user", "content": prompt}],
-        temperature=0.6, max_tokens=2000
+        temperature=0.6, max_tokens=2000, request_kind="stage3"
     )
 
     try:
@@ -1162,7 +1193,7 @@ def evaluate_feynman_code_fix(buggy_code: str, fixed_code: str,
     response = client.chat(
         [{"role": "system", "content": "你是编程教育评估员。以JSON格式返回评估结果。"},
          {"role": "user", "content": prompt}],
-        temperature=0.2, max_tokens=400
+        temperature=0.2, max_tokens=400, request_kind="stage3"
     )
 
     if not response:
@@ -1277,7 +1308,9 @@ def check_quiz_equivalence(student_answer: str, correct_answer: str, question: s
         {"role": "user", "content": user_content}
     ]
     
-    response = client.chat(messages, temperature=0.1, max_tokens=200)
+    response = client.chat(
+        messages, temperature=0.1, max_tokens=200, request_kind="stage2"
+    )
     if response:
         try:
             # 清理 Markdown 代码块标记（如果有的话）
@@ -1289,9 +1322,16 @@ def check_quiz_equivalence(student_answer: str, correct_answer: str, question: s
             clean_res = clean_res.strip()
             
             data = json.loads(clean_res)
+            if not isinstance(data, dict) or not isinstance(data.get('equivalent'), bool):
+                raise ValueError("equivalent 必须是 JSON 布尔值")
+
+            reason = data.get('reason', '')
+            if not isinstance(reason, str):
+                raise ValueError("reason 必须是字符串")
+
             return {
-                'equivalent': bool(data.get('equivalent', False)),
-                'reason': data.get('reason', '')
+                'equivalent': data['equivalent'],
+                'reason': reason
             }
         except Exception as e:
             print(f"解析等价性检查 JSON 失败: {e}, 原始响应: {response}")

@@ -146,6 +146,7 @@ class LLMEvaluator:
                 max_tokens=max_tokens,
                 provider=self.api_type,
                 model=model,
+                request_kind="submission",
             )
 
             def wrapped_stream():
@@ -166,6 +167,7 @@ class LLMEvaluator:
             max_tokens=max_tokens,
             provider=self.api_type,
             model=model,
+            request_kind="submission",
         )
         if not content:
             raise RuntimeError("LLM provider returned no content")

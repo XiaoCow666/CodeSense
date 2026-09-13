@@ -94,6 +94,31 @@ class Config(object):
         'ABILITY_ANALYSIS_FAILURE_TTL', 86400, minimum=300, maximum=2592000
     )
 
+    # Formal-account submission evaluation can be moved to an external RQ
+    # worker.  The in-process path remains the default until deployment is
+    # reviewed; demo runs always keep their temporary-database thread path.
+    SUBMISSION_EVALUATION_QUEUE_BACKEND = os.environ.get(
+        'SUBMISSION_EVALUATION_QUEUE_BACKEND', 'thread'
+    ).strip().lower()
+    SUBMISSION_EVALUATION_REDIS_URL = os.environ.get(
+        'SUBMISSION_EVALUATION_REDIS_URL', ''
+    )
+    SUBMISSION_EVALUATION_QUEUE_NAME = os.environ.get(
+        'SUBMISSION_EVALUATION_QUEUE_NAME', 'submission-evaluation'
+    )
+    SUBMISSION_EVALUATION_JOB_TIMEOUT = _env_int(
+        'SUBMISSION_EVALUATION_JOB_TIMEOUT', 300, minimum=30, maximum=900
+    )
+    SUBMISSION_EVALUATION_QUEUE_TTL = _env_int(
+        'SUBMISSION_EVALUATION_QUEUE_TTL', 300, minimum=30, maximum=86400
+    )
+    SUBMISSION_EVALUATION_RESULT_TTL = _env_int(
+        'SUBMISSION_EVALUATION_RESULT_TTL', 3600, minimum=60, maximum=604800
+    )
+    SUBMISSION_EVALUATION_FAILURE_TTL = _env_int(
+        'SUBMISSION_EVALUATION_FAILURE_TTL', 86400, minimum=300, maximum=2592000
+    )
+
     # 请求与静态文件运行参数
     ACCESS_LOG_ENABLED = _env_bool('ACCESS_LOG_ENABLED', True)
     SLOW_REQUEST_MS = _env_int('SLOW_REQUEST_MS', 800, minimum=50, maximum=60000)
@@ -142,6 +167,19 @@ class Config(object):
         ):
             raise RuntimeError(
                 'ABILITY_ANALYSIS_REDIS_URL is required when the RQ backend is enabled'
+            )
+
+        if app.config.get('SUBMISSION_EVALUATION_QUEUE_BACKEND') not in {'thread', 'rq'}:
+            raise RuntimeError(
+                'SUBMISSION_EVALUATION_QUEUE_BACKEND must be either thread or rq'
+            )
+
+        if (
+            app.config.get('SUBMISSION_EVALUATION_QUEUE_BACKEND') == 'rq'
+            and not app.config.get('SUBMISSION_EVALUATION_REDIS_URL')
+        ):
+            raise RuntimeError(
+                'SUBMISSION_EVALUATION_REDIS_URL is required when the RQ backend is enabled'
             )
 
 

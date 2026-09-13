@@ -137,7 +137,7 @@ function getCodeAdvice() {
         body: JSON.stringify(requestData)
     }, {
         onDelta: event => {
-            streamedAdvice += event.content || event.token || '';
+            streamedAdvice += event.content || '';
             if (streamedAdvice) displayAdvice(streamedAdvice);
         },
         onError: event => {

@@ -2,7 +2,6 @@
 代码评估模块 - 使用启发式评分和大模型评估
 """
 import re
-import traceback
 
 # 评分权重常量
 SCORE_WEIGHTS_WITH_REQUIREMENT = {
@@ -63,11 +62,10 @@ def initialize_ai_evaluator():
         if use_llm:
             print("✓ AI 评估功能已启用")
     except ImportError as exc:
-        print(f"AI 评估依赖未安装，将使用启发式评分: {exc}")
+        print(f"AI 评估依赖未安装，将使用启发式评分: {type(exc).__name__}")
         use_llm = False
     except Exception as exc:
-        print(f"AI 评估器初始化失败，将使用启发式评分: {exc}")
-        print(traceback.format_exc())
+        print(f"AI 评估器初始化失败，将使用启发式评分: {type(exc).__name__}")
         use_llm = False
 
 
@@ -181,7 +179,7 @@ def calculate_heuristic_score(code, assignment_title=None):
     missing_semicolon = re.search(r'(\w+\s*=\s*[\w"\']+)\s*$', code, re.MULTILINE)
     if missing_semicolon:
         syntax_error_score += 1
-        print(f"× 可能缺少分号: '{missing_semicolon.group(1)}'")
+        print("× 可能缺少分号")
     
     # 如果存在语法错误，降低质量分
     if syntax_error_score > 0:
@@ -190,7 +188,7 @@ def calculate_heuristic_score(code, assignment_title=None):
     
     # 检查题目要求关键词 - 非常重要
     if assignment_title:
-        print(f"题目要求: {assignment_title}")
+        print("正在检查题目要求")
         
         # 将SQLAlchemy对象转换为字符串
         try:
@@ -820,13 +818,15 @@ def evaluate_cpp_code(code_str, model=None, assignment_title=None, preview_only=
                     score = score * 20
                 return score, feedback
         except Exception as e:
-            print(f"大模型{'指导' if guidance_mode else '预览'}评估失败: {e}")
-            print(traceback.format_exc())
+            print(
+                f"大模型{'指导' if guidance_mode else '预览'}评估失败: "
+                f"{type(e).__name__}"
+            )
             if guidance_mode:
                 # 指导模式下失败时提供通用的指导
                 return 3, "很遗憾，AI助手无法分析您的代码。建议您检查代码格式是否正确，确保语法没有明显错误，并尝试添加更多注释说明您的思路。如果您遇到特定问题，可以直接在问答区提问。"
             else:
-                return 3, f"大模型评估失败: {str(e)}"
+                return 3, "大模型评估失败，请稍后重试"
     
     # 大模型结果优先，启发式结果作为兜底
     llm_weight = 0.9 if use_llm_local and cfg else 0
@@ -874,7 +874,10 @@ def evaluate_cpp_code(code_str, model=None, assignment_title=None, preview_only=
             
             # 否则继续进行启发式评估，最终结果将综合两种评估
         except Exception as e:
-            print(f"大模型{'指导' if guidance_mode else '评估'}失败，将仅使用启发式评分: {e}")
+            print(
+                f"大模型{'指导' if guidance_mode else '评估'}失败，将仅使用启发式评分: "
+                f"{type(e).__name__}"
+            )
             llm_score = None
             llm_feedback = None
             # 如果大模型评估失败，使用启发式评分
@@ -984,7 +987,9 @@ def evaluate_cpp_code(code_str, model=None, assignment_title=None, preview_only=
                     else:
                         # 低分段：提升20%但不超过4分
                         final_score = min(4, final_score * 1.2)
-                    print(f"题目匹配度加分: {old_score} → {final_score} (代码特别符合'{title_str}'的要求)")
+                    print(
+                        f"题目匹配度加分: {old_score} → {final_score}"
+                    )
         else:
             # 只有大模型评分
             final_score = llm_score
@@ -1181,8 +1186,7 @@ def analyze_code_quality(code_str):
             result[key] = max(0, min(100, result[key]))
             
     except Exception as e:
-        print(f"分析代码质量时出错: {e}")
-        print(traceback.format_exc())
+        print(f"分析代码质量时出错: {type(e).__name__}")
         
         # 设置默认反馈
         result['structure_feedback'] = "无法分析代码结构。"

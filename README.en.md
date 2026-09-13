@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/caifusi-logo-wordmark-v1.png" alt="Caifusi existing brand logo" width="480">
+  <img src="docs/assets/codesense-logo-final.png" alt="CodeSense logo" width="480">
 </p>
 
 <h1 align="center">CodeSense</h1>
@@ -24,7 +24,7 @@
   <a href="https://github.com/XiaoCow666/CodeSense/network/members"><img src="https://img.shields.io/github/forks/XiaoCow666/CodeSense?style=flat-square&logo=github" alt="GitHub forks"></a>
   <a href="https://github.com/XiaoCow666/CodeSense/blob/main/LICENSE"><img src="https://img.shields.io/github/license/XiaoCow666/CodeSense?style=flat-square" alt="License"></a>
   <img src="https://img.shields.io/badge/version-v1.0.0-2563eb?style=flat-square" alt="v1.0.0">
-  <img src="https://img.shields.io/badge/Python-3.8%2B-3776ab?style=flat-square&logo=python&logoColor=white" alt="Python 3.8+">
+  <img src="https://img.shields.io/badge/Python-3.8--3.13-3776ab?style=flat-square&logo=python&logoColor=white" alt="Python 3.8–3.13">
   <img src="https://img.shields.io/badge/Flask-2.2.3-000000?style=flat-square&logo=flask&logoColor=white" alt="Flask 2.2.3">
 </p>
 
@@ -103,7 +103,8 @@ The project calls this execution path **Causal Sandbox**. The current implementa
 
 - Compiles student code with `g++` using the C++17 standard;
 - Uses a 15-second compilation timeout and a 5-second timeout for each test case;
-- Limits standard output and normalizes it before comparison;
+- Reads each child-process stdout/stderr stream with a 4096-byte runtime bound; exceeding the limit terminates the child and returns an explicit failure instead of comparing a truncated prefix;
+- Normalizes normal output for line endings, trailing whitespace, and trailing blank lines before comparison;
 - Uses a temporary working directory for build artifacts and cleans it up after execution;
 - Returns compilation errors, runtime errors, timeouts, and per-test results to the assessment and guidance flows.
 
@@ -222,7 +223,7 @@ flowchart LR
 
 ### Requirements
 
-- Python 3.8 or later;
+- Python 3.8–3.13; the currently pinned Flask/Werkzeug 2.2.3 combination has a known route-initialization compatibility error on Python 3.14.
 - An executable `g++` on `PATH` for C++ assessment;
 - SQLite for a simple development setup, or a configured `DATABASE_URL` for production;
 - A Zhipu or OpenAI API key for AI guidance, code advice, and selected learning analytics.
@@ -291,9 +292,17 @@ Open <http://127.0.0.1:5000/login>. Without an AI key, login, basic pages, and f
 
 ### 5. Run tests
 
+Install the test-only dependencies before running the test suite:
+
+```powershell
+python -m pip install -r requirements-test.txt
+```
+
 ```bash
 python -m pytest tests -q
 ```
+
+> Compatibility boundary: with Python 3.14, the currently pinned Flask/Werkzeug 2.2.3 combination fails during route initialization because of the removed `ast.Str` compatibility. This PR records the boundary without upgrading the framework dependencies; supporting Python 3.14 requires a separate Flask/Werkzeug upgrade review and full regression run.
 
 Tests involving C++ assessment require `g++`. Tests that call a real AI service also require the corresponding environment configuration.
 
@@ -327,6 +336,8 @@ These are common entry points. The implementations under `routes/` are the sourc
 | `/thinking/api/stage1/submit` | `POST` | Submit the Stage 1 explanation. |
 | `/thinking/api/stage2/verify` | `POST` | Verify Stage 2 step assembly. |
 | `/thinking/api/stage3/chat` | `POST` | Continue the Stage 3 conversation. |
+
+See [`STAGE1_VERIFICATION.md`](STAGE1_VERIFICATION.md) for the Stage 1 request example, local test command, and verification boundary.
 
 ## Security boundaries and limitations
 

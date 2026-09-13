@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title>CodeSense</title>
+  <rect width="64" height="64" rx="16" fill="#0a0e17"/>
+  <path d="M23 18 12 32l11 14M41 18l11 14-11 14M36 14 28 50" fill="none" stroke="#3b82f6" stroke-linecap="round" stroke-linejoin="round" stroke-width="6"/>
+</svg>

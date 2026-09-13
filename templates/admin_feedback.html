@@ -1,0 +1,279 @@
+{% extends "layout.html" %}
+
+{% block title %}反馈中心 - 管理员 - CodeSense 酷森思{% endblock %}
+
+{% block extra_css %}
+<style>
+    .admin-feedback-page {
+        max-width: 1080px;
+        margin: 0 auto;
+    }
+
+    .admin-feedback-intro {
+        margin-bottom: 1.5rem;
+    }
+
+    .admin-feedback-intro p {
+        max-width: 760px;
+        color: var(--medium);
+        line-height: 1.7;
+    }
+
+    .feedback-list {
+        display: grid;
+        gap: 1rem;
+    }
+
+    .feedback-record {
+        padding: 1.25rem;
+        border: 1px solid #e5e7eb;
+        border-radius: 0.85rem;
+        background: var(--white);
+        box-shadow: var(--shadow-sm);
+    }
+
+    .feedback-record-header {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        margin-bottom: 0.8rem;
+    }
+
+    .feedback-record-id {
+        color: var(--primary-color);
+        font-family: var(--font-mono);
+        font-weight: 700;
+    }
+
+    .feedback-record-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem 1rem;
+        color: var(--medium);
+        font-size: 0.875rem;
+    }
+
+    .feedback-status {
+        padding: 0.25rem 0.55rem;
+        border-radius: 999px;
+        color: #166534;
+        background: #dcfce7;
+        font-weight: 700;
+    }
+
+    .feedback-record h2 {
+        margin: 0 0 0.55rem;
+        color: var(--dark);
+        font-size: 1.05rem;
+    }
+
+    .feedback-record p {
+        margin-bottom: 0.65rem;
+        color: var(--dark-light);
+        line-height: 1.65;
+        white-space: pre-wrap;
+    }
+
+    .feedback-record details {
+        margin-top: 0.75rem;
+    }
+
+    .feedback-record summary {
+        color: var(--primary-color);
+        cursor: pointer;
+        font-weight: 600;
+    }
+
+    .feedback-record dl {
+        display: grid;
+        grid-template-columns: minmax(7rem, 0.25fr) 1fr;
+        gap: 0.4rem 1rem;
+        margin: 0.8rem 0 0;
+        padding: 0.8rem;
+        border-radius: 0.55rem;
+        background: #f8fafc;
+    }
+
+    .feedback-record dt {
+        color: var(--medium);
+        font-weight: 600;
+    }
+
+    .feedback-record dd {
+        margin: 0;
+        color: var(--dark);
+        white-space: pre-wrap;
+    }
+
+    .feedback-empty {
+        padding: 2rem;
+        border: 1px dashed #cbd5e1;
+        border-radius: 0.85rem;
+        color: var(--medium);
+        text-align: center;
+    }
+
+    .feedback-filters,
+    .feedback-status-form {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: end;
+        gap: 0.75rem;
+        margin-bottom: 1.25rem;
+        padding: 1rem;
+        border: 1px solid #e5e7eb;
+        border-radius: 0.75rem;
+        background: #f8fafc;
+    }
+
+    .feedback-filter-field,
+    .feedback-status-field {
+        display: grid;
+        gap: 0.3rem;
+        min-width: 10rem;
+    }
+
+    .feedback-filter-field label,
+    .feedback-status-field label {
+        color: var(--medium);
+        font-size: 0.82rem;
+        font-weight: 600;
+    }
+
+    .feedback-filter-field select,
+    .feedback-status-field select,
+    .feedback-status-field textarea {
+        min-height: 2.5rem;
+        padding: 0.5rem 0.65rem;
+        border: 1px solid #cbd5e1;
+        border-radius: 0.45rem;
+        background: #fff;
+    }
+
+    .feedback-status-field textarea {
+        min-width: min(28rem, 80vw);
+        min-height: 4rem;
+        resize: vertical;
+    }
+
+    .feedback-status-form {
+        align-items: start;
+        margin-top: 1rem;
+        margin-bottom: 0;
+    }
+
+    .feedback-history {
+        margin: 0.8rem 0 0;
+        padding-left: 1.2rem;
+        color: var(--medium);
+        font-size: 0.875rem;
+    }
+
+    .feedback-history li + li {
+        margin-top: 0.3rem;
+    }
+
+    @media (max-width: 600px) {
+        .feedback-record dl {
+            grid-template-columns: 1fr;
+            gap: 0.2rem;
+        }
+
+        .feedback-record dt:not(:first-child) {
+            margin-top: 0.45rem;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="admin-feedback-page">
+    <div class="page-header admin-feedback-intro">
+        <h1 class="page-title">反馈中心</h1>
+        <p class="page-subtitle">查看反馈、复现信息并按顺序推进处理状态。当前版本只提供站内通知，不会自动发送邮件或短信。</p>
+    </div>
+
+    <form class="feedback-filters" method="GET" action="{{ url_for('main.admin_feedback') }}">
+        <div class="feedback-filter-field">
+            <label for="feedback-status-filter">处理状态</label>
+            <select id="feedback-status-filter" name="status">
+                <option value="">全部状态</option>
+                {% for value, label in feedback_statuses %}
+                <option value="{{ value }}" {% if status_filter == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="feedback-filter-field">
+            <label for="feedback-category-filter">反馈类型</label>
+            <select id="feedback-category-filter" name="category">
+                <option value="">全部类型</option>
+                {% for value, label in feedback_categories %}
+                <option value="{{ value }}" {% if category_filter == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <button class="btn btn-primary" type="submit">应用筛选</button>
+        {% if status_filter or category_filter %}
+        <a class="btn btn-outline-secondary" href="{{ url_for('main.admin_feedback') }}">清除筛选</a>
+        {% endif %}
+    </form>
+
+    <div class="feedback-list">
+        {% for record in feedback_records %}
+        <article class="feedback-record" aria-labelledby="feedback-{{ record.feedback_id }}-title">
+            <div class="feedback-record-header">
+                <span class="feedback-record-id">{{ record.feedback_id }}</span>
+                <div class="feedback-record-meta">
+                    <span>{{ record.category_label }}</span>
+                    <span class="feedback-status">{{ record.status_label }}</span>
+                    <time datetime="{{ record.submitted_at }}">{{ record.submitted_at }}</time>
+                </div>
+            </div>
+            <h2 id="feedback-{{ record.feedback_id }}-title">{{ record.subject }}</h2>
+            <p>{{ record.message }}</p>
+            <details>
+                <summary>查看上下文与复现信息</summary>
+                <dl>
+                    <dt>相关页面</dt>
+                    <dd>{{ record.context.page or '未提供' }}</dd>
+                    <dt>复现步骤</dt>
+                    <dd>{{ record.reproduction_steps or '未提供' }}</dd>
+                    <dt>联系邮箱</dt>
+                    <dd>{{ record.contact_email or '未提供' }}</dd>
+                    <dt>提交账号</dt>
+                    <dd>{{ record.submitted_by or '游客' }}</dd>
+                </dl>
+            </details>
+            <ol class="feedback-history" aria-label="处理进度">
+                {% for item in record.status_history %}
+                <li><span>{{ item.status_label }}</span> · <time datetime="{{ item.at }}">{{ item.at }}</time></li>
+                {% endfor %}
+            </ol>
+            <form class="feedback-status-form" method="POST"
+                action="{{ url_for('main.admin_feedback_status', feedback_id=record.feedback_id) }}">
+                <input type="hidden" name="return_status" value="{{ status_filter }}">
+                <input type="hidden" name="return_category" value="{{ category_filter }}">
+                <div class="feedback-status-field">
+                    <label for="feedback-status-{{ record.feedback_id }}">更新状态</label>
+                    <select id="feedback-status-{{ record.feedback_id }}" name="status">
+                        {% for value, label in feedback_statuses %}
+                        <option value="{{ value }}" {% if record.status == value %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="feedback-status-field">
+                    <label for="feedback-note-{{ record.feedback_id }}">处理备注（仅管理员）</label>
+                    <textarea id="feedback-note-{{ record.feedback_id }}" name="note" maxlength="500"
+                        placeholder="可选：记录分派、复现或解决说明"></textarea>
+                </div>
+                <button class="btn btn-primary" type="submit">保存状态</button>
+            </form>
+        </article>
+        {% else %}
+        <div class="feedback-empty">还没有收到反馈。</div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

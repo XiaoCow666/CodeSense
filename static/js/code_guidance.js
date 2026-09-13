@@ -141,7 +141,7 @@ function updateGuidanceFeedback() {
     }, {
         onDelta: event => {
             if (currentRequest !== lastGuidanceRequest) return;
-            guidanceText += event.content || event.token || '';
+            guidanceText += event.content || '';
             guidanceLoading.style.display = 'none';
             guidanceContent.innerHTML = formatMarkdown(guidanceText);
         },

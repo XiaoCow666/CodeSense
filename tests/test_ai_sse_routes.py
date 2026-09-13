@@ -106,6 +106,13 @@ def test_guidance_sse_streams_deltas_and_keeps_json_compatibility(ai_sse_context
 
 def test_assignment_generation_streams_model_tokens(monkeypatch, teacher_client):
     import openai
+    from services.llm_client import SharedLLMClient
+
+    # This test asserts provider chunk boundaries.  Keep the shared LLM cache
+    # out of the scenario so a previous test run cannot replay the response in
+    # its fixed-size cache chunks instead of exercising the fake provider.
+    monkeypatch.setattr(SharedLLMClient, "_cache_get", lambda self, key: None)
+    monkeypatch.setattr(SharedLLMClient, "_cache_set", lambda self, key, value: None)
 
     class FakeCompletions:
         def create(self, **kwargs):
@@ -213,3 +220,22 @@ def test_stage1_hint_stream_persists_final_hint(ai_sse_context, monkeypatch):
     with client.application.app_context():
         session = db.session.get(ThinkingSession, session_id)
         assert session.stage1_hint_count == 1
+
+
+def test_ability_analysis_uses_common_sse_protocol(ai_sse_context, monkeypatch):
+    _, client, _, _ = ai_sse_context
+    from tasks import ability_analysis
+
+    # Avoid starting a background job; the route contract is what is under test.
+    monkeypatch.setattr(ability_analysis, 'trigger_analysis_if_needed', lambda *args, **kwargs: True)
+
+    response = client.get('/api/stream/ability-analysis')
+    assert response.status_code == 200
+    events = _events(response)
+
+    assert events[0]['type'] == 'status'
+    assert events[0]['phase'] == 'progress'
+    assert events[-1] == {'type': 'done', 'done': True}
+    assert 'start' in [event['type'] for event in events]
+    assert 'delta' in [event['type'] for event in events]
+    assert not any(event['type'] in {'analysis_start', 'analysis_chunk', 'complete'} for event in events)

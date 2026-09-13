@@ -18,6 +18,9 @@ email-validator==2.0.0
 pymysql[rsa]==1.0.3
 requests>=2.28.0
 
+# Test runner used by the documented pytest commands and tests/
+pytest>=7.4.0
+
 # LLM & AI 功能
 openai>=1.0.0
 zhipuai>=2.0.1

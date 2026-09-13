@@ -651,7 +651,10 @@
                 </section>
 
                 <div class="register-box">
-                    还没有账号？ <a href="{{ url_for('auth.register') }}" class="register-link">立即注册</a>
+                    还没有账号？
+                    <a href="{{ url_for('auth.register') }}" class="register-link">学生名单注册</a>
+                    <span aria-hidden="true"> · </span>
+                    <a href="{{ url_for('auth.register_email') }}" class="register-link">邮箱注册</a>
                 </div>
             </main>
         </div>

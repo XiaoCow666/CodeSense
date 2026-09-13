@@ -9,14 +9,20 @@ import subprocess
 import tempfile
 import platform
 import re
-from typing import List, Dict, Tuple
+import signal
+import threading
+import time
+from typing import Any, Dict, List, Tuple
 
 # 超时时间（秒）
 COMPILE_TIMEOUT = 15
 RUN_TIMEOUT = 5
 
-# 输出长度上限（字符）
+# stdout/stderr 运行期间的读取上限（字节）。
 MAX_OUTPUT_LEN = 4096
+_READ_CHUNK_SIZE = 4096
+_MAX_ERROR_DETAIL_LEN = 500
+_WINDOWS_CREATE_SUSPENDED = 0x00000004
 
 
 def _normalize_output(s: str) -> str:
@@ -54,13 +60,415 @@ def _find_compiler() -> str:
         try:
             result = subprocess.run(
                 [cmd, '--version'],
-                capture_output=True, timeout=5
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
             )
             if result.returncode == 0:
                 return cmd
         except (FileNotFoundError, subprocess.TimeoutExpired):
             continue
     return None
+
+
+class _BoundedPipeReader(threading.Thread):
+    """Read one subprocess pipe without allowing it to grow unboundedly."""
+
+    def __init__(self, stream, limit: int, name: str):
+        super().__init__(name=name, daemon=True)
+        self.stream = stream
+        self.limit = limit
+        self.data = bytearray()
+        self.exceeded = False
+        self.error = None
+        self.finished = threading.Event()
+
+    def run(self):
+        try:
+            while True:
+                remaining = self.limit - len(self.data)
+                # Read one extra byte once the limit is reached so an exact
+                # limit remains valid while the next byte is detected.
+                read_size = max(1, min(_READ_CHUNK_SIZE, remaining + 1))
+                read_method = getattr(self.stream, 'read1', self.stream.read)
+                chunk = read_method(read_size)
+                if not chunk:
+                    break
+
+                if isinstance(chunk, str):
+                    chunk = chunk.encode('utf-8', errors='replace')
+
+                if len(chunk) > remaining:
+                    if remaining > 0:
+                        self.data.extend(chunk[:remaining])
+                    self.exceeded = True
+                    break
+
+                self.data.extend(chunk)
+        except Exception as exc:
+            self.error = exc
+        finally:
+            self.finished.set()
+
+
+def _close_pipe(stream) -> None:
+    if stream is None:
+        return
+    try:
+        stream.close()
+    except Exception:
+        pass
+
+
+def _process_creation_kwargs() -> Dict[str, Any]:
+    """Create each sandbox command isolated and suspended until setup completes."""
+
+    if os.name == 'nt':
+        return {
+            'creationflags': (
+                getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0)
+                | _WINDOWS_CREATE_SUSPENDED
+            ),
+        }
+    return {'start_new_session': True}
+
+
+def _create_process_job(process):
+    """Attach a Windows child to a kill-on-close job when available."""
+
+    if os.name != 'nt':
+        return None
+
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class _BasicLimitInformation(ctypes.Structure):
+            _fields_ = [
+                ('PerProcessUserTimeLimit', ctypes.c_longlong),
+                ('PerJobUserTimeLimit', ctypes.c_longlong),
+                ('LimitFlags', wintypes.DWORD),
+                ('MinimumWorkingSetSize', ctypes.c_size_t),
+                ('MaximumWorkingSetSize', ctypes.c_size_t),
+                ('ActiveProcessLimit', wintypes.DWORD),
+                ('Affinity', ctypes.c_size_t),
+                ('PriorityClass', wintypes.DWORD),
+                ('SchedulingClass', wintypes.DWORD),
+            ]
+
+        class _IoCounters(ctypes.Structure):
+            _fields_ = [
+                ('ReadOperationCount', ctypes.c_ulonglong),
+                ('WriteOperationCount', ctypes.c_ulonglong),
+                ('OtherOperationCount', ctypes.c_ulonglong),
+                ('ReadTransferCount', ctypes.c_ulonglong),
+                ('WriteTransferCount', ctypes.c_ulonglong),
+                ('OtherTransferCount', ctypes.c_ulonglong),
+            ]
+
+        class _ExtendedLimitInformation(ctypes.Structure):
+            _fields_ = [
+                ('BasicLimitInformation', _BasicLimitInformation),
+                ('IoInfo', _IoCounters),
+                ('ProcessMemoryLimit', ctypes.c_size_t),
+                ('JobMemoryLimit', ctypes.c_size_t),
+                ('PeakProcessMemoryUsed', ctypes.c_size_t),
+                ('PeakJobMemoryUsed', ctypes.c_size_t),
+            ]
+
+        kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+        kernel32.CreateJobObjectW.argtypes = [wintypes.LPVOID, wintypes.LPCWSTR]
+        kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+        kernel32.SetInformationJobObject.argtypes = [
+            wintypes.HANDLE,
+            wintypes.INT,
+            wintypes.LPVOID,
+            wintypes.DWORD,
+        ]
+        kernel32.SetInformationJobObject.restype = wintypes.BOOL
+        kernel32.AssignProcessToJobObject.argtypes = [
+            wintypes.HANDLE,
+            wintypes.HANDLE,
+        ]
+        kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+
+        job_handle = kernel32.CreateJobObjectW(None, None)
+        if not job_handle:
+            return None
+
+        limits = _ExtendedLimitInformation()
+        # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        limits.BasicLimitInformation.LimitFlags = 0x2000
+        if not kernel32.SetInformationJobObject(
+            job_handle,
+            9,  # JobObjectExtendedLimitInformation
+            ctypes.byref(limits),
+            ctypes.sizeof(limits),
+        ) or not kernel32.AssignProcessToJobObject(
+            job_handle, wintypes.HANDLE(int(process._handle))
+        ):
+            kernel32.CloseHandle(job_handle)
+            return None
+
+        return kernel32, job_handle
+    except (AttributeError, OSError, TypeError, ValueError):
+        return None
+
+
+def _close_process_job(job) -> None:
+    if not job:
+        return
+    kernel32, job_handle = job
+    try:
+        kernel32.CloseHandle(job_handle)
+    except (OSError, TypeError, ValueError):
+        pass
+
+
+def _resume_process(process) -> Tuple[bool, str]:
+    """Resume a Windows process after its kill-on-close job is attached."""
+
+    if os.name != 'nt':
+        return True, ''
+
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        ntdll = ctypes.WinDLL('ntdll', use_last_error=True)
+        ntdll.NtResumeProcess.argtypes = [wintypes.HANDLE]
+        ntdll.NtResumeProcess.restype = wintypes.LONG
+        status = ntdll.NtResumeProcess(wintypes.HANDLE(int(process._handle)))
+        if status != 0:
+            unsigned_status = ctypes.c_ulong(status).value
+            return False, f'NtResumeProcess failed with NTSTATUS 0x{unsigned_status:08x}'
+        return True, ''
+    except (AttributeError, OSError, TypeError, ValueError) as exc:
+        return False, str(exc)
+
+
+def _close_process_handle(process) -> None:
+    """Close the Popen process handle after a failed isolated launch."""
+
+    handle = getattr(process, '_handle', None)
+    close = getattr(handle, 'Close', None)
+    if close is None:
+        return
+    try:
+        close()
+    except (OSError, TypeError, ValueError):
+        pass
+
+
+def _terminate_process_group(process_group_id) -> None:
+    if os.name != 'nt' and process_group_id is not None:
+        try:
+            os.killpg(process_group_id, signal.SIGKILL)
+        except (OSError, ProcessLookupError):
+            pass
+
+
+def _terminate_process(process) -> None:
+    """Terminate a sandbox process and any descendants, then wait briefly."""
+
+    try:
+        if process.poll() is None:
+            if os.name == 'nt':
+                subprocess.run(
+                    ['taskkill', '/PID', str(process.pid), '/T', '/F'],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                    timeout=2,
+                )
+            else:
+                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+    except (OSError, ProcessLookupError):
+        pass
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+
+    # Keep the previous direct-child fallback for launch/session edge cases.
+    try:
+        if process.poll() is None:
+            process.kill()
+    except (OSError, ProcessLookupError):
+        pass
+
+    try:
+        process.wait(timeout=1)
+    except subprocess.TimeoutExpired:
+        try:
+            process.kill()
+        except (OSError, ProcessLookupError):
+            pass
+        try:
+            process.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            pass
+
+
+def _decode_output(data: bytearray) -> str:
+    return bytes(data).decode('utf-8', errors='replace')
+
+
+def _run_bounded_process(
+    command: List[str],
+    input_data: str,
+    work_dir: str,
+    env: Dict[str, str],
+    timeout: float,
+) -> Dict[str, Any]:
+    """Run a child process with bounded stdout/stderr readers.
+
+    The returned ``reason`` is one of ``stdout_limit``, ``stderr_limit``,
+    ``timeout``, ``launch_error``, ``read_error`` or ``None``. A limit breach
+    is detected while the child is running and is never treated as a normal
+    process completion.
+    """
+
+    started_at = time.monotonic()
+    try:
+        process = subprocess.Popen(
+            command,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            cwd=work_dir,
+            env=env,
+            **_process_creation_kwargs(),
+        )
+    except Exception as exc:
+        return {
+            'returncode': None,
+            'stdout': '',
+            'stderr': '',
+            'reason': 'launch_error',
+            'error': str(exc),
+            'time_ms': int((time.monotonic() - started_at) * 1000),
+        }
+
+    process_job = None
+    if os.name == 'nt':
+        process_job = _create_process_job(process)
+        if process_job is None:
+            _terminate_process(process)
+            _close_pipe(process.stdin)
+            _close_pipe(process.stdout)
+            _close_pipe(process.stderr)
+            _close_process_handle(process)
+            return {
+                'returncode': process.returncode,
+                'stdout': '',
+                'stderr': '',
+                'reason': 'launch_error',
+                'error': '无法建立 Windows 沙箱进程隔离（Job Object 创建或分配失败）',
+                'time_ms': int((time.monotonic() - started_at) * 1000),
+            }
+
+        resumed, resume_error = _resume_process(process)
+        if not resumed:
+            _terminate_process(process)
+            _close_process_job(process_job)
+            _close_pipe(process.stdin)
+            _close_pipe(process.stdout)
+            _close_pipe(process.stderr)
+            _close_process_handle(process)
+            return {
+                'returncode': process.returncode,
+                'stdout': '',
+                'stderr': '',
+                'reason': 'launch_error',
+                'error': f'无法恢复已隔离的 Windows 沙箱进程：{resume_error}',
+                'time_ms': int((time.monotonic() - started_at) * 1000),
+            }
+
+    process_group_id = process.pid if os.name != 'nt' else None
+    stdout_reader = _BoundedPipeReader(
+        process.stdout, MAX_OUTPUT_LEN, 'sandbox-stdout-reader'
+    )
+    stderr_reader = _BoundedPipeReader(
+        process.stderr, MAX_OUTPUT_LEN, 'sandbox-stderr-reader'
+    )
+
+    def write_input():
+        try:
+            if process.stdin is not None:
+                encoded_input = (input_data or '').encode('utf-8')
+                if encoded_input:
+                    process.stdin.write(encoded_input)
+                    process.stdin.flush()
+        except (BrokenPipeError, OSError):
+            # The child may exit before consuming all input. Its exit status
+            # is handled by the main process path below.
+            pass
+        finally:
+            _close_pipe(process.stdin)
+
+    input_writer = threading.Thread(
+        target=write_input,
+        name='sandbox-stdin-writer',
+        daemon=True,
+    )
+    stdout_reader.start()
+    stderr_reader.start()
+    input_writer.start()
+
+    timed_out = False
+    try:
+        while process.poll() is None:
+            if stdout_reader.exceeded or stderr_reader.exceeded:
+                break
+            if time.monotonic() - started_at >= timeout:
+                timed_out = True
+                break
+            time.sleep(0.005)
+    finally:
+        if timed_out or stdout_reader.exceeded or stderr_reader.exceeded:
+            _terminate_process(process)
+        else:
+            _terminate_process_group(process_group_id)
+            try:
+                process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                _terminate_process(process)
+
+        # Closing a kill-on-close job also handles descendants after the
+        # direct child has already exited normally.
+        _close_process_job(process_job)
+        _close_pipe(process.stdin)
+        input_writer.join(timeout=1)
+
+        for reader in (stdout_reader, stderr_reader):
+            reader.join(timeout=1)
+            if not reader.finished.is_set():
+                _close_pipe(reader.stream)
+                reader.join(timeout=0.2)
+
+        _close_pipe(process.stdout)
+        _close_pipe(process.stderr)
+
+    reason = None
+    if stdout_reader.exceeded:
+        reason = 'stdout_limit'
+    elif stderr_reader.exceeded:
+        reason = 'stderr_limit'
+    elif timed_out:
+        reason = 'timeout'
+    elif stdout_reader.error or stderr_reader.error:
+        reason = 'read_error'
+
+    return {
+        'returncode': process.returncode,
+        'stdout': _decode_output(stdout_reader.data),
+        'stderr': _decode_output(stderr_reader.data),
+        'reason': reason,
+        'error': stdout_reader.error or stderr_reader.error,
+        'time_ms': int((time.monotonic() - started_at) * 1000),
+    }
 
 
 def compile_cpp(source_code: str, work_dir: str) -> Tuple[bool, str, str]:
@@ -84,27 +492,35 @@ def compile_cpp(source_code: str, work_dir: str) -> Tuple[bool, str, str]:
         compiler_dir = os.path.dirname(compiler)
         env['PATH'] = compiler_dir + os.pathsep + env.get('PATH', '')
 
-        result = subprocess.run(
+        completed = _run_bounded_process(
             [compiler, src_path, '-o', exe_path, '-std=c++17', '-O2', '-Wall'],
-            capture_output=True,
-            text=True,
-            encoding='utf-8',
-            errors='replace',
+            input_data='',
+            work_dir=work_dir,
+            env=env,
             timeout=COMPILE_TIMEOUT,
-            cwd=work_dir,
-            env=env
         )
-        if result.returncode != 0:
-            err = result.stderr[:2000] if result.stderr else '编译失败（无错误信息）'
+
+        if completed['reason'] == 'timeout':
+            return False, '', f'编译超时（超过 {COMPILE_TIMEOUT} 秒）'
+        if completed['reason'] in ('stdout_limit', 'stderr_limit'):
+            stream_name = 'stdout' if completed['reason'] == 'stdout_limit' else 'stderr'
+            return False, '', f'编译器 {stream_name} 输出超过限制（{MAX_OUTPUT_LEN} 字节），已终止编译进程'
+        if completed['reason']:
+            return False, '', f'编译过程出错：{completed["error"] or completed["reason"]}'
+        if completed['returncode'] != 0:
+            err = completed['stderr'][:2000] if completed['stderr'] else '编译失败（无错误信息）'
             return False, '', err
         return True, exe_path, ''
-    except subprocess.TimeoutExpired:
-        return False, '', f'编译超时（超过 {COMPILE_TIMEOUT} 秒）'
     except Exception as e:
         return False, '', f'编译过程出错：{str(e)}'
 
 
-def run_single_test(exe_path: str, input_data: str, expected_output: str, work_dir: str) -> Dict:
+def _run_single_test_command(
+    command: List[str],
+    input_data: str,
+    expected_output: str,
+    work_dir: str,
+) -> Dict:
     """
     运行单个测试用例。
     返回结果字典：{passed, actual_output, expected_output, error, time_ms}
@@ -115,49 +531,70 @@ def run_single_test(exe_path: str, input_data: str, expected_output: str, work_d
         'expected_output': expected_output,
         'error': None,
         'time_ms': 0,
+        'termination_reason': None,
     }
     try:
-        import time
-        start = time.time()
         # 运行编译后的程序（同样注入 PATH，解决运行时 DLL 依赖问题）
         env = os.environ.copy()
         compiler = _find_compiler()
         if compiler:
             env['PATH'] = os.path.dirname(compiler) + os.pathsep + env.get('PATH', '')
 
-        proc = subprocess.run(
-            [exe_path],
-            input=input_data,
-            capture_output=True,
-            text=True,
-            encoding='utf-8',
-            errors='replace',
+        completed = _run_bounded_process(
+            command,
+            input_data=input_data,
+            work_dir=work_dir,
+            env=env,
             timeout=RUN_TIMEOUT,
-            cwd=work_dir,
-            env=env
         )
-        elapsed = int((time.time() - start) * 1000)
-        result['time_ms'] = elapsed
+        result['time_ms'] = completed['time_ms']
+        result['actual_output'] = completed['stdout']
 
-        actual = proc.stdout[:MAX_OUTPUT_LEN]
-        result['actual_output'] = actual
+        if completed['reason'] == 'stdout_limit':
+            result['termination_reason'] = 'stdout_limit'
+            result['error'] = f'标准输出超过限制（{MAX_OUTPUT_LEN} 字节），已终止运行进程'
+            return result
+        if completed['reason'] == 'stderr_limit':
+            result['termination_reason'] = 'stderr_limit'
+            result['error'] = f'标准错误输出超过限制（{MAX_OUTPUT_LEN} 字节），已终止运行进程'
+            return result
+        if completed['reason'] == 'timeout':
+            result['termination_reason'] = 'timeout'
+            result['error'] = f'运行超时（超过 {RUN_TIMEOUT} 秒）'
+            return result
+        if completed['reason']:
+            result['termination_reason'] = completed['reason']
+            result['error'] = f'运行出错：{completed["error"] or completed["reason"]}'
+            return result
 
-        if proc.returncode != 0:
-            stderr = proc.stderr[:500] if proc.stderr else ''
-            result['error'] = f'程序运行时错误（退出码 {proc.returncode}）' + (f'：{stderr}' if stderr else '')
+        if completed['returncode'] != 0:
+            result['termination_reason'] = 'runtime_error'
+            stderr = completed['stderr'][:_MAX_ERROR_DETAIL_LEN] if completed['stderr'] else ''
+            result['error'] = f'程序运行时错误（退出码 {completed["returncode"]}）' + (f'：{stderr}' if stderr else '')
             return result
 
         # 比较输出（标准化后）
-        if _normalize_output(actual) == _normalize_output(expected_output):
+        if _normalize_output(completed['stdout']) == _normalize_output(expected_output):
             result['passed'] = True
         return result
 
-    except subprocess.TimeoutExpired:
-        result['error'] = f'运行超时（超过 {RUN_TIMEOUT} 秒）'
-        return result
     except Exception as e:
+        result['termination_reason'] = 'launch_error'
         result['error'] = f'运行出错：{str(e)}'
         return result
+
+
+def run_single_test(exe_path: str, input_data: str, expected_output: str, work_dir: str) -> Dict:
+    """
+    运行单个测试用例。
+    返回结果字典：{passed, actual_output, expected_output, error, time_ms}
+    """
+    return _run_single_test_command(
+        [exe_path],
+        input_data=input_data,
+        expected_output=expected_output,
+        work_dir=work_dir,
+    )
 
 
 def run_test_cases(source_code: str, test_cases: List[Dict]) -> Dict:

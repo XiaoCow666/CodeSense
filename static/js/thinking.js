@@ -645,7 +645,7 @@
             })
         }, {
             onDelta: event => {
-                streamedHint += event.content || event.token || '';
+            streamedHint += event.content || '';
                 if (!hintPreview) hintPreview = createCompanionStreamingMessage();
                 hintPreview(streamedHint);
             }
@@ -958,7 +958,7 @@
             })
         }, {
             onDelta: event => {
-                streamedHint += event.content || event.token || '';
+            streamedHint += event.content || '';
                 if (!hintPreview) hintPreview = createCompanionStreamingMessage();
                 hintPreview(streamedHint);
             }
@@ -1081,7 +1081,7 @@
             body: JSON.stringify(requestBody)
         }, {
             onDelta: event => {
-                streamedResponse += event.content || event.token || '';
+            streamedResponse += event.content || '';
                 if (!responsePreview) responsePreview = createCompanionStreamingMessage();
                 responsePreview(streamedResponse);
             }

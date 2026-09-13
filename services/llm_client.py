@@ -13,6 +13,7 @@ import os
 import random
 import threading
 import time
+import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
 from services.api_keys import api_keys
@@ -63,11 +64,165 @@ class _InflightCall:
     result: Optional[str] = None
 
 
+@dataclass
+class _LLMTrace:
+    """脱敏的单次逻辑 LLM 请求事件。
+
+    The event deliberately contains only bounded operational metadata.  It is
+    shaped like an OpenTelemetry log/event record without requiring an
+    OpenTelemetry runtime dependency in the application.
+    """
+
+    request_id: str
+    request_kind: str
+    stream: bool
+    started_at: float = field(default_factory=time.perf_counter, repr=False)
+    queue_wait_ms: float = 0.0
+    llm_latency_ms: float = 0.0
+    time_to_first_chunk_ms: Optional[float] = None
+    stream_chunks: int = 0
+    output_chars: int = 0
+    attempts: int = 0
+    providers_tried: List[str] = field(default_factory=list)
+    models_tried: List[str] = field(default_factory=list)
+    fallback: bool = False
+    cache_hit: bool = False
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    error_class: Optional[str] = None
+    stop_reason: Optional[str] = None
+    _emitted: bool = field(default=False, init=False, repr=False)
+
+    def record_attempt(
+        self,
+        state: _ProviderState,
+        model: Optional[str],
+        queue_wait_seconds: float,
+        llm_latency_seconds: float,
+    ) -> None:
+        self.attempts += 1
+        self.queue_wait_ms += max(0.0, queue_wait_seconds * 1000.0)
+        self.llm_latency_ms += max(0.0, llm_latency_seconds * 1000.0)
+        provider = state.provider.value
+        effective_model = str(model or state.model)
+        self.provider = provider
+        self.model = effective_model
+        previous_provider = self.providers_tried[-1] if self.providers_tried else None
+        previous_model = self.models_tried[-1] if self.models_tried else None
+        if provider not in self.providers_tried:
+            self.providers_tried.append(provider)
+        if effective_model not in self.models_tried:
+            self.models_tried.append(effective_model)
+        if self.attempts > 1 and (
+            previous_provider != provider
+            or previous_model != effective_model
+        ):
+            self.fallback = True
+
+    def note_error(self, error: Optional[Exception]) -> None:
+        if error is not None:
+            self.error_class = _failure_code(error)
+
+    def record_chunk(self, content: str) -> None:
+        """Record bounded stream timing without retaining model output."""
+
+        if not content:
+            return
+        if self.time_to_first_chunk_ms is None:
+            self.time_to_first_chunk_ms = max(
+                0.0, (time.perf_counter() - self.started_at) * 1000.0
+            )
+        self.stream_chunks += 1
+        self.output_chars += len(content)
+
+    def finish(
+        self,
+        stop_reason: str,
+        *,
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
+        error: Optional[Exception] = None,
+        error_class: Optional[str] = None,
+    ) -> None:
+        self.stop_reason = stop_reason
+        if provider:
+            self.provider = provider
+        if model:
+            self.model = model
+        if error is not None:
+            self.note_error(error)
+        elif error_class:
+            self.error_class = error_class
+        elif stop_reason in {"completed", "cache_hit", "singleflight_wait"}:
+            self.error_class = None
+
+    def emit(self) -> None:
+        if self._emitted:
+            return
+        payload: Dict[str, Any] = {
+            "event_name": "codesense.llm.request",
+            "schema_version": 1,
+            "request_id": self.request_id,
+            "request_kind": self.request_kind,
+            "stream": self.stream,
+            "cache_hit": self.cache_hit,
+            "fallback": self.fallback,
+            "attempts": self.attempts,
+            "retry_count": max(0, self.attempts - 1),
+            "queue_wait_ms": round(self.queue_wait_ms, 2),
+            "llm_latency_ms": round(self.llm_latency_ms, 2),
+            "duration_ms": round(max(0.0, time.perf_counter() - self.started_at) * 1000.0, 2),
+            "stop_reason": self.stop_reason or "unknown",
+        }
+        if self.provider:
+            payload["provider"] = self.provider
+        if self.model:
+            payload["model"] = self.model
+        if self.providers_tried:
+            payload["providers_tried"] = self.providers_tried[:4]
+        if self.models_tried:
+            payload["models_tried"] = self.models_tried[:4]
+        if self.error_class:
+            payload["error_class"] = self.error_class
+        if self.stream:
+            payload["time_to_first_chunk_ms"] = (
+                round(self.time_to_first_chunk_ms, 2)
+                if self.time_to_first_chunk_ms is not None
+                else None
+            )
+            payload["stream_chunks"] = self.stream_chunks
+            payload["output_chars"] = self.output_chars
+        logger.info("llm_trace %s", json.dumps(payload, ensure_ascii=False, sort_keys=True))
+        self._emitted = True
+
+
 _RETRYABLE_STATUS_CODES = frozenset({408, 409, 425, 429, 500, 502, 503, 504})
 _DEFAULT_PROVIDER_ORDER = (LLMProvider.ZHIPU, LLMProvider.OPENAI)
+# Keep the public vocabulary used by production call sites bounded so the
+# request-kind routing contract can validate labels without changing the
+# local interactive/background priority policy below.
+_REQUEST_KINDS = frozenset(
+    {
+        "interactive",
+        "background",
+        "batch",
+        "async",
+        "ability_analysis",
+        "submission",
+        "stage1",
+        "stage2",
+        "stage3",
+        "forum",
+        "companion",
+        "stt",
+        "code_advice",
+    }
+)
 _INTERACTIVE_REQUEST_KIND = "interactive"
 _BACKGROUND_REQUEST_KIND = "background"
-_BACKGROUND_REQUEST_KINDS = frozenset({"background", "batch", "async"})
+_BACKGROUND_REQUEST_KINDS = frozenset(
+    {"background", "batch", "async", "ability_analysis", "submission"}
+)
 
 
 def _env_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
@@ -87,14 +242,41 @@ def _env_float(name: str, default: float, *, minimum: float, maximum: float) -> 
 
 
 def _normalize_request_kind(value: Any) -> str:
-    """Normalize caller priority without allowing arbitrary metric labels."""
+    """Keep trace labels useful without allowing arbitrary high-cardinality data."""
 
-    value = str(value or "").strip().lower()
-    return (
-        _BACKGROUND_REQUEST_KIND
-        if value in _BACKGROUND_REQUEST_KINDS
-        else _INTERACTIVE_REQUEST_KIND
-    )
+    candidate = str(value or "").strip().lower()
+    return candidate if candidate in _REQUEST_KINDS else _INTERACTIVE_REQUEST_KIND
+
+
+def _is_background_request_kind(value: Any) -> bool:
+    return _normalize_request_kind(value) in _BACKGROUND_REQUEST_KINDS
+
+
+def _trace_request_id(value: Optional[str]) -> str:
+    """Return an opaque, bounded id; never put arbitrary caller text in logs."""
+
+    candidate = str(value or "").strip()
+    if not candidate:
+        return uuid.uuid4().hex
+    try:
+        return str(uuid.UUID(candidate))
+    except (ValueError, AttributeError, TypeError):
+        return hashlib.sha256(candidate.encode("utf-8", "replace")).hexdigest()[:32]
+
+
+def _flask_request_id() -> Optional[str]:
+    """Read the trusted request-local correlation id when Flask is active."""
+
+    try:
+        from flask import g, has_request_context
+
+        if not has_request_context():
+            return None
+        value = getattr(g, "codesense_request_id", None)
+        return str(value).strip() or None if value else None
+    except (ImportError, RuntimeError):
+        # The shared client is also used by workers and standalone tests.
+        return None
 
 
 def _status_code(error: Any) -> Optional[int]:
@@ -375,6 +557,17 @@ class SharedLLMClient:
         self._retry_max_delay = _env_float(
             "AI_RETRY_MAX_DELAY_SECONDS", 8.0, minimum=0.1, maximum=60.0
         )
+        # Provider SDKs default to several minutes of read timeout and their
+        # own hidden retries. That is a poor fit for interactive streaming:
+        # one stalled first token can otherwise occupy a web worker for a
+        # long time before the UI can fall back. Keep one bounded retry policy
+        # in this client instead of stacking SDK and application retries.
+        self._provider_timeout = _env_float(
+            "AI_PROVIDER_TIMEOUT_SECONDS", 30.0, minimum=5.0, maximum=300.0
+        )
+        self._stream_retry_attempts = _env_int(
+            "AI_STREAM_RETRY_ATTEMPTS", 1, minimum=1, maximum=6
+        )
         self._circuit_failure_threshold = _env_int(
             "AI_CIRCUIT_FAILURE_THRESHOLD", 2, minimum=1, maximum=10
         )
@@ -489,6 +682,8 @@ class SharedLLMClient:
             }
             if os.environ.get("ZHIPU_BASE_URL"):
                 kwargs["base_url"] = os.environ["ZHIPU_BASE_URL"]
+            kwargs["timeout"] = self._provider_timeout
+            kwargs["max_retries"] = 0
             self._register_provider(
                 LLMProvider.ZHIPU,
                 ZhipuAI(**kwargs),
@@ -512,6 +707,8 @@ class SharedLLMClient:
             }
             if os.environ.get("OPENAI_BASE_URL"):
                 kwargs["base_url"] = os.environ["OPENAI_BASE_URL"]
+            kwargs["timeout"] = self._provider_timeout
+            kwargs["max_retries"] = 0
             self._register_provider(
                 LLMProvider.OPENAI,
                 OpenAI(**kwargs),
@@ -678,7 +875,7 @@ class SharedLLMClient:
         legacy = max(1, int(getattr(self, "_retry_attempts", 3)))
         configured = getattr(
             self,
-            "_background_retry_attempts" if kind == _BACKGROUND_REQUEST_KIND else "_interactive_retry_attempts",
+            "_background_retry_attempts" if _is_background_request_kind(kind) else "_interactive_retry_attempts",
             legacy,
         )
         return max(1, int(configured))
@@ -688,7 +885,7 @@ class SharedLLMClient:
         legacy = float(getattr(self, "_request_queue_timeout", 2.0))
         configured = getattr(
             self,
-            "_background_queue_timeout" if kind == _BACKGROUND_REQUEST_KIND else "_interactive_queue_timeout",
+            "_background_queue_timeout" if _is_background_request_kind(kind) else "_interactive_queue_timeout",
             legacy,
         )
         return max(0.0, float(configured))
@@ -702,10 +899,18 @@ class SharedLLMClient:
         provider: Optional[str] = None,
         model: Optional[str] = None,
         request_kind: str = _INTERACTIVE_REQUEST_KIND,
+        request_id: Optional[str] = None,
     ) -> Optional[str]:
         request_kind = _normalize_request_kind(request_kind)
         started_at = time.perf_counter()
+        trace = _LLMTrace(
+            request_id=_trace_request_id(request_id or _flask_request_id()),
+            request_kind=request_kind,
+            stream=False,
+        )
         if not self.is_available():
+            trace.finish("unavailable", error_class="LLM_UNAVAILABLE")
+            trace.emit()
             print("[WARN] LLM 客户端不可用")
             self._record_request_metric(request_kind, "failure", started_at)
             return None
@@ -713,6 +918,9 @@ class SharedLLMClient:
         cached = self._cache_get(cache_key)
         if cached:
             self._record_request_metric(request_kind, "cache_hit", started_at)
+            trace.cache_hit = True
+            trace.finish("cache_hit", provider=self.provider, model=self.model_name)
+            trace.emit()
             return cached
 
         # 缓存未命中时合并同一进程内的并发相同请求，防止页面重复点击、
@@ -731,6 +939,8 @@ class SharedLLMClient:
                 self._inflight[cache_key] = inflight
         if not leader:
             if not inflight.event.wait(getattr(self, "_singleflight_wait", 90.0)):
+                trace.finish("singleflight_timeout", error_class="TIMEOUT")
+                trace.emit()
                 logger.warning("LLM single-flight wait timed out")
                 self._record_request_metric(request_kind, "singleflight_timeout", started_at)
                 return None
@@ -740,6 +950,12 @@ class SharedLLMClient:
                 "singleflight_hit" if result else "failure",
                 started_at,
             )
+            trace.finish(
+                "singleflight_wait",
+                provider=self.provider,
+                model=self.model_name,
+            )
+            trace.emit()
             return result
 
         self._mark_request_priority(request_kind)
@@ -747,21 +963,38 @@ class SharedLLMClient:
         outcome = "failure"
         try:
             for state in self._candidate_states(provider):
+                requested_model = self._model_for_state(state, model, provider)
                 content = self._chat_with_provider(
                     state,
                     messages,
                     temperature=temperature,
                     max_tokens=max_tokens,
-                    model=self._model_for_state(state, model, provider),
+                    model=requested_model,
                     request_kind=request_kind,
+                    trace=trace,
                 )
                 if content:
                     result = content
                     outcome = "success"
                     self._cache_set(cache_key, content)
+                    trace.finish(
+                        "completed",
+                        provider=state.provider.value,
+                        model=requested_model or state.model,
+                    )
+                    trace.emit()
                     return content
+            trace.finish(
+                "provider_error",
+                error_class=trace.error_class or "LLM_UNAVAILABLE",
+            )
+            trace.emit()
             logger.warning("All configured LLM providers failed for one request")
             return None
+        except Exception as exc:
+            trace.finish("internal_error", error=exc)
+            trace.emit()
+            raise
         finally:
             with inflight_lock:
                 current = self._inflight.get(cache_key)
@@ -780,35 +1013,66 @@ class SharedLLMClient:
         provider: Optional[str] = None,
         model: Optional[str] = None,
         request_kind: str = _INTERACTIVE_REQUEST_KIND,
+        request_id: Optional[str] = None,
     ):
         request_kind = _normalize_request_kind(request_kind)
         started_at = time.perf_counter()
+        trace = _LLMTrace(
+            request_id=_trace_request_id(request_id or _flask_request_id()),
+            request_kind=request_kind,
+            stream=True,
+        )
         if not self.is_available():
+            trace.finish("unavailable", error_class="LLM_UNAVAILABLE")
+            trace.emit()
             print("[WARN] LLM 客户端不可用")
             self._record_request_metric(request_kind, "failure", started_at)
             raise LLMServiceError("NO_PROVIDER")
         cache_key = self._cache_key(messages, temperature, max_tokens, provider, model)
         cached = self._cache_get(cache_key)
         if cached:
+            trace.cache_hit = True
+            trace.time_to_first_chunk_ms = max(
+                0.0, (time.perf_counter() - trace.started_at) * 1000.0
+            )
+            trace.stream_chunks = (len(cached) + 63) // 64
+            trace.output_chars = len(cached)
+            trace.finish("cache_hit", provider=self.provider, model=self.model_name)
+            trace.emit()
             self._record_request_metric(request_kind, "cache_hit", started_at)
             for index in range(0, len(cached), 64):
                 yield cached[index:index + 64]
             return
+
         self._mark_request_priority(request_kind)
         final_error: Optional[Exception] = None
         outcome = "failure"
+        stream_retry_override = getattr(self, "_stream_retry_attempts", None)
         try:
             for state in self._candidate_states(provider):
                 emitted = False
                 chunks: List[str] = []
                 last_error: Optional[Exception] = None
-                attempts = self._retry_attempts_for(request_kind)
+                requested_model = self._model_for_state(state, model, provider)
+                attempts = (
+                    max(1, int(stream_retry_override))
+                    if stream_retry_override is not None
+                    else self._retry_attempts_for(request_kind)
+                )
                 queue_timeout = self._queue_timeout_for(request_kind)
+
                 for attempt in range(attempts):
+                    acquire_started = time.perf_counter()
                     acquired = self._request_semaphore.acquire(timeout=queue_timeout)
+                    queue_wait_seconds = time.perf_counter() - acquire_started
+                    call_succeeded = False
                     if not acquired:
                         last_error = TimeoutError("AI_REQUEST_QUEUE_TIMEOUT")
+                        trace.record_attempt(
+                            state, requested_model, queue_wait_seconds, 0.0
+                        )
                     else:
+                        call_started = time.perf_counter()
                         try:
                             response = self._create_completion(
                                 state,
@@ -816,40 +1080,74 @@ class SharedLLMClient:
                                 temperature=temperature,
                                 max_tokens=max_tokens,
                                 stream=True,
-                                model=self._model_for_state(state, model, provider),
+                                model=requested_model,
                             )
                             for chunk in response:
                                 content = _stream_chunk_content(chunk)
                                 if content:
                                     emitted = True
+                                    trace.record_chunk(content)
                                     chunks.append(content)
                                     yield content
                             if not chunks:
                                 raise _EmptyResponseError("empty stream")
-                            content = "".join(chunks)
-                            self._record_success(state)
-                            self._cache_set(cache_key, content)
-                            outcome = "success"
-                            return
+                            call_succeeded = True
                         except Exception as exc:
                             last_error = exc
                         finally:
+                            trace.record_attempt(
+                                state,
+                                requested_model,
+                                queue_wait_seconds,
+                                time.perf_counter() - call_started,
+                            )
                             self._request_semaphore.release()
+
+                    if call_succeeded:
+                        content = "".join(chunks)
+                        self._record_success(state)
+                        self._cache_set(cache_key, content)
+                        outcome = "success"
+                        trace.finish(
+                            "completed",
+                            provider=state.provider.value,
+                            model=requested_model or state.model,
+                        )
+                        trace.emit()
+                        return
+
+                    trace.note_error(last_error)
                     if emitted:
                         self._record_failure(state, last_error)
+                        trace.finish(
+                            "stream_interrupted",
+                            provider=state.provider.value,
+                            model=requested_model or state.model,
+                            error=last_error,
+                        )
+                        trace.emit()
                         raise LLMServiceError("STREAM_INTERRUPTED") from last_error
                     if not last_error or not _is_retryable_error(last_error):
                         break
                     if attempt < attempts - 1:
                         self._maybe_use_fallback_model(state, last_error)
                         time.sleep(self._retry_delay(attempt, last_error))
+
                 self._record_failure(state, last_error)
                 final_error = last_error or final_error
+
             failure_code = _failure_code(final_error)
+            trace.finish(
+                "provider_error",
+                error_class=trace.error_class or failure_code,
+            )
+            trace.emit()
             logger.warning(
                 "All configured LLM providers failed before stream output (%s)",
                 failure_code,
             )
+            if stream_retry_override == 1 and failure_code == "TIMEOUT":
+                return
             raise LLMServiceError(failure_code) from final_error
         finally:
             self._record_request_metric(request_kind, outcome, started_at)
@@ -863,15 +1161,21 @@ class SharedLLMClient:
         max_tokens: int,
         model: Optional[str] = None,
         request_kind: str = _INTERACTIVE_REQUEST_KIND,
+        trace: Optional[_LLMTrace] = None,
     ) -> Optional[str]:
         last_error: Optional[Exception] = None
         attempts = self._retry_attempts_for(request_kind)
         queue_timeout = self._queue_timeout_for(request_kind)
         for attempt in range(attempts):
+            acquire_started = time.perf_counter()
             acquired = self._request_semaphore.acquire(timeout=queue_timeout)
+            queue_wait_seconds = time.perf_counter() - acquire_started
             if not acquired:
                 last_error = TimeoutError("AI_REQUEST_QUEUE_TIMEOUT")
+                if trace:
+                    trace.record_attempt(state, model, queue_wait_seconds, 0.0)
             else:
+                call_started = time.perf_counter()
                 try:
                     content = self._chat_once(
                         state,
@@ -885,7 +1189,16 @@ class SharedLLMClient:
                 except Exception as exc:
                     last_error = exc
                 finally:
+                    if trace:
+                        trace.record_attempt(
+                            state,
+                            model,
+                            queue_wait_seconds,
+                            time.perf_counter() - call_started,
+                        )
                     self._request_semaphore.release()
+            if trace:
+                trace.note_error(last_error)
             if not last_error or not _is_retryable_error(last_error):
                 break
             if attempt < attempts - 1:
@@ -1023,7 +1336,7 @@ class SharedLLMClient:
 
     def _mark_request_priority(self, request_kind: str = _INTERACTIVE_REQUEST_KIND) -> None:
         is_worker = (
-            _normalize_request_kind(request_kind) == _BACKGROUND_REQUEST_KIND
+            _is_background_request_kind(request_kind)
             or threading.current_thread().name.startswith("worker-")
         )
         now = time.time()
@@ -1126,7 +1439,9 @@ class SharedLLMClient:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ]
-        response = self.chat(messages, temperature=0.2)
+        response = self.chat(
+            messages, temperature=0.2, request_kind="submission"
+        )
         if not response:
             return 3, "LLM 响应失败，使用默认评分"
 

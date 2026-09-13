@@ -1,15 +1,33 @@
 """
 作业相关路由
 """
-from flask import Blueprint, render_template, request, redirect, url_for, flash, session, Response, current_app, jsonify
+from flask import Blueprint, render_template, request, redirect, url_for, flash, session, Response, current_app, jsonify, abort
 from flask_login import current_user
 from models import db, User, Assignment, Submission, SystemLog, AssignmentThinkingPreset
 from forms import AssignmentForm, SubmissionForm
 from utils.auth import login_required, admin_required, teacher_required, admin_or_teacher_required
 from utils.code_evaluator import evaluate_cpp_code
-from tasks.submission_tasks import evaluate_submission_async
+from tasks.submission_tasks import evaluate_submission_async, mark_submission_failed
 from services.demo_database import current_demo_run_id
 from services.demo_experience import ensure_demo_guided_preset, is_demo_guided_assignment
+from services.submission_reviews import (
+    REVIEW_STATUS_LABELS,
+    REVIEW_STATUS_OPTIONS,
+    ReviewPermissionError,
+    ReviewStatusError,
+    ReviewValidationError,
+    add_review_message,
+    can_access_submission_review,
+    list_review_queue,
+    create_review_request,
+    get_ai_feedback_signal,
+    get_review_summaries,
+    get_submission_review,
+    review_notification_recipients,
+    save_ai_feedback_signal,
+    transition_review,
+)
+from services.notifications import create_notification
 from io import BytesIO
 from sqlalchemy import desc, func
 import traceback  # 添加traceback模块
@@ -83,8 +101,18 @@ def generate_assignment():
                 {"role": "user", "content": f"请针对这个主题生成一道编程题：{prompt}"}
             ]
             if stream:
-                return client.chat_stream(messages, temperature=0.7, max_tokens=1200)
-            return client.chat(messages, temperature=0.7, max_tokens=1200)
+                return client.chat_stream(
+                    messages,
+                    temperature=0.7,
+                    max_tokens=1200,
+                    request_kind="batch",
+                )
+            return client.chat(
+                messages,
+                temperature=0.7,
+                max_tokens=1200,
+                request_kind="batch",
+            )
 
         def parse_result(result_content):
             if "```json" in result_content:
@@ -490,6 +518,16 @@ def submit_code(assignment_id):
     if not student_id:
         flash('会话已过期，请重新登录')
         return redirect(url_for('auth.login'))
+
+    if (
+        current_user.usertype == '学生'
+        and assignment.due_date
+        and assignment.due_date < datetime.utcnow()
+    ):
+        flash('该作业已截止，不再接受新的提交。', 'warning')
+        return redirect(
+            url_for('assignments.view_assignment', assignment_id=assignment_id)
+        )
         
     # 获取用户最近的提交及提交历史
     latest_submission = Submission.query.filter_by(
@@ -555,6 +593,13 @@ def submit_code(assignment_id):
                 return redirect(url_for('assignments.evaluating_submission', submission_id=submission.id))
             except Exception as async_err:
                 print(f"启动异步评测失败: {async_err}")
+                try:
+                    mark_submission_failed(
+                        submission.id,
+                        '后台评测启动失败，请稍后重试。',
+                    )
+                except Exception:
+                    db.session.rollback()
                 flash(f'后台评测系统启动失败，请稍后重试: {str(async_err)}', 'danger')
                 return redirect(url_for('assignments.submit_code', assignment_id=assignment_id))
 
@@ -804,7 +849,9 @@ def student_assignments():
                         {"role": "user", "content": user_prompt}
                     ]
                     
-                    response = llm_client.chat(messages, temperature=0.2)
+                    response = llm_client.chat(
+                        messages, temperature=0.2, request_kind="interactive"
+                    )
                     if response:
                         clean_res = response.strip()
                         if "```json" in clean_res:
@@ -957,12 +1004,223 @@ def view_submission(submission_id):
             submission.feedback = "[反馈内容无法显示]"
         
         assignment = Assignment.query.get_or_404(submission.assignment_id)
-        return render_template('submission_detail.html', submission=submission, assignment=assignment)
+        review = get_submission_review(submission.id)
+        ai_feedback_signal = None
+        if (
+            submission.ai_feedback
+            and current_user.student_id == submission.student_id
+        ):
+            ai_feedback_signal = get_ai_feedback_signal(
+                submission.id,
+                current_user.student_id,
+            )
+        return render_template(
+            'submission_detail.html',
+            submission=submission,
+            assignment=assignment,
+            review=review,
+            can_access_review=can_access_submission_review(submission, current_user),
+            ai_feedback_signal=ai_feedback_signal,
+        )
     except Exception as e:
         print(f"查看提交详情时出错: {str(e)}")
         print(traceback.format_exc())
         flash(f'查看提交详情时出错: {str(e)}', 'danger')
         return redirect(url_for('assignments.student_assignments'))
+
+
+def _review_error_redirect(submission_id, message, category='warning'):
+    flash(message, category)
+    return redirect(url_for('assignments.view_submission', submission_id=submission_id))
+
+
+def _notify_submission_review(submission, actor, event):
+    """Notify only the other scoped participants after an event is committed."""
+
+    recipients = review_notification_recipients(submission, actor)
+    event_type = event.get('event')
+    if event_type == 'request':
+        title = '新的提交复核请求'
+        message = '学生已申请教师复核，请打开提交详情查看说明。'
+    elif event_type == 'message':
+        title = '提交复核有新消息'
+        message = f"{event.get('actor_role_label', '参与者')}在复核中发来新消息，请打开提交详情查看。"
+    elif event_type == 'status':
+        title = '提交复核状态更新'
+        message = f"提交复核状态已更新为：{event.get('status_label', '处理中')}。"
+    else:
+        return
+
+    review_id = str(event.get('review_id') or 'unknown')
+    event_id = str(event.get('log_id') or 'unknown')
+    submission_url = url_for('assignments.view_submission', submission_id=submission.id)
+    for recipient in recipients:
+        try:
+            create_notification(
+                recipient,
+                kind='submission_review',
+                title=title,
+                message=message,
+                url=submission_url,
+                idempotency_key=f'submission-review:{review_id}:{event_id}:{recipient}',
+            )
+        except Exception:
+            db.session.rollback()
+            current_app.logger.warning(
+                '提交复核通知保存失败 submission_id=%s recipient_id=%s event_id=%s',
+                submission.id,
+                recipient,
+                event_id,
+            )
+
+
+@assignments.route('/submission/<int:submission_id>/review/request', methods=['POST'])
+@login_required
+def request_submission_review(submission_id):
+    """Create the single review thread owned by the submitting student."""
+
+    submission = Submission.query.get_or_404(submission_id)
+    try:
+        review, created = create_review_request(
+            submission,
+            current_user.student_id,
+            request.form.get('body', ''),
+        )
+        if created and review:
+            _notify_submission_review(submission, current_user, review['events'][-1])
+    except ReviewPermissionError:
+        abort(403)
+    except ReviewValidationError as exc:
+        return _review_error_redirect(submission_id, str(exc))
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception(
+            '创建提交复核失败 submission_id=%s actor_id=%s',
+            submission_id,
+            current_user.student_id,
+        )
+        return _review_error_redirect(submission_id, '复核申请暂时无法保存，请稍后重试。', 'danger')
+
+    flash('已提交教师复核申请。', 'success')
+    return redirect(url_for('assignments.view_submission', submission_id=submission_id))
+
+
+@assignments.route('/submission/<int:submission_id>/review/message', methods=['POST'])
+@login_required
+def add_submission_review_message(submission_id):
+    """Append a participant message to an existing review thread."""
+
+    submission = Submission.query.get_or_404(submission_id)
+    try:
+        review, message_event = add_review_message(
+            submission,
+            current_user,
+            request.form.get('body', ''),
+        )
+        _notify_submission_review(submission, current_user, message_event)
+    except ReviewPermissionError:
+        abort(403)
+    except (ReviewValidationError, ReviewStatusError) as exc:
+        return _review_error_redirect(submission_id, str(exc))
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception(
+            '提交复核消息保存失败 submission_id=%s actor_id=%s',
+            submission_id,
+            current_user.student_id,
+        )
+        return _review_error_redirect(submission_id, '复核消息暂时无法保存，请稍后重试。', 'danger')
+
+    flash('复核消息已发送。', 'success')
+    return redirect(url_for('assignments.view_submission', submission_id=submission_id))
+
+
+@assignments.route('/teacher/reviews')
+@login_required
+@teacher_required
+def teacher_review_queue():
+    """Show the current teacher/admin review queue with class scoping."""
+
+    selected_status = request.args.get('status', '').strip()
+    if selected_status not in REVIEW_STATUS_LABELS:
+        selected_status = None
+    return render_template(
+        'teacher_review_queue.html',
+        review_queue=list_review_queue(current_user, status=selected_status),
+        review_status_labels=REVIEW_STATUS_LABELS,
+        review_status_options=REVIEW_STATUS_OPTIONS,
+        selected_status=selected_status,
+    )
+
+
+@assignments.route('/submission/<int:submission_id>/review/status', methods=['POST'])
+@login_required
+def transition_submission_review(submission_id):
+    """Apply one allowed teacher/admin transition from the queue."""
+
+    if not (current_user.is_teacher or current_user.is_admin):
+        abort(403)
+    submission = Submission.query.get_or_404(submission_id)
+    queue_status = request.args.get('status', '').strip()
+    if queue_status not in REVIEW_STATUS_LABELS:
+        queue_status = None
+    try:
+        review, status_event = transition_review(
+            submission,
+            current_user,
+            request.form.get('status', ''),
+            request.form.get('note', ''),
+        )
+        _notify_submission_review(submission, current_user, status_event)
+    except ReviewPermissionError:
+        abort(403)
+    except (ReviewStatusError, ReviewValidationError) as exc:
+        flash(str(exc), 'warning')
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception(
+            '提交复核状态更新失败 submission_id=%s actor_id=%s',
+            submission_id,
+            current_user.student_id,
+        )
+        flash('复核状态暂时无法更新，请稍后重试。', 'danger')
+    else:
+        flash('复核状态已更新。', 'success')
+
+    if queue_status:
+        return redirect(url_for('assignments.teacher_review_queue', status=queue_status))
+    return redirect(url_for('assignments.teacher_review_queue'))
+
+
+@assignments.route('/submission/<int:submission_id>/ai-feedback-signal', methods=['POST'])
+@login_required
+def save_submission_ai_feedback_signal(submission_id):
+    """Save a student's bounded signal about the existing AI feedback."""
+
+    submission = Submission.query.get_or_404(submission_id)
+    if current_user.student_id != submission.student_id:
+        abort(403)
+    try:
+        save_ai_feedback_signal(
+            submission_id,
+            current_user.student_id,
+            request.form.get('value', ''),
+        )
+    except ReviewPermissionError:
+        abort(403)
+    except ReviewValidationError as exc:
+        return _review_error_redirect(submission_id, str(exc))
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception(
+            'AI 反馈信号保存失败 submission_id=%s actor_id=%s',
+            submission_id,
+            current_user.student_id,
+        )
+        return _review_error_redirect(submission_id, '反馈信号暂时无法保存，请稍后重试。', 'danger')
+
+    flash('已记录你的反馈，分数不会因此改变。', 'success')
+    return redirect(url_for('assignments.view_submission', submission_id=submission_id))
 
 
 @assignments.route('/all_submissions')
@@ -1059,6 +1317,11 @@ def submission_history(assignment_id):
         if date_key not in submissions_by_date:
             submissions_by_date[date_key] = []
         submissions_by_date[date_key].append(submission)
+
+    review_summaries = get_review_summaries(
+        [submission.id for submission in submissions],
+        actor=current_user,
+    )
     
     # 渲染模板
     return render_template(
@@ -1066,6 +1329,7 @@ def submission_history(assignment_id):
         assignment=assignment,
         submissions=submissions,
         submissions_by_date=submissions_by_date,
+        review_summaries=review_summaries,
         student=student,
         stats={
             'total': total_submissions,

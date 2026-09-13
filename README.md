@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/caifusi-logo-wordmark-v1.png" alt="财赋思品牌标志" width="480">
+  <img src="docs/assets/codesense-logo-final.png" alt="CodeSense 品牌标志" width="480">
 </p>
 
 <h1 align="center">CodeSense 酷森思</h1>
@@ -22,7 +22,7 @@
   <a href="https://github.com/XiaoCow666/CodeSense/network/members"><img src="https://img.shields.io/github/forks/XiaoCow666/CodeSense?style=flat-square&logo=github" alt="GitHub forks"></a>
   <a href="https://github.com/XiaoCow666/CodeSense/blob/main/LICENSE"><img src="https://img.shields.io/github/license/XiaoCow666/CodeSense?style=flat-square" alt="License"></a>
   <img src="https://img.shields.io/badge/version-v1.0.0-2563eb?style=flat-square" alt="v1.0.0">
-  <img src="https://img.shields.io/badge/Python-3.8%2B-3776ab?style=flat-square&logo=python&logoColor=white" alt="Python 3.8+">
+  <img src="https://img.shields.io/badge/Python-3.8--3.13-3776ab?style=flat-square&logo=python&logoColor=white" alt="Python 3.8–3.13">
   <img src="https://img.shields.io/badge/Flask-2.2.3-000000?style=flat-square&logo=flask&logoColor=white" alt="Flask 2.2.3">
 </p>
 
@@ -93,7 +93,8 @@ CodeSense 把代码提交、受限执行、AI 辅导、分阶段练习和学情�
 
 - 使用 <code>g++</code> 按 C++17 编译学生代码；
 - 编译超时为 15 秒，单个测试用例运行超时为 5 秒；
-- 限制标准输出长度，并在比对前统一输出格式；
+- 编译和运行子进程的 stdout/stderr 都在运行期间按每路 4096 字节读取；超过上限会及时终止子进程并返回明确的失败结果，不会把截断前缀误判为通过；
+- 对正常输出进行换行、行尾空白和末尾空行规范化后比对；
 - 使用临时工作目录保存编译产物，执行结束后清理；
 - 将编译错误、运行时错误、超时和测试结果交给评测与辅导流程。
 
@@ -211,7 +212,7 @@ flowchart LR
 
 ### 环境要求
 
-- Python 3.8 或更高版本；
+- Python 3.8–3.13；当前锁定的 Flask/Werkzeug 2.2.3 组合在 Python 3.14 下存在已知的路由初始化兼容性错误。
 - C++ 评测需要可执行的 <code>g++</code>，并确保它在 <code>PATH</code> 中；
 - 开发环境可以使用 SQLite，生产环境需要配置 <code>DATABASE_URL</code>；
 - AI 引导、代码建议和部分学情分析需要智谱或 OpenAI API 密钥。
@@ -227,7 +228,7 @@ python -m venv .venv
 Windows PowerShell：
 
 ~~~powershell
-.venvScriptsActivate.ps1
+.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 Copy-Item .env.example .env
 ~~~
@@ -268,6 +269,8 @@ APP_BASE_URL=https://codesense.example.com
 
 开发和测试配置会在启动时创建数据库表。生产配置要显式设置 <code>DATABASE_URL</code> 和 <code>SECRET_KEY</code>；生产 WSGI 默认跳过启动期建表和迁移，请先执行 <code>python database_maintenance.py</code>。不要把 <code>.env</code>、API 密钥或本地数据库文件提交到 Git。
 
+登录页同时提供学生名单注册和邮箱注册。邮箱注册不要求提前导入学生名单，账号创建后必须点击验证邮件中的链接才能登录；验证令牌只保存摘要，过期或重复发送后旧链接会自动失效。<code>AuthIdentity</code> 表为后续接入 Google、微信等社交登录保留统一的身份绑定位置。
+
 ### 3. 安装 C++ 编译器
 
 Windows 请安装 MinGW 或 MSYS2，并把 <code>g++</code> 加入 <code>PATH</code>。Ubuntu / Debian 可以运行：
@@ -287,9 +290,17 @@ python run.py
 
 ### 5. 运行测试
 
+如果需要运行仓库测试，请额外安装测试依赖：
+
+~~~powershell
+python -m pip install -r requirements-test.txt
+~~~
+
 ~~~bash
 python -m pytest tests -q
 ~~~
+
+> 兼容性边界：在 Python 3.14 下，当前 Flask/Werkzeug 2.2.3 组合会在路由初始化阶段触发 `ast.Str` 兼容性错误。本次仅记录边界，不升级框架依赖；如需支持 Python 3.14，应单独评审 Flask/Werkzeug 升级并执行完整回归。
 
 涉及 C++ 评测的测试需要 <code>g++</code>；涉及真实 AI 服务的测试还需要相应环境变量。
 
@@ -354,6 +365,8 @@ gunicorn -c gunicorn_config.py wsgi:application
 | <code>/thinking/api/stage1/submit</code> | <code>POST</code> | 提交阶段一思路 |
 | <code>/thinking/api/stage2/verify</code> | <code>POST</code> | 验证阶段二步骤组装 |
 | <code>/thinking/api/stage3/chat</code> | <code>POST</code> | 进行阶段三对话 |
+
+阶段一接口的请求示例、本地测试命令和验证边界见 [`STAGE1_VERIFICATION.md`](STAGE1_VERIFICATION.md)。
 
 ## 安全边界与已知限制
 

@@ -2,7 +2,14 @@ import json
 
 from flask import Flask
 
-from utils.sse import sse_blocking_events, sse_event, sse_response, sse_text_events, wants_sse
+from utils.sse import (
+    sse_blocking_events,
+    sse_event,
+    sse_response,
+    sse_text_events,
+    stream_text_chunks,
+    wants_sse,
+)
 
 
 def test_wants_sse_requires_explicit_request():
@@ -52,3 +59,12 @@ def test_sse_response_sets_streaming_headers():
         assert response.mimetype == "text/event-stream"
         assert response.headers["Cache-Control"] == "no-cache, no-transform"
         assert response.headers["X-Accel-Buffering"] == "no"
+
+
+def test_stream_text_chunks_preserve_cached_text_without_character_pacing():
+    text = "第一段内容。" + "第二段内容，继续说明。" * 20
+    chunks = list(stream_text_chunks(text, max_chars=32))
+
+    assert "".join(chunks) == text
+    assert all(0 < len(chunk) <= 32 for chunk in chunks)
+    assert len(chunks) < len(text) / 2

@@ -265,6 +265,12 @@
                         {% else %}
                         <span class="badge bg-secondary p-2">未评分</span>
                         {% endif %}
+                        {% set review_summary = review_summaries.get(submission.id) %}
+                        {% if review_summary %}
+                        <span class="badge bg-primary p-2 ms-2" aria-label="复核状态：{{ review_summary.status_label }}">
+                            {{ review_summary.status_label }}
+                        </span>
+                        {% endif %}
                     </div>
                 </div>
                 
@@ -281,6 +287,10 @@
                         {% endif %}
                     </p>
                 </div>
+                {% endif %}
+
+                {% if review_summary and review_summary.status != 'resolved' %}
+                <p class="small text-primary mt-3 mb-0">下一步：打开详情继续复核或补充问题。</p>
                 {% endif %}
                 
                 <div class="submission-actions">
@@ -306,4 +316,4 @@
     </div>
     {% endif %}
 </div>
-{% endblock %} 
+{% endblock %}

@@ -1,12 +1,17 @@
 import json
 import logging
 import threading
+import time
 from datetime import datetime as dt
 from models import db, User, Class, KnowledgePointScore, Assignment, AssignmentKnowledgePoint, TeacherAISuggestion
 from services.teacher_analytics import build_class_learning_rows
 from services.llm_client import LLMServiceError, SharedLLMClient
 from services.demo_database import activate_demo_run, is_active_demo_run
+from utils.sse import sse_event, stream_text_chunks
+from utils.timezone import format_display_datetime
 
+
+logger = logging.getLogger(__name__)
 logger = logging.getLogger(__name__)
 
 # 线程锁，防止重复并发生成同一班级的AI建议
@@ -54,6 +59,24 @@ def _friendly_ai_error(code):
         'INVALID_RESPONSE': 'AI 返回内容格式不完整，请稍后重试。',
     }
     return messages.get(code, 'AI 上游服务暂时不可用，请稍后重试。')
+def _mark_stream_failed_if_needed(class_id, teacher_id, suggestion, demo_run_id):
+    """Do not leave a suggestion permanently stuck in ``processing``."""
+
+    try:
+        if suggestion is None or suggestion.status != 'processing':
+            return
+        if demo_run_id:
+            if _demo_database_is_available(demo_run_id):
+                _mark_demo_suggestion_failed(class_id, teacher_id)
+            return
+        suggestion.status = 'failed'
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        logger.exception(
+            "教师端学情流失败状态清理异常 class_id=%s",
+            class_id,
+        )
 
 
 def generate_class_suggestions(class_id, teacher_id, demo_run_id=None):
@@ -242,7 +265,12 @@ def generate_class_suggestions(class_id, teacher_id, demo_run_id=None):
                     }
                 ]
 
-                response = llm.chat(messages, temperature=0.7, max_tokens=2500)
+                response = llm.chat(
+                    messages,
+                    temperature=0.7,
+                    max_tokens=2500,
+                    request_kind="background",
+                )
                 if response:
                     parts = response.split('===JSON===')
                     markdown_part = parts[0].strip()
@@ -367,25 +395,62 @@ def generate_class_suggestions_async(class_id, teacher_id, app, demo_run_id=None
 
 
 def generate_class_suggestions_stream(class_id, teacher_id, demo_run_id=None):
+    """Wrap the stream so disconnects/errors are logged and finalized."""
+
+    state = {}
+    try:
+        yield from _generate_class_suggestions_stream(
+            class_id,
+            teacher_id,
+            demo_run_id=demo_run_id,
+            state=state,
+        )
+    except GeneratorExit:
+        _mark_stream_failed_if_needed(
+            class_id,
+            teacher_id,
+            state.get('suggestion'),
+            demo_run_id,
+        )
+        logger.info("教师端学情 SSE 客户端断开 class_id=%s", class_id)
+        raise
+    except Exception as exc:
+        _mark_stream_failed_if_needed(
+            class_id,
+            teacher_id,
+            state.get('suggestion'),
+            demo_run_id,
+        )
+        logger.exception(
+            "教师端学情 SSE 异常 class_id=%s error_type=%s",
+            class_id,
+            type(exc).__name__,
+        )
+        yield sse_event({'type': 'error', 'message': '流式生成 AI 建议失败，请刷新重试'})
+
+
+def _generate_class_suggestions_stream(class_id, teacher_id, demo_run_id=None, *, state=None):
     """
     流式生成班级学情建议，计算规则引擎结果，并流式输出LLM反馈报告，最后保存入库
     """
     if demo_run_id and not activate_demo_run(demo_run_id):
-        yield f"data: {json.dumps({'type': 'error', 'message': '体验会话已结束，请重新进入演示'})}\n\n"
+        yield sse_event({'type': 'error', 'message': '体验会话已结束，请重新进入演示'})
         return
 
-    yield f"data: {json.dumps({'type': 'status', 'message': '正在读取班级基本数据...'})}\n\n"
+    yield sse_event({'type': 'status', 'message': '正在读取班级基本数据...'})
     
     cls = Class.query.get(class_id)
     if not cls:
-        yield f"data: {json.dumps({'type': 'error', 'message': '班级未找到'})}\n\n"
+        yield sse_event({'type': 'error', 'message': '班级未找到'})
         return
 
     suggestion = TeacherAISuggestion.get_or_create(class_id=class_id, teacher_id=teacher_id)
+    if state is not None:
+        state['suggestion'] = suggestion
     suggestion.status = 'processing'
     db.session.commit()
 
-    yield f"data: {json.dumps({'type': 'status', 'message': '正在分析学生提交与风险情况...'})}\n\n"
+    yield sse_event({'type': 'status', 'message': '正在分析学生提交与风险情况...'})
     students = User.query.filter_by(class_id=class_id, usertype='学生').all()
     student_ids = [s.student_id for s in students]
 
@@ -401,7 +466,7 @@ def generate_class_suggestions_stream(class_id, teacher_id, demo_run_id=None):
                     'latest_score': row['latest_score']
                 })
 
-    yield f"data: {json.dumps({'type': 'status', 'message': '正在聚合知识点雷达掌握度...'})}\n\n"
+    yield sse_event({'type': 'status', 'message': '正在聚合知识点雷达掌握度...'})
     weak_points = []
     if student_ids:
         rows = db.session.query(
@@ -426,7 +491,7 @@ def generate_class_suggestions_stream(class_id, teacher_id, demo_run_id=None):
                 'total_attempts': int(row.total_attempts) if row.total_attempts else 0
             })
 
-    yield f"data: {json.dumps({'type': 'status', 'message': '正在匹配系统作业并生成推荐大纲...'})}\n\n"
+    yield sse_event({'type': 'status', 'message': '正在匹配系统作业并生成推荐大纲...'})
     suggested_assignments = []
     if weak_points:
         weak_kp_codes = [wp['code'] for wp in weak_points[:3]]
@@ -481,11 +546,13 @@ def generate_class_suggestions_stream(class_id, teacher_id, demo_run_id=None):
     }
 
     llm = SharedLLMClient()
-    ai_error_code = 'INVALID_RESPONSE'
+    stream_started_at = time.perf_counter()
+    yield sse_event({'type': 'status', 'message': '正在与 AI 助手建立流式会话...'})
+    # `start` is sent before the model call so the user sees the report shell
+    # during provider time-to-first-token, not only after the first text chunk.
+    yield sse_event({'type': 'start', 'message': 'AI 已连接，正在生成报告...'})
     if llm.is_available():
         try:
-            yield f"data: {json.dumps({'type': 'status', 'message': '正在与 AI 助手建立流式会话...'})}\n\n"
-            
             attention_details_str = "\n".join([
                 f"- {s['name']} ({s['student_id']}): 风险标签 {s['risk_tags']}, 最近得分 {s['latest_score']}" 
                 for s in attention_students
@@ -506,7 +573,7 @@ def generate_class_suggestions_stream(class_id, teacher_id, demo_run_id=None):
                     "role": "system",
                     "content": (
                         "你是一个专业的编程教育专家，擅长从班级 student 分数、提交活跃度、弱点概念等多维度给出建议。\n"
-                        "请用学术严谨且易懂的中文直接输出分析内容，并在正文结束后，输出一行由 `===JSON===` 分隔的 JSON 字符串，包含系统结构。"
+                        "请用学术严谨且易懂的中文直接输出 Markdown 格式的分析正文。只输出正文，不要输出 JSON、分隔符或额外说明。左侧结构化卡片由系统根据班级数据生成。"
                     )
                 },
                 {
@@ -529,95 +596,140 @@ def generate_class_suggestions_stream(class_id, teacher_id, demo_run_id=None):
 2. 建议讲解知识点：针对薄弱概念，提供核心讲解策略和典型错误提醒。
 3. 建议补练作业：推荐具体的练习方案。
 
-必须按 Markdown 格式排版正文。
-正文结束后，输出一行 `===JSON===`，紧接着输出以下 JSON 格式的解析字典:
-{{
-  "attention_students": [
-     {{"student_id": "学号", "name": "学生姓名", "risk_reason": "具体风险和建议建议"}}
-  ],
-  "weak_knowledge_points": [
-     {{"point_code": "概念代码", "point_name": "概念名称", "explanation": "掌握现状及对策建议"}}
-  ],
-  "suggested_assignments": [
-     {{"title": "作业标题", "reason": "推荐原因", "difficulty": "中等/困难"}}
-  ]
-}}
+必须按 Markdown 格式排版正文，只输出这份正文。
 """
                 }
             ]
 
             full_text = ""
             json_started = False
-            has_sent_start = False
-            
-            for chunk in llm.chat_stream(messages):
+            delimiter = '===JSON==='
+            delimiter_tail = ''
+            first_visible_at = None
+            visible_chunks = 0
+
+            # Keep only the suffix that could still become the structured
+            # response delimiter. This preserves normal Markdown immediately,
+            # even when the provider splits the delimiter across chunks.
+            for chunk in llm.chat_stream(messages, request_kind="interactive"):
+                if not chunk:
+                    continue
+                chunk = str(chunk)
                 full_text += chunk
-                if "===" in chunk or "JSON" in chunk or json_started:
+                if json_started:
+                    continue
+
+                candidate = delimiter_tail + chunk
+                delimiter_index = candidate.find(delimiter)
+                if delimiter_index >= 0:
+                    visible = candidate[:delimiter_index]
+                    delimiter_tail = ''
                     json_started = True
                 else:
-                    if not has_sent_start:
-                        yield f"data: {json.dumps({'type': 'start'})}\n\n"
-                        has_sent_start = True
-                    yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
+                    keep_length = min(len(delimiter) - 1, len(candidate))
+                    visible = candidate[:-keep_length] if keep_length else candidate
+                    delimiter_tail = candidate[-keep_length:] if keep_length else ''
 
-            # 提取 JSON 部分
-            parts = full_text.split('===JSON===')
-            markdown_part = parts[0].strip()
-            json_part = parts[1].strip() if len(parts) > 1 else "{}"
+                if visible:
+                    if first_visible_at is None:
+                        first_visible_at = time.perf_counter()
+                    visible_chunks += 1
+                    yield sse_event({'type': 'delta', 'content': visible})
 
-            if json_part.startswith('```'):
-                lines = json_part.splitlines()
-                if lines[0].startswith('```json') or lines[0].startswith('```'):
-                    lines = lines[1:]
-                if lines[-1].startswith('```'):
-                    lines = lines[:-1]
-                json_part = "\n".join(lines).strip()
+            if not json_started and delimiter_tail:
+                if first_visible_at is None:
+                    first_visible_at = time.perf_counter()
+                visible_chunks += 1
+                yield sse_event({'type': 'delta', 'content': delimiter_tail})
 
-            try:
-                parsed_json = json.loads(json_part)
-                if 'attention_students' in parsed_json and 'weak_knowledge_points' in parsed_json:
-                    suggestion.suggestion_markdown = markdown_part
-                    suggestion.suggestion_json = json.dumps(parsed_json, ensure_ascii=False)
-                    suggestion.status = 'completed'
-                    suggestion.last_updated = dt.utcnow()
-                    db.session.commit()
-                    
-                    yield f"data: {json.dumps({'type': 'complete', 'suggestion_json': parsed_json, 'last_updated': suggestion.last_updated.strftime('%Y-%m-%d %H:%M:%S')})}\n\n"
-                    return
-            except Exception as je:
-                ai_error_code = 'INVALID_RESPONSE'
-                logger.warning('班级 %s 的 AI 建议 JSON 流解析失败: %s', class_id, type(je).__name__)
+            # The structured cards are already available from the rule
+            # engine. The streamed model response is deliberately Markdown
+            # only, so malformed/legacy JSON must not turn a visible report
+            # into a failed request. Keep accepting the old delimiter for
+            # cached responses and overlay only valid list fields.
+            parts = full_text.split('===JSON===', 1)
+            markdown_part = parts[0].strip() if len(parts) > 1 else full_text.strip()
+            structured_json = dict(rule_json_dict)
+
+            if len(parts) > 1:
+                json_part = parts[1].strip()
+                if json_part.startswith('```'):
+                    lines = json_part.splitlines()
+                    if lines and lines[0].startswith('```'):
+                        lines = lines[1:]
+                    if lines and lines[-1].startswith('```'):
+                        lines = lines[:-1]
+                    json_part = "\n".join(lines).strip()
+                try:
+                    parsed_json = json.loads(json_part)
+                    if isinstance(parsed_json, dict):
+                        for key in (
+                            'attention_students',
+                            'weak_knowledge_points',
+                            'suggested_assignments',
+                        ):
+                            if isinstance(parsed_json.get(key), list):
+                                structured_json[key] = parsed_json[key]
+                    else:
+                        raise ValueError('structured response is not an object')
+                except Exception as je:
+                    logger.warning(
+                        "教师端学情结构化尾部无效，使用规则卡片 class_id=%s "
+                        "error_type=%s markdown_chars=%s json_chars=%s",
+                        class_id,
+                        type(je).__name__,
+                        len(markdown_part),
+                        len(json_part),
+                    )
+
+            if markdown_part:
+                suggestion.suggestion_markdown = markdown_part
+                suggestion.suggestion_json = json.dumps(
+                    structured_json, ensure_ascii=False
+                )
+                suggestion.status = 'completed'
+                suggestion.last_updated = dt.utcnow()
+                db.session.commit()
+
+                yield sse_event({
+                    'type': 'done',
+                    'done': True,
+                    'suggestion_json': structured_json,
+                    'last_updated': format_display_datetime(suggestion.last_updated),
+                    'stream_metrics': {
+                        'first_visible_ms': round(
+                            (first_visible_at - stream_started_at) * 1000, 2
+                        ) if first_visible_at else None,
+                        'output_chars': len(markdown_part),
+                        'stream_chunks': visible_chunks,
+                    },
+                })
+                return
 
         except Exception as le:
-            if isinstance(le, LLMServiceError):
-                ai_error_code = le.code
-            logger.exception('班级 %s 的 AI 流式分析失败 (%s)', class_id, ai_error_code)
+            logger.exception("教师端学情 LLM 流式分析失败 class_id=%s", class_id)
 
         if demo_run_id:
             if _demo_database_is_available(demo_run_id):
                 _mark_demo_suggestion_failed(class_id, teacher_id)
-            yield f"data: {json.dumps({'type': 'error', 'code': ai_error_code, 'message': _friendly_ai_error(ai_error_code)}, ensure_ascii=False)}\n\n"
+            yield sse_event({'type': 'error', 'message': '真实 AI 建议生成失败，请稍后重试'})
             return
 
     elif demo_run_id:
         if _demo_database_is_available(demo_run_id):
             _mark_demo_suggestion_failed(class_id, teacher_id)
-        ai_error_code = 'NO_PROVIDER'
-        yield f"data: {json.dumps({'type': 'error', 'code': ai_error_code, 'message': _friendly_ai_error(ai_error_code)}, ensure_ascii=False)}\n\n"
+        yield sse_event({'type': 'error', 'message': 'AI 服务当前不可用，请稍后重试'})
         return
-    else:
-        ai_error_code = 'NO_PROVIDER'
 
     # Fallback to rules-based
-    if ai_error_code != 'INVALID_RESPONSE' or llm.is_available():
-        yield f"data: {json.dumps({'type': 'status', 'message': 'AI 暂不可用，已切换为规则分析结果...' }, ensure_ascii=False)}\n\n"
-    yield f"data: {json.dumps({'type': 'start'})}\n\n"
-    chunk_size = 30
-    import time
-    for i in range(0, len(rule_markdown), chunk_size):
-        chunk = rule_markdown[i:i+chunk_size]
-        yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
-        time.sleep(0.04)
+    fallback_started_at = time.perf_counter()
+    fallback_first_visible_at = None
+    fallback_chunks = 0
+    for chunk in stream_text_chunks(rule_markdown, max_chars=160):
+        if fallback_first_visible_at is None:
+            fallback_first_visible_at = time.perf_counter()
+        fallback_chunks += 1
+        yield sse_event({'type': 'delta', 'content': chunk})
 
     suggestion.suggestion_markdown = rule_markdown
     suggestion.suggestion_json = json.dumps(rule_json_dict, ensure_ascii=False)
@@ -625,5 +737,17 @@ def generate_class_suggestions_stream(class_id, teacher_id, demo_run_id=None):
     suggestion.last_updated = dt.utcnow()
     db.session.commit()
 
-    yield f"data: {json.dumps({'type': 'complete', 'suggestion_json': rule_json_dict, 'last_updated': suggestion.last_updated.strftime('%Y-%m-%d %H:%M:%S')})}\n\n"
+    yield sse_event({
+        'type': 'done',
+        'done': True,
+        'suggestion_json': rule_json_dict,
+        'last_updated': format_display_datetime(suggestion.last_updated),
+        'stream_metrics': {
+            'first_visible_ms': round(
+                (fallback_first_visible_at - fallback_started_at) * 1000, 2
+            ) if fallback_first_visible_at else None,
+            'output_chars': len(rule_markdown),
+            'stream_chunks': fallback_chunks,
+        },
+    })
 

@@ -1,0 +1,130 @@
+{% extends "layout.html" %}
+
+{% block title %}反馈已收到 - CodeSense 酷森思{% endblock %}
+
+{% block extra_css %}
+<style>
+    .feedback-receipt {
+        max-width: 720px;
+        margin: 2rem auto;
+        padding: 2rem;
+        border: 1px solid #bbf7d0;
+        border-radius: 1rem;
+        background: #f0fdf4;
+        box-shadow: var(--shadow-md);
+    }
+
+    .feedback-receipt-icon {
+        color: #15803d;
+        font-size: 2rem;
+    }
+
+    .feedback-receipt h1 {
+        margin: 0.65rem 0;
+        color: #14532d;
+    }
+
+    .feedback-receipt p {
+        color: #166534;
+        line-height: 1.7;
+    }
+
+    .feedback-receipt dl {
+        display: grid;
+        grid-template-columns: minmax(7rem, 0.4fr) 1fr;
+        gap: 0.75rem 1rem;
+        margin: 1.5rem 0;
+        padding: 1rem;
+        border-radius: 0.65rem;
+        background: #dcfce7;
+    }
+
+    .feedback-receipt dt {
+        color: #166534;
+        font-weight: 700;
+    }
+
+    .feedback-receipt dd {
+        margin: 0;
+        color: #14532d;
+    }
+
+    .feedback-receipt code {
+        padding: 0.2rem 0.4rem;
+        border-radius: 0.35rem;
+        background: #bbf7d0;
+        color: #14532d;
+        font-weight: 700;
+    }
+
+    .feedback-receipt-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+    }
+
+    .feedback-timeline {
+        margin: 1rem 0 1.5rem;
+        padding: 1rem 1rem 1rem 1.4rem;
+        border-left: 3px solid #86efac;
+        background: rgba(255, 255, 255, 0.55);
+    }
+
+    .feedback-timeline li + li {
+        margin-top: 0.55rem;
+    }
+
+    .feedback-timeline time {
+        color: #166534;
+        font-size: 0.875rem;
+    }
+
+    @media (max-width: 560px) {
+        .feedback-receipt {
+            padding: 1.25rem;
+        }
+
+        .feedback-receipt dl {
+            grid-template-columns: 1fr;
+            gap: 0.25rem;
+        }
+
+        .feedback-receipt dt:not(:first-child) {
+            margin-top: 0.5rem;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="feedback-receipt" aria-labelledby="feedback-receipt-title">
+    <div class="feedback-receipt-icon" aria-hidden="true"><i class="bi bi-check-circle-fill"></i></div>
+    <h1 id="feedback-receipt-title">反馈已收到</h1>
+    <p role="status">系统已经记录这条反馈。当前状态是“{{ record.status_label }}”，后续处理会沿用下面的编号。</p>
+
+    <dl>
+        <dt>反馈编号</dt>
+        <dd><code>{{ record.feedback_id }}</code></dd>
+        <dt>类型</dt>
+        <dd>{{ record.category_label }}</dd>
+        <dt>提交时间</dt>
+        <dd><time datetime="{{ record.submitted_at }}">{{ record.submitted_at }}</time></dd>
+        <dt>状态</dt>
+        <dd>{{ record.status_label }}</dd>
+    </dl>
+
+    <section aria-labelledby="feedback-progress-title">
+        <h2 id="feedback-progress-title" class="visually-hidden">处理进度</h2>
+        <ol class="feedback-timeline">
+            {% for item in record.status_history %}
+            <li><strong>{{ item.status_label }}</strong> · <time datetime="{{ item.at }}">{{ item.at }}</time></li>
+            {% endfor %}
+        </ol>
+    </section>
+
+    <div class="feedback-receipt-actions">
+        <a class="btn btn-primary" href="{{ url_for('main.feedback') }}">继续提交反馈</a>
+        <a class="btn btn-outline-secondary" href="{{ url_for('main.home') }}">返回首页</a>
+    </div>
+</section>
+{% endblock %}

@@ -122,7 +122,7 @@ function handleQuestionSubmit() {
         })
     }, {
         onDelta: function(event) {
-            streamedAnswer += event.content || event.token || '';
+            streamedAnswer += event.content || '';
             if (streamedAnswer) {
                 hideAnswerLoadingState();
                 displayAnswer(streamedAnswer);
@@ -464,7 +464,7 @@ function handleAskQuestion() {
         })
     }, {
         onDelta: event => {
-            streamedAnswer += event.content || event.token || '';
+            streamedAnswer += event.content || '';
             if (streamedAnswer) {
                 answerContainer.innerHTML = `<div class="card"><div class="card-body markdown-content cs-markdown">${formatMarkdown(streamedAnswer)}</div></div>`;
             }

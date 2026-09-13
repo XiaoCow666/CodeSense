@@ -167,6 +167,43 @@
         background-color: #ede9fe;
         color: #6d28d9;
     }
+
+    .submission-review-section {
+        padding: 1.5rem;
+        border-top: 1px solid #e5e7eb;
+        background: #f8fafc;
+    }
+
+    .submission-review-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-bottom: 1rem;
+    }
+
+    .submission-review-timeline {
+        list-style: none;
+        margin: 0 0 1.25rem;
+        padding: 0;
+    }
+
+    .submission-review-event {
+        padding: 0.85rem 1rem;
+        margin-bottom: 0.65rem;
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 0.5rem;
+    }
+
+    .submission-review-event-meta {
+        color: #64748b;
+        font-size: 0.875rem;
+    }
+
+    .submission-review-form {
+        max-width: 52rem;
+    }
 </style>
 {% endblock %}
 
@@ -257,6 +294,25 @@
                 <i class="bi bi-lightning-charge-fill"></i> 智能评估
             </span>
         </div>
+
+        {% if session.get('usertype') == '学生' and session.get('student_id') == submission.student_id %}
+        <fieldset class="ai-feedback-signal mt-3" aria-describedby="ai-feedback-signal-help">
+            <legend class="fs-6 mb-2">这条建议对你有帮助吗？</legend>
+            <div id="ai-feedback-signal-help" class="form-text mb-2">你的选择只用于改进学习反馈，不会修改本次得分。</div>
+            <form method="POST" action="{{ url_for('assignments.save_submission_ai_feedback_signal', submission_id=submission.id) }}"
+                class="d-flex flex-wrap gap-2">
+                <button class="btn btn-sm {% if ai_feedback_signal == 'helpful' %}btn-primary{% else %}btn-outline-primary{% endif %}"
+                    type="submit" name="value" value="helpful">有帮助</button>
+                <button class="btn btn-sm {% if ai_feedback_signal == 'needs_clarification' %}btn-primary{% else %}btn-outline-primary{% endif %}"
+                    type="submit" name="value" value="needs_clarification">需要澄清</button>
+            </form>
+            {% if ai_feedback_signal %}
+            <p class="small text-muted mt-2 mb-0" role="status" aria-live="polite">
+                已记录：{% if ai_feedback_signal == 'helpful' %}有帮助{% else %}需要澄清{% endif %}
+            </p>
+            {% endif %}
+        </fieldset>
+        {% endif %}
     </div>
     {% else %}
     <!-- 如果没有专门的AI评估建议但有常规反馈，也展示 -->
@@ -419,6 +475,77 @@
         </div>
         {% endif %}
     </div>
+
+    {% if can_access_review %}
+    <section class="submission-review-section" aria-labelledby="submission-review-title">
+        <div class="submission-review-header">
+            <div>
+                <h3 id="submission-review-title" class="mb-1">
+                    <i class="bi bi-chat-square-heart me-2"></i>教师复核
+                </h3>
+                <p class="text-muted mb-0">围绕这次提交记录具体困惑，复核内容只对参与者可见。</p>
+            </div>
+            {% if review %}
+            <span class="badge bg-primary" aria-label="复核状态：{{ review.status_label }}">
+                {{ review.status_label }}
+            </span>
+            {% endif %}
+        </div>
+
+        {% if review %}
+        <p class="mb-3" role="status" aria-live="polite">
+            当前状态：<strong>{{ review.status_label }}</strong>
+        </p>
+        <ol class="submission-review-timeline" aria-label="复核记录">
+            {% for event in review.events %}
+            <li class="submission-review-event">
+                <div class="submission-review-event-meta">
+                    <span>{{ event.actor_role_label }}</span>
+                    <span aria-hidden="true"> · </span>
+                    <time datetime="{{ event.created_at }}">{{ event.created_at }}</time>
+                </div>
+                {% if event.event == 'request' %}
+                <strong>申请教师复核</strong>
+                {% elif event.event == 'message' %}
+                <strong>参与者留言</strong>
+                {% else %}
+                <strong>状态更新为 {{ event.status_label }}</strong>
+                {% endif %}
+                {% if event.body %}
+                <p class="mb-0 mt-2" style="white-space: pre-wrap;">{{ event.body }}</p>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ol>
+
+        {% if session.get('usertype') == '学生' or review.status != 'resolved' %}
+        <form class="submission-review-form" method="POST"
+            action="{{ url_for('assignments.add_submission_review_message', submission_id=submission.id) }}">
+            <label class="form-label" for="review-message">补充复核消息</label>
+            <textarea class="form-control" id="review-message" name="body" rows="4" maxlength="2000"
+                required aria-describedby="review-message-help"></textarea>
+            <div id="review-message-help" class="form-text">最多 2,000 个字符；请描述复现步骤或下一步疑问。</div>
+            <button class="btn btn-primary mt-3" type="submit">
+                <i class="bi bi-send me-1" aria-hidden="true"></i>发送消息
+            </button>
+        </form>
+        {% endif %}
+        {% elif session.get('usertype') == '学生' %}
+        <form class="submission-review-form" method="POST"
+            action="{{ url_for('assignments.request_submission_review', submission_id=submission.id) }}">
+            <label class="form-label" for="review-request-body">复核说明</label>
+            <textarea class="form-control" id="review-request-body" name="body" rows="4" maxlength="2000"
+                required aria-describedby="review-request-help"></textarea>
+            <div id="review-request-help" class="form-text">最多 2,000 个字符；请说明你卡住的现象和已尝试的方向。</div>
+            <button class="btn btn-primary mt-3" type="submit">
+                <i class="bi bi-person-check me-1" aria-hidden="true"></i>申请教师复核
+            </button>
+        </form>
+        {% else %}
+        <p class="text-muted mb-0" role="status">学生尚未申请教师复核。</p>
+        {% endif %}
+    </section>
+    {% endif %}
 </div>
 
 <div class="d-flex justify-content-between mt-4">

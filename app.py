@@ -11,10 +11,11 @@ import gzip
 import re
 import threading
 import time
+import uuid
 from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 from logging import FileHandler
 
-from flask import Flask, request, session, flash, redirect, url_for, g, jsonify
+from flask import Flask, request, session, flash, redirect, url_for, g, jsonify, render_template, send_file
 from flask_login import LoginManager
 from werkzeug.middleware.proxy_fix import ProxyFix
 # Flask-Session导入优化
@@ -38,6 +39,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from config import config
 from models import db, init_db
 from services.api_keys import api_keys  # 导入 API 密钥管理器
+from utils.timezone import format_display_datetime
 
 
 def _env_bool(name, default=False):
@@ -272,6 +274,10 @@ def setup_logging(app):
     @app.before_request
     def start_request_timer():
         g.codesense_request_started = time.perf_counter()
+        # Generate correlation data inside the trusted request context.  Do
+        # not accept a caller-supplied id: access and LLM logs must remain
+        # opaque and bounded even when a client sends arbitrary headers.
+        g.codesense_request_id = str(uuid.uuid4())
     
     # 单点登录校验
     @app.before_request
@@ -314,6 +320,10 @@ def setup_logging(app):
     def log_response_info(response):
         started = getattr(g, 'codesense_request_started', None)
         duration_ms = ((time.perf_counter() - started) * 1000) if started else 0
+        request_id = getattr(g, 'codesense_request_id', None)
+        if not request_id:
+            request_id = str(uuid.uuid4())
+        response.headers.setdefault('X-Request-ID', request_id)
         is_static = request.endpoint in ['static', 'favicon']
         metrics = app.extensions.get('codesense_metrics')
         if metrics:
@@ -327,7 +337,8 @@ def setup_logging(app):
         if not is_static:
             line = (
                 f'{request.remote_addr} "{request.method} {request.path}" '
-                f'{response.status_code} {duration_ms:.0f}ms'
+                f'{response.status_code} {duration_ms:.0f}ms '
+                f'request_id={request_id}'
             )
             if app.config.get('ACCESS_LOG_ENABLED'):
                 access_logger.info(line)
@@ -454,11 +465,29 @@ def create_app(config_name='default'):
         except Exception:
             return []
 
+    @app.template_filter('localtime')
+    def localtime_filter(value, fmt='%Y-%m-%d %H:%M:%S'):
+        """Render a stored UTC timestamp in the configured display timezone."""
+        return format_display_datetime(value, fmt)
+
     # 注册全局上下文变量
     @app.context_processor
     def inject_now():
         from datetime import datetime as dt_now
-        return {'current_time': dt_now.utcnow()}
+        notification_unread_count = 0
+        student_id = session.get('student_id') if session.get('login') else None
+        if student_id:
+            try:
+                from services.notifications import count_unread
+                notification_unread_count = count_unread(student_id)
+            except Exception:
+                # Notification rendering must never make an otherwise healthy
+                # page unavailable; the inbox remains the source of detail.
+                app.logger.warning('站内通知未读数读取失败', exc_info=True)
+        return {
+            'current_time': dt_now.utcnow(),
+            'notification_unread_count': notification_unread_count,
+        }
     
     # 初始化Flask-Session（如果可用）
     if HAS_FLASK_SESSION and Session is not None:
@@ -502,6 +531,65 @@ def create_app(config_name='default'):
     app.register_blueprint(thinking)  # /thinking/*
     app.register_blueprint(grades)
 
+    def request_prefers_json_error():
+        """Return whether the client expects a machine-readable error."""
+
+        if request.path.startswith('/api/'):
+            return True
+        return (
+            request.accept_mimetypes.accept_json
+            and not request.accept_mimetypes.accept_html
+        )
+
+    def error_request_id():
+        return getattr(g, 'codesense_request_id', None) or str(uuid.uuid4())
+
+    def error_json(code, error_name, message):
+        return jsonify({
+            'error': error_name,
+            'message': message,
+            'request_id': error_request_id(),
+        }), code
+
+    @app.errorhandler(404)
+    def handle_not_found(error):
+        del error
+        request_id = error_request_id()
+        if request_prefers_json_error():
+            return error_json(404, 'not_found', '请求的资源不存在')
+        return render_template(
+            '404.html',
+            request_id=request_id,
+            from_page=request.path,
+        ), 404
+
+    @app.errorhandler(405)
+    def handle_method_not_allowed(error):
+        del error
+        request_id = error_request_id()
+        if request_prefers_json_error():
+            return error_json(405, 'method_not_allowed', '请求方法不被支持')
+        return render_template(
+            '404.html',
+            title='请求方法不可用',
+            heading='这个操作暂时不可用',
+            message='请返回上一页，或通过反馈中心告诉我们你刚才进行了什么操作。',
+            request_id=request_id,
+            from_page=request.path,
+        ), 405
+
+    @app.errorhandler(500)
+    def handle_internal_error(error):
+        del error
+        request_id = error_request_id()
+        if request_prefers_json_error():
+            return error_json(500, 'internal_server_error', '服务暂时不可用，请稍后重试')
+        return render_template(
+            '500.html',
+            request_id=request_id,
+            from_page=request.path,
+        ), 500
+
     @app.after_request
     def compress_text_response(response):
         """压缩普通 HTML/JSON 响应；不触碰 SSE 和其它流式响应。"""
@@ -531,6 +619,15 @@ def create_app(config_name='default'):
         response.headers['Vary'] = 'Accept-Encoding'
         response.headers.pop('Content-Length', None)
         return response
+
+    @app.get('/favicon.ico')
+    def favicon():
+        """Serve the same lightweight brand icon for browser defaults."""
+
+        return send_file(
+            os.path.join(app.root_path, 'static', 'img', 'favicon.svg'),
+            mimetype='image/svg+xml',
+        )
 
     @app.get('/healthz')
     def healthz():

@@ -1,0 +1,18 @@
+{% extends "layout.html" %}
+
+{% block title %}服务暂时不可用 - CodeSense 酷森思{% endblock %}
+
+{% block content %}
+<section class="state-page" aria-labelledby="error-heading">
+    <div class="state-page-code" aria-hidden="true">500</div>
+    <p class="state-page-eyebrow">CodeSense 状态提示</p>
+    <h1 id="error-heading">页面暂时出了问题</h1>
+    <p class="state-page-copy">服务没有完成这次请求。请稍后重试；如果问题持续存在，可以把请求编号交给反馈中心。</p>
+    <div class="state-page-actions">
+        <a class="btn btn-primary" href="{{ url_for('main.home') }}">返回首页</a>
+        <a class="btn btn-outline-secondary" href="{{ url_for('main.help') }}">查看帮助</a>
+        <a class="btn btn-link" href="{{ url_for('main.feedback', from_page=from_page or request.path) }}">反馈中心</a>
+    </div>
+    <p class="state-page-request" role="status">请求编号：<code>{{ request_id }}</code></p>
+</section>
+{% endblock %}

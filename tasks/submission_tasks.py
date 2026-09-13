@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import threading
-import traceback
 
 from models import Assignment, Submission, SystemLog, TestCase as TC, User, db
 from services.demo_database import activate_demo_run, is_active_demo_run
@@ -87,17 +86,49 @@ def _mark_submission_failed(submission_id: int, message: str) -> None:
     db.session.commit()
 
 
-def evaluate_submission_async(app, submission_id, assignment_title, demo_run_id=None):
+def mark_submission_failed(submission_id: int, message: str) -> None:
+    """Expose the shared failure transition to submission entry points."""
+
+    _mark_submission_failed(submission_id, message)
+
+
+def evaluate_submission_async(
+    app, submission_id, assignment_title, demo_run_id=None, *, run_inline=False
+):
     """异步评测学生提交的代码。
 
     ``demo_run_id`` 为空时使用正式数据库；公开体验传入该值后，线程会
     先切换到对应的临时数据库，并在会话失效时直接停止。
     """
 
+    if (
+        not run_inline
+        and not demo_run_id
+        and app.config.get("SUBMISSION_EVALUATION_QUEUE_BACKEND", "thread")
+        == "rq"
+    ):
+        from tasks.submission_queue import (
+            SubmissionQueueUnavailable,
+            enqueue_submission_evaluation,
+        )
+
+        try:
+            return enqueue_submission_evaluation(app, submission_id)
+        except SubmissionQueueUnavailable:
+            with app.app_context():
+                try:
+                    _mark_submission_failed(
+                        submission_id,
+                        "提交评测队列暂时不可用，请稍后重试",
+                    )
+                except Exception:
+                    db.session.rollback()
+            raise
+
     def _evaluate():
         with app.app_context():
             if demo_run_id and not activate_demo_run(demo_run_id):
-                print(f"公开体验会话已失效，跳过提交评测: {demo_run_id}")
+                print("公开体验会话已失效，跳过提交评测")
                 return
 
             try:
@@ -116,7 +147,7 @@ def evaluate_submission_async(app, submission_id, assignment_title, demo_run_id=
                 code = submission.code
                 student_id = submission.student_id
 
-                print(f"开始后台评估提交 {submission_id}，题目: {assignment_title}")
+                print(f"开始后台评估提交 {submission_id}")
 
                 # 1. AI 基础评估。公开体验不接受默认分数，AI 失败必须
                 # 让提交进入 failed，方便前端提示用户重新提交。
@@ -140,13 +171,13 @@ def evaluate_submission_async(app, submission_id, assignment_title, demo_run_id=
                     submission.score = score
                     submission.feedback = feedback
                 except Exception as ai_error:
-                    print(f"AI 评估过程出错: {ai_error}")
+                    print(f"AI 评估过程出错: {type(ai_error).__name__}")
                     if demo_run_id:
                         raise RuntimeError("AI 评测失败，请稍后重试") from ai_error
                     # 正式账户保留历史兼容行为；公开体验永远不会走到这条
                     # 默认分支，避免把失败伪装成成功分数。
                     submission.score = 1
-                    submission.feedback = f"AI 评估过程中出错: {ai_error}"
+                    submission.feedback = "AI 评估过程中出错，请稍后重试。"
 
                 # 2. 沙箱测试用例评判。
                 try:
@@ -182,7 +213,7 @@ def evaluate_submission_async(app, submission_id, assignment_title, demo_run_id=
                                 f"最终得分: {submission.score}"
                             )
                 except Exception as sandbox_error:
-                    print(f"沙箱评判过程出错: {sandbox_error}")
+                    print(f"沙箱评判过程出错: {type(sandbox_error).__name__}")
                     if demo_run_id:
                         raise RuntimeError("沙箱评测失败，请稍后重试") from sandbox_error
 
@@ -237,7 +268,7 @@ def evaluate_submission_async(app, submission_id, assignment_title, demo_run_id=
                                     weight=kp_data.get("weight", 1.0),
                                 )
                 except Exception as kp_error:
-                    print(f"更新知识点评分失败: {kp_error}")
+                    print(f"更新知识点评分失败: {type(kp_error).__name__}")
                     if demo_run_id:
                         raise RuntimeError("知识点画像更新失败，请稍后重试") from kp_error
 
@@ -275,24 +306,63 @@ def evaluate_submission_async(app, submission_id, assignment_title, demo_run_id=
                         icon="bi bi-check-circle-fill",
                     )
                 print(f"提交 {submission_id} 评测全部完成")
+                return "evaluated"
 
             except Exception as error:
-                print(f"评测线程崩溃: {error}")
-                traceback.print_exc()
+                print(f"评测线程崩溃: {type(error).__name__}")
                 if not _demo_database_is_available(demo_run_id):
                     return
                 try:
                     db.session.rollback()
                     _mark_submission_failed(
                         submission_id,
-                        "AI 评测失败，请稍后重试。" if demo_run_id else f"后台评测发生严重错误: {error}",
+                        "AI 评测失败，请稍后重试。" if demo_run_id else "后台评测发生严重错误，请稍后重试。",
                     )
                 except Exception:
                     db.session.rollback()
-                    traceback.print_exc()
+
+            return "failed"
+
+    if run_inline:
+        return _evaluate()
 
     thread = threading.Thread(target=_evaluate)
     thread.daemon = True
     thread.start()
     print(f"已启动后台评测线程 - 提交 ID: {submission_id}")
     return thread
+
+
+def run_submission_evaluation(app, submission_id, assignment_title=None, demo_run_id=None):
+    """Run one submission evaluation inline inside a worker or app context."""
+
+    result = evaluate_submission_async(
+        app,
+        submission_id,
+        assignment_title,
+        demo_run_id=demo_run_id,
+        run_inline=True,
+    )
+    if result == "failed":
+        raise RuntimeError("submission evaluation failed")
+    return result or "evaluated"
+
+
+def run_formal_submission_evaluation(submission_id):
+    """RQ entry point; resolve all business data inside the worker context."""
+
+    from flask import current_app
+
+    submission_id = int(submission_id)
+    submission = db.session.get(Submission, submission_id)
+    if submission is None:
+        raise RuntimeError("提交记录不存在")
+    assignment = db.session.get(Assignment, submission.assignment_id)
+    if assignment is None:
+        raise RuntimeError("提交对应的作业不存在")
+    return run_submission_evaluation(
+        current_app._get_current_object(),
+        submission_id,
+        assignment.title,
+        None,
+    )

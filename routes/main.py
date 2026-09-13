@@ -5,7 +5,7 @@ import datetime
 import csv
 import io
 import json  # 添加json模块导入
-from flask import Blueprint, render_template, redirect, url_for, flash, session, request, jsonify, Response, current_app
+from flask import Blueprint, render_template, redirect, url_for, flash, session, request, jsonify, Response, current_app, abort, g
 from flask_login import login_required, current_user
 from sqlalchemy import func
 from sqlalchemy.orm import joinedload
@@ -21,8 +21,31 @@ from models import (
 )
 from services.teacher_analytics import build_teacher_dashboard_data
 from services.demo_database import current_demo_run_id
+from services.feedback import (
+    FEEDBACK_CATEGORIES,
+    FEEDBACK_CATEGORY_LABELS,
+    FEEDBACK_STATUS_LABELS,
+    FEEDBACK_STATUS_OPTIONS,
+    FeedbackValidationError,
+    FeedbackStatusError,
+    create_feedback_record,
+    find_feedback,
+    list_feedback,
+    save_feedback,
+    update_feedback_status,
+)
+from services.notifications import (
+    create_notification,
+    list_notifications,
+    mark_all_notifications_read,
+    mark_notification_read,
+)
+from services.submission_reviews import count_open_reviews
+from services.profile import get_profile_settings, PROFILE_VISIBILITY_PUBLIC
 from utils.auth import admin_required
 from utils.maturity_calculator import calculate_maturity_components
+from utils.sse import sse_event, sse_response
+from utils.timezone import format_display_datetime
 
 main = Blueprint('main', __name__)
 
@@ -591,6 +614,7 @@ def teacher_dashboard():
     
     from models import TeacherAISuggestion
     ai_suggestions = {sug.class_id: sug for sug in TeacherAISuggestion.query.filter_by(teacher_id=teacher.student_id).all()}
+    open_review_count = count_open_reviews(teacher)
 
     return render_template('teacher_home.html',
                            teacher=teacher,
@@ -604,7 +628,8 @@ def teacher_dashboard():
                            class_cards=dashboard['class_cards'],
                            attention=dashboard['attention'],
                            chart_data=dashboard['chart_data'],
-                           ai_suggestions=ai_suggestions)
+                           ai_suggestions=ai_suggestions,
+                           open_review_count=open_review_count)
 
 
 @main.route('/teacher/ai_suggestions')
@@ -623,18 +648,9 @@ def teacher_ai_suggestions():
     class_suggestions = []
     for cls in managed_classes:
         sug = TeacherAISuggestion.query.filter_by(class_id=cls.id).first()
-        # 如果不存在建议，或者建议为pending，我们可以自动触发首次生成
+        # 首次生成由页面的 SSE 唯一路径负责，避免后台任务与 SSE 并发写同一条记录。
         if not sug:
             sug = TeacherAISuggestion.get_or_create(class_id=cls.id, teacher_id=teacher.student_id)
-            # 异步触发生成
-            from services.teacher_ai_advisor import generate_class_suggestions_async
-            from flask import current_app
-            generate_class_suggestions_async(
-                cls.id,
-                teacher.student_id,
-                current_app._get_current_object(),
-                demo_run_id=current_demo_run_id(),
-            )
             
         class_suggestions.append({
             'class': cls,
@@ -700,7 +716,7 @@ def api_teacher_suggestion_status(class_id):
 
     return jsonify({
         'status': sug.status,
-        'last_updated': sug.last_updated.strftime('%Y-%m-%d %H:%M:%S') if sug.last_updated else None,
+        'last_updated': format_display_datetime(sug.last_updated) if sug.last_updated else None,
         'suggestion_markdown': sug.suggestion_markdown,
         'suggestion_json': sug.get_suggestion_dict()
     })
@@ -711,33 +727,25 @@ def api_teacher_suggestion_status(class_id):
 def api_stream_teacher_suggestions():
     """流式生成并返回班级 AI 建议 (SSE)"""
     if not current_user.is_teacher:
-        return Response(f"data: {json.dumps({'type': 'error', 'message': '仅教师可执行此操作'})}\n\n", mimetype='text/event-stream')
+        return sse_response([sse_event({'type': 'error', 'message': '仅教师可执行此操作'})])
 
     class_id = request.args.get('class_id', type=int)
     if not class_id:
-        return Response(f"data: {json.dumps({'type': 'error', 'message': '参数缺失 class_id'})}\n\n", mimetype='text/event-stream')
+        return sse_response([sse_event({'type': 'error', 'message': '参数缺失 class_id'})])
 
     from models import Class
     cls = Class.query.get_or_404(class_id)
     if cls.teacher_id != current_user.student_id:
-        return Response(f"data: {json.dumps({'type': 'error', 'message': '您无权管理此班级'})}\n\n", mimetype='text/event-stream')
+        return sse_response([sse_event({'type': 'error', 'message': '您无权管理此班级'})])
 
     from services.teacher_ai_advisor import generate_class_suggestions_stream
-    from flask import Response, stream_with_context
 
-    return Response(
-        stream_with_context(
-            generate_class_suggestions_stream(
-                cls.id,
-                current_user.student_id,
-                demo_run_id=current_demo_run_id(),
-            )
-        ),
-        mimetype='text/event-stream',
-        headers={
-            'Cache-Control': 'no-cache',
-            'X-Accel-Buffering': 'no'
-        }
+    return sse_response(
+        generate_class_suggestions_stream(
+            cls.id,
+            current_user.student_id,
+            demo_run_id=current_demo_run_id(),
+        )
     )
 
 
@@ -949,6 +957,21 @@ def user_profile(user_username):
                               ability_trend.status if ability_trend else 'pending'
                           ))
 
+
+@main.route('/public_profile/<string:user_username>')
+def public_profile(user_username):
+    """Show only the fields explicitly opted into public sharing."""
+
+    user = User.query.filter_by(username=user_username).first_or_404()
+    profile_settings = get_profile_settings(user.student_id)
+    if profile_settings.get('profile_visibility') != PROFILE_VISIBILITY_PUBLIC:
+        abort(404)
+    return render_template(
+        'public_profile.html',
+        user=user,
+        profile_settings=profile_settings,
+    )
+
 @main.route('/debug_session')
 def debug_session():
     """调试会话状态"""
@@ -976,40 +999,263 @@ def help():
     """使用帮助页面"""
     return render_template('help.html')
 
+
+def _feedback_form_data():
+    """Return safe values for re-rendering the feedback form."""
+
+    data = {
+        'category': request.form.get('category', 'experience'),
+        'subject': request.form.get('subject', ''),
+        'message': request.form.get('message', ''),
+        'reproduction_steps': request.form.get('reproduction_steps', ''),
+        'page_context': request.form.get(
+            'page_context',
+            request.args.get('from_page') or request.args.get('from') or '/feedback',
+        ),
+        'contact_email': request.form.get(
+            'contact_email',
+            getattr(current_user, 'email', '') if current_user.is_authenticated else '',
+        ),
+    }
+    return data
+
+
+def _feedback_request_context():
+    return {
+        'request_id': getattr(g, 'codesense_request_id', None),
+        'endpoint': request.endpoint,
+        'method': request.method,
+    }
+
+
+def _feedback_user_id():
+    """Return a database-backed id, or None for anonymous visitors."""
+
+    if not current_user.is_authenticated:
+        return None
+    return getattr(current_user, 'student_id', None) or None
+
+
+def _save_feedback(data):
+    record = create_feedback_record(
+        data,
+        request_context=_feedback_request_context(),
+    )
+    user_id = _feedback_user_id()
+    save_feedback(record, user_id=user_id)
+    if user_id:
+        try:
+            create_notification(
+                user_id,
+                kind='feedback_received',
+                title='反馈已收到',
+                message=f"反馈 {record['feedback_id']} 已记录，当前状态为“已收到”。",
+                url=url_for('main.feedback_receipt', feedback_id=record['feedback_id']),
+                idempotency_key=f"feedback-received:{record['feedback_id']}",
+            )
+        except Exception:
+            db.session.rollback()
+            current_app.logger.warning(
+                '反馈已保存，但站内通知创建失败 feedback_id=%s',
+                record['feedback_id'],
+                exc_info=True,
+            )
+    return record
+
+
+@main.route('/feedback', methods=['GET', 'POST'])
+def feedback():
+    """Feedback intake with an opaque receipt and initial status."""
+
+    if request.method == 'POST':
+        try:
+            record = _save_feedback(request.form)
+        except FeedbackValidationError as exc:
+            return render_template(
+                'feedback.html',
+                categories=FEEDBACK_CATEGORIES,
+                form_data=_feedback_form_data(),
+                errors=exc.errors,
+            )
+        except Exception:
+            db.session.rollback()
+            current_app.logger.exception(
+                '反馈提交失败 request_id=%s',
+                getattr(g, 'codesense_request_id', None),
+            )
+            flash('反馈暂时未能提交，请稍后重试。', 'danger')
+            return render_template(
+                'feedback.html',
+                categories=FEEDBACK_CATEGORIES,
+                form_data=_feedback_form_data(),
+                errors={},
+            ), 503
+
+        return redirect(url_for('main.feedback_receipt', feedback_id=record['feedback_id']))
+
+    return render_template(
+        'feedback.html',
+        categories=FEEDBACK_CATEGORIES,
+        form_data=_feedback_form_data(),
+        errors={},
+    )
+
+
+@main.route('/feedback/receipt/<feedback_id>')
+def feedback_receipt(feedback_id):
+    """Display only the non-sensitive receipt state for one feedback item."""
+
+    record = find_feedback(feedback_id)
+    if record is None:
+        abort(404)
+    return render_template('feedback_receipt.html', record=record)
+
+
+@main.route('/admin/feedback')
+@login_required
+@admin_required
+def admin_feedback():
+    """Review the structured feedback intake records as an administrator."""
+
+    status_filter = request.args.get('status', '').strip()
+    category_filter = request.args.get('category', '').strip()
+    if status_filter not in FEEDBACK_STATUS_LABELS:
+        status_filter = ''
+    if category_filter not in FEEDBACK_CATEGORY_LABELS:
+        category_filter = ''
+    return render_template(
+        'admin_feedback.html',
+        feedback_records=list_feedback(
+            status=status_filter or None,
+            category=category_filter or None,
+        ),
+        feedback_statuses=FEEDBACK_STATUS_OPTIONS,
+        feedback_categories=FEEDBACK_CATEGORIES,
+        status_filter=status_filter,
+        category_filter=category_filter,
+    )
+
+
+@main.route('/admin/feedback/<feedback_id>/status', methods=['POST'])
+@login_required
+@admin_required
+def admin_feedback_status(feedback_id):
+    """Advance feedback through the bounded admin workflow."""
+
+    status_filter = request.form.get('return_status', '').strip()
+    category_filter = request.form.get('return_category', '').strip()
+    try:
+        record, owner_id = update_feedback_status(
+            feedback_id,
+            request.form.get('status', ''),
+            actor_id=getattr(current_user, 'student_id', None),
+            note=request.form.get('note', ''),
+        )
+    except FeedbackStatusError as exc:
+        flash(str(exc), 'warning')
+        return redirect(url_for(
+            'main.admin_feedback',
+            status=status_filter if status_filter in FEEDBACK_STATUS_LABELS else None,
+            category=category_filter if category_filter in FEEDBACK_CATEGORY_LABELS else None,
+        ))
+
+    if owner_id:
+        try:
+            create_notification(
+                owner_id,
+                kind='feedback_status',
+                title='反馈状态已更新',
+                message=f"反馈 {record['feedback_id']} 当前状态为“{record['status_label']}”。",
+                url=url_for('main.feedback_receipt', feedback_id=record['feedback_id']),
+                idempotency_key=(
+                    f"feedback-status:{record['feedback_id']}:{record['status']}:{record.get('last_updated_at')}"
+                ),
+            )
+        except Exception:
+            db.session.rollback()
+            current_app.logger.warning(
+                '反馈状态已更新，但站内通知创建失败 feedback_id=%s',
+                feedback_id,
+                exc_info=True,
+            )
+    flash(f"反馈 {record['feedback_id']} 已更新为“{record['status_label']}”。", 'success')
+    return redirect(url_for(
+        'main.admin_feedback',
+        status=status_filter if status_filter in FEEDBACK_STATUS_LABELS else None,
+        category=category_filter if category_filter in FEEDBACK_CATEGORY_LABELS else None,
+    ))
+
+
+def _safe_next_url(value, fallback):
+    value = str(value or '').strip()
+    return value if value.startswith('/') and not value.startswith('//') else fallback
+
+
+@main.route('/notifications')
+@login_required
+def notifications():
+    """Display the authenticated user's local notification inbox."""
+
+    filter_name = request.args.get('filter', 'all').strip().lower()
+    if filter_name not in {'all', 'unread'}:
+        filter_name = 'all'
+    notification_items = list_notifications(
+        current_user.student_id,
+        unread_only=filter_name == 'unread',
+    )
+    return render_template(
+        'notifications.html',
+        notifications=notification_items,
+        filter_name=filter_name,
+    )
+
+
+@main.route('/notifications/<int:notification_id>/read', methods=['POST'])
+@login_required
+def notification_read(notification_id):
+    if not mark_notification_read(current_user.student_id, notification_id):
+        abort(404)
+    return redirect(_safe_next_url(
+        request.form.get('next') or request.args.get('next'),
+        url_for('main.notifications'),
+    ))
+
+
+@main.route('/notifications/read-all', methods=['POST'])
+@login_required
+def notifications_read_all():
+    mark_all_notifications_read(current_user.student_id)
+    flash('未读通知已全部标记为已读。', 'success')
+    return redirect(url_for('main.notifications'))
+
+
 @main.route('/contact', methods=['GET', 'POST'])
 def contact():
     """联系我们页面"""
     if request.method == 'POST':
         try:
-            # 获取表单数据
-            name = request.form.get('name')
-            email = request.form.get('email')
-            subject = request.form.get('subject')
-            message = request.form.get('message')
-            
-            # 验证必要的字段
-            if not all([name, email, subject, message]):
-                flash('请填写所有必填字段', 'warning')
-                return render_template('contact.html')
-                
-            # 记录反馈信息到系统日志
-            log_entry = SystemLog(
-                user_id=session.get('student_id', '游客'),
-                action='提交反馈',
-                details=f'主题: {subject}, 联系人: {name}, 邮箱: {email}'
+            # 保留旧 POST 合约，将历史表单转入新的反馈记录格式。
+            legacy_data = {
+                'category': request.form.get('category', 'other'),
+                'subject': request.form.get('subject', ''),
+                'message': request.form.get('message', ''),
+                'reproduction_steps': request.form.get('reproduction_steps', ''),
+                'page_context': request.form.get('page_context', '/contact'),
+                'contact_email': request.form.get('email', ''),
+            }
+            record = _save_feedback(legacy_data)
+            return redirect(url_for('main.feedback_receipt', feedback_id=record['feedback_id']))
+        except FeedbackValidationError:
+            flash('请填写有效的主题、邮箱和留言内容。', 'warning')
+            return redirect(url_for('main.feedback', from_page='/contact'))
+        except Exception:
+            current_app.logger.exception(
+                '旧版联系表单提交失败 request_id=%s',
+                getattr(g, 'codesense_request_id', None),
             )
-            db.session.add(log_entry)
-            db.session.commit()
-            
-            # 在实际应用中，还可以发送电子邮件通知管理员
-            # send_feedback_email(name, email, subject, message)
-            
-            flash('感谢您的反馈！我们会尽快回复您。', 'success')
-            return redirect(url_for('main.contact'))
-            
-        except Exception as e:
-            flash(f'提交失败，请稍后再试。错误: {str(e)}', 'danger')
             db.session.rollback()
+            flash('提交失败，请稍后再试。', 'danger')
+            return redirect(url_for('main.contact'))
             
     return render_template('contact.html')
 

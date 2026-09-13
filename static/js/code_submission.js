@@ -58,17 +58,24 @@ function submitCodeViaAPI() {
     })
     .then(data => {
         console.log("提交成功:", data);
-        
-        // 显示成功消息
-        showSubmissionMessage(`代码提交成功! 评分: ${data.data.score}/5`, "success");
-        
-        // 重定向到提交详情页面
-        if (data.data && data.data.submission_id) {
+        const submission = data.data || {};
+
+        if (data.data && data.data.status === "queued") {
+            showSubmissionMessage("代码已提交，后台评测中，请稍候。", "info");
+            return pollSubmissionUntilEvaluated(submission.submission_id)
+                .then(result => {
+                    showSubmissionMessage(`代码评测完成! 评分: ${result.score}/5`, "success");
+                    window.location.href = `/assignments/view_submission/${submission.submission_id}`;
+                });
+        }
+
+        // 默认线程/同步路径保留原有即时响应。
+        showSubmissionMessage(`代码提交成功! 评分: ${submission.score}/5`, "success");
+        if (submission.submission_id) {
             setTimeout(() => {
-                window.location.href = `/assignments/view_submission/${data.data.submission_id}`;
+                window.location.href = `/assignments/view_submission/${submission.submission_id}`;
             }, 1500);
         } else {
-            // 如果没有提交ID，刷新当前页面
             setTimeout(() => {
                 window.location.reload();
             }, 1500);
@@ -81,4 +88,30 @@ function submitCodeViaAPI() {
     });
     
     return true;
+}
+
+function pollSubmissionUntilEvaluated(submissionId, attempt = 0) {
+    const maxAttempts = 60;
+    if (!submissionId || attempt >= maxAttempts) {
+        return Promise.reject(new Error("评测时间较长，请稍后打开提交记录查看结果。"));
+    }
+
+    return fetch(`/api/submissions/${submissionId}/status`)
+        .then(response => {
+            if (!response.ok) throw new Error(`HTTP 错误! 状态: ${response.status}`);
+            return response.json();
+        })
+        .then(data => {
+            if (data.status === "evaluated") {
+                return data;
+            }
+            if (data.queue_status === "unavailable") {
+                throw new Error("评测队列暂时不可用，请稍后重试。");
+            }
+            if (data.status === "failed" || data.queue_status === "expired") {
+                throw new Error("评测任务已过期或失败，请重新提交。");
+            }
+            return new Promise(resolve => setTimeout(resolve, 1500))
+                .then(() => pollSubmissionUntilEvaluated(submissionId, attempt + 1));
+        });
 }

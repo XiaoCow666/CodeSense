@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>重新发送验证邮件 - CodeSense 酷森思</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap/5.2.3/css/bootstrap.min.css') }}">
+    <style>
+        :root { --brand: #007aff; --ink: #0f172a; --muted: #64748b; }
+        body { min-height: 100vh; display: grid; place-items: center; margin: 0; padding: 24px; background: #f8fafc; color: var(--ink); }
+        .auth-card { width: min(100%, 430px); padding: 36px; background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; box-shadow: 0 18px 45px rgba(15, 23, 42, .08); }
+        .brand { color: var(--ink); font-size: 1.1rem; font-weight: 700; text-decoration: none; }
+        .brand span { color: var(--brand); font-weight: 500; }
+        h1 { margin: 30px 0 8px; font-size: 1.8rem; }
+        .intro { color: var(--muted); line-height: 1.6; }
+        .form-label { margin-top: 18px; font-weight: 600; }
+        .form-control { padding: 12px 14px; }
+        .btn-primary { width: 100%; margin-top: 22px; padding: 11px 14px; background: var(--brand); border-color: var(--brand); }
+        .back-link { display: block; margin-top: 20px; color: var(--brand); text-align: center; text-decoration: none; }
+        .alert { font-size: .92rem; }
+    </style>
+</head>
+
+<body>
+    <main class="auth-card">
+        <a class="brand" href="{{ url_for('auth.login') }}">CodeSense <span>酷森思</span></a>
+        <h1>重新发送验证邮件</h1>
+        <p class="intro">输入注册时使用的邮箱。如果账号尚未完成验证，系统会发送新的验证链接。</p>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+        <div class="alert alert-{{ 'info' if category == 'message' else category }}" role="alert">{{ message }}</div>
+        {% endfor %}
+        {% endwith %}
+
+        <form method="post" action="{{ url_for('auth.resend_verification') }}">
+            {{ form.hidden_tag() }}
+            {{ form.email.label(class="form-label") }}
+            {{ form.email(class="form-control", autocomplete="email", placeholder="请输入注册邮箱", autofocus=true) }}
+            {% for error in form.email.errors %}
+            <div class="text-danger small mt-1">{{ error }}</div>
+            {% endfor %}
+            {{ form.submit(class="btn btn-primary") }}
+        </form>
+
+        <a class="back-link" href="{{ url_for('auth.register_email') }}">返回邮箱注册</a>
+        <a class="back-link" href="{{ url_for('auth.login') }}">返回登录</a>
+    </main>
+</body>
+
+</html>

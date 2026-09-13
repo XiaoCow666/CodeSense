@@ -290,6 +290,7 @@ class CodeAdvisor:
                         max_tokens=1200,
                         provider=self.llm.api_type,
                         model=getattr(self.llm, "model_name", None),
+                        request_kind="code_advice",
                     )
                     if not guidance_text:
                         raise RuntimeError("AI服务暂时不可用")
@@ -364,6 +365,7 @@ class CodeAdvisor:
                         max_tokens=1600,
                         provider=self.llm.api_type,
                         model=getattr(self.llm, "model_name", None),
+                        request_kind="code_advice",
                     )
                     if not response_text:
                         raise RuntimeError("AI服务暂时不可用")
