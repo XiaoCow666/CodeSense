@@ -8,14 +8,18 @@ External providers can be added behind this module later.
 from __future__ import annotations
 
 import json
+from collections import defaultdict
+from contextlib import contextmanager
 from datetime import datetime, timezone
+from threading import RLock
 
-from models import SystemLog, db
+from models import SystemLog, User, db
 
 
 NOTIFICATION_LOG_TYPE = "站内通知"
 NOTIFICATION_SCHEMA_VERSION = 1
 MAX_NOTIFICATION_SCAN = 500
+_NOTIFICATION_LOCKS = defaultdict(RLock)
 
 
 def _now_iso() -> str:
@@ -27,6 +31,39 @@ def _safe_local_url(value: str | None) -> str | None:
     if not value.startswith("/") or value.startswith("//"):
         return None
     return value[:300]
+
+
+@contextmanager
+def _notification_write_lock(user_id: str, idempotency_key: str | None):
+    """Serialize duplicate checks and inserts for one recipient/key pair."""
+
+    lock_key = f"{user_id}:{idempotency_key or 'unkeyed'}"
+    with _NOTIFICATION_LOCKS[lock_key]:
+        bind = db.session.get_bind()
+        dialect = getattr(getattr(bind, "dialect", None), "name", "")
+        if dialect in {"mysql", "mariadb", "postgresql"}:
+            # SystemLog has no uniqueness constraint by design. Locking the
+            # recipient row makes the check-then-insert atomic on the
+            # production databases without a migration.
+            db.session.query(User).filter_by(student_id=user_id).with_for_update().first()
+        yield
+
+
+def _find_existing_notification(user_id: str, idempotency_key: str) -> dict | None:
+    logs = (
+        SystemLog.query.filter_by(
+            log_type=NOTIFICATION_LOG_TYPE,
+            user_id=user_id,
+        )
+        .order_by(SystemLog.id.desc())
+        .limit(MAX_NOTIFICATION_SCAN)
+        .all()
+    )
+    for log in logs:
+        payload = _parse(log)
+        if payload and payload.get("idempotency_key") == idempotency_key:
+            return payload
+    return None
 
 
 def _parse(log) -> dict | None:
@@ -59,45 +96,36 @@ def create_notification(
 
     if not user_id:
         return None
-    if idempotency_key:
-        marker = f'"idempotency_key": "{str(idempotency_key)[:120]}"'
-        existing = (
-            SystemLog.query.filter(
-                SystemLog.log_type == NOTIFICATION_LOG_TYPE,
-                SystemLog.user_id == user_id,
-                SystemLog.content.like(f"%{marker}%"),
-            )
-            .order_by(SystemLog.id.desc())
-            .first()
+    normalized_key = str(idempotency_key or "").strip()[:120] or None
+    with _notification_write_lock(user_id, normalized_key):
+        if normalized_key:
+            existing = _find_existing_notification(user_id, normalized_key)
+            if existing:
+                return existing
+
+        payload = {
+            "schema_version": NOTIFICATION_SCHEMA_VERSION,
+            "kind": str(kind or "general").strip()[:40] or "general",
+            "title": str(title or "通知").strip()[:120] or "通知",
+            "message": str(message or "").strip()[:400],
+            "url": _safe_local_url(url),
+            "read": False,
+            "read_at": None,
+            "created_at": _now_iso(),
+        }
+        if normalized_key:
+            payload["idempotency_key"] = normalized_key
+
+        log = SystemLog(
+            log_type=NOTIFICATION_LOG_TYPE,
+            user_id=user_id,
+            icon="bi bi-bell",
+            content=json.dumps(payload, ensure_ascii=False, sort_keys=True),
         )
-        if existing:
-            payload = _parse(existing)
-            if payload:
-                return payload
-
-    payload = {
-        "schema_version": NOTIFICATION_SCHEMA_VERSION,
-        "kind": str(kind or "general").strip()[:40] or "general",
-        "title": str(title or "通知").strip()[:120] or "通知",
-        "message": str(message or "").strip()[:400],
-        "url": _safe_local_url(url),
-        "read": False,
-        "read_at": None,
-        "created_at": _now_iso(),
-    }
-    if idempotency_key:
-        payload["idempotency_key"] = str(idempotency_key).strip()[:120]
-
-    log = SystemLog(
-        log_type=NOTIFICATION_LOG_TYPE,
-        user_id=user_id,
-        icon="bi bi-bell",
-        content=json.dumps(payload, ensure_ascii=False, sort_keys=True),
-    )
-    db.session.add(log)
-    db.session.commit()
-    parsed = _parse(log)
-    return parsed
+        db.session.add(log)
+        db.session.commit()
+        parsed = _parse(log)
+        return parsed
 
 
 def list_notifications(

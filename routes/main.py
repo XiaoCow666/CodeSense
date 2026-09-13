@@ -40,6 +40,7 @@ from services.notifications import (
     mark_all_notifications_read,
     mark_notification_read,
 )
+from services.submission_reviews import count_open_reviews
 from services.profile import get_profile_settings, PROFILE_VISIBILITY_PUBLIC
 from utils.auth import admin_required
 from utils.maturity_calculator import calculate_maturity_components
@@ -613,6 +614,7 @@ def teacher_dashboard():
     
     from models import TeacherAISuggestion
     ai_suggestions = {sug.class_id: sug for sug in TeacherAISuggestion.query.filter_by(teacher_id=teacher.student_id).all()}
+    open_review_count = count_open_reviews(teacher)
 
     return render_template('teacher_home.html',
                            teacher=teacher,
@@ -626,7 +628,8 @@ def teacher_dashboard():
                            class_cards=dashboard['class_cards'],
                            attention=dashboard['attention'],
                            chart_data=dashboard['chart_data'],
-                           ai_suggestions=ai_suggestions)
+                           ai_suggestions=ai_suggestions,
+                           open_review_count=open_review_count)
 
 
 @main.route('/teacher/ai_suggestions')

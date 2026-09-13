@@ -1,0 +1,76 @@
+{% extends "layout.html" %}
+
+{% block title %}提交复核队列 - CodeSense 酷森思{% endblock %}
+
+{% block content %}
+<section class="review-queue-page" aria-labelledby="review-queue-title">
+    <header class="page-header review-queue-header">
+        <div>
+            <h1 id="review-queue-title" class="page-title">提交复核队列</h1>
+            <p class="page-subtitle">只显示您负责班级的复核请求；管理员可查看全部请求。</p>
+        </div>
+        <a class="btn btn-outline-secondary"
+            href="{% if current_user.is_admin %}{{ url_for('main.admin_dashboard') }}{% else %}{{ url_for('main.teacher_dashboard') }}{% endif %}">
+            <i class="bi bi-arrow-left me-1" aria-hidden="true"></i>返回仪表盘
+        </a>
+    </header>
+
+    <nav class="review-queue-filters" aria-label="复核状态筛选">
+        <a class="review-queue-filter {% if not selected_status %}is-active{% endif %}"
+            href="{{ url_for('assignments.teacher_review_queue') }}"
+            {% if not selected_status %}aria-current="page"{% endif %}>全部</a>
+        {% for status, label in review_status_options %}
+        <a class="review-queue-filter {% if selected_status == status %}is-active{% endif %}"
+            href="{{ url_for('assignments.teacher_review_queue', status=status) }}"
+            {% if selected_status == status %}aria-current="page"{% endif %}>{{ label }}</a>
+        {% endfor %}
+    </nav>
+
+    {% if review_queue %}
+    <div class="table-responsive review-queue-table-wrap">
+        <table class="table review-queue-table">
+            <caption class="visually-hidden">提交复核请求列表</caption>
+            <thead>
+                <tr>
+                    <th scope="col">作业</th>
+                    <th scope="col">学生</th>
+                    <th scope="col">状态</th>
+                    <th scope="col">最近更新</th>
+                    <th scope="col">操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for review in review_queue %}
+                <tr>
+                    <td>{{ review.assignment.title if review.assignment else '未知作业' }}</td>
+                    <td>{{ review.student.full_name or review.student.username if review.student else '未知学生' }}</td>
+                    <td><span class="badge bg-primary">{{ review.status_label }}</span></td>
+                    <td><time datetime="{{ review.last_updated_at }}">{{ review.last_updated_at }}</time></td>
+                    <td>
+                        <div class="review-queue-actions">
+                            <a class="btn btn-sm btn-outline-primary"
+                                href="{{ url_for('assignments.view_submission', submission_id=review.submission.id) }}">查看提交</a>
+                            {% for next_status in review.next_statuses %}
+                            <form method="POST"
+                                action="{{ url_for('assignments.transition_submission_review', submission_id=review.submission.id, status=selected_status) }}">
+                                <input type="hidden" name="status" value="{{ next_status }}">
+                                <button class="btn btn-sm {% if next_status == 'resolved' %}btn-success{% else %}btn-outline-secondary{% endif %}"
+                                    type="submit">{{ review_status_labels.get(next_status, next_status) }}</button>
+                            </form>
+                            {% endfor %}
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="review-queue-empty" role="status">
+        <i class="bi bi-inbox" aria-hidden="true"></i>
+        <h2>当前筛选下没有复核请求</h2>
+        <p>新的学生申请会出现在这里，旧提交没有复核事件时不会被改写。</p>
+    </div>
+    {% endif %}
+</section>
+{% endblock %}

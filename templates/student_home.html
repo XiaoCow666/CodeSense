@@ -648,6 +648,13 @@
     let isAnalysisComplete = false;
     let markdownBuffer = ''; // Markdown内容缓冲区
     let currentSection = null; // 当前正在渲染的章节
+    let abilityStreamController = null;
+    let pageIsUnloading = false;
+
+    window.addEventListener('pagehide', function () {
+        pageIsUnloading = true;
+        if (abilityStreamController) abilityStreamController.abort();
+    });
 
     // 知识点映射
     const KNOWLEDGE_POINTS = {
@@ -734,8 +741,15 @@
 
         try {
             let streamReportedError = false;
+            abilityStreamController = typeof AbortController === 'function'
+                ? new AbortController()
+                : null;
+            const requestOptions = { method: 'GET' };
+            if (abilityStreamController) {
+                requestOptions.signal = abilityStreamController.signal;
+            }
             await window.consumeSSE('/api/stream/ability-analysis', {
-                method: 'GET'
+                ...requestOptions
             }, {
                 onStatus: handleProgress,
                 onStart: handleAnalysisStart,
@@ -754,6 +768,7 @@
             });
             console.log('🏁 流式传输完成');
         } catch (error) {
+            if (pageIsUnloading || error.name === 'AbortError') return;
             console.error('❌ 流式传输错误:', error);
             if (!streamReportedError) {
                 showError(`连接中断，请刷新页面重试（${error.message || '网络异常'}）`);
@@ -1176,7 +1191,7 @@
         }
     }
 
-    // 页面卸载时无需手动清理，fetch会自动处理
+    // pagehide 已经负责取消仍在进行的流，避免正常导航产生网络错误噪声。
     window.addEventListener('beforeunload', function () {
         console.log('🔌 页面卸载');
     });

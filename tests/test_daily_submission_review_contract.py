@@ -21,6 +21,14 @@ class DailySubmissionReviewContractTestCase(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
 
+    def test_submission_review_service_exposes_request_contract(self):
+        try:
+            from services.submission_reviews import create_review_request
+        except ImportError as exc:
+            self.fail(f'submission review service is missing: {exc}')
+
+        self.assertTrue(callable(create_review_request))
+
 
 if __name__ == '__main__':
     unittest.main()
