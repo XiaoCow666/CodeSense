@@ -148,6 +148,16 @@ class EditProfileForm(FlaskForm):
     full_name = StringField('姓名', validators=[DataRequired(message='姓名不能为空'), Length(1, 50)])
     email = StringField('邮箱', validators=[Optional(), Email(message='邮箱格式不正确'), Length(0, 120)])
     class_name = SelectField('班级', validators=[Optional()])
+    bio = TextAreaField('个人简介', validators=[Optional(), Length(max=300, message='个人简介不能超过 300 个字符')])
+    profile_visibility = SelectField(
+        '公开范围',
+        choices=[
+            ('private', '仅自己和有权限的教学人员可见'),
+            ('public', '允许通过公开链接查看基础资料'),
+        ],
+        validators=[Optional()],
+        default='private',
+    )
     avatar = FileField('头像', validators=[Optional(), FileAllowed(['jpg', 'jpeg', 'png', 'gif', 'webp'], '仅支持 jpg、jpeg、png、gif、webp 格式')])
     submit = SubmitField('保存修改')
 

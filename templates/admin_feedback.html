@@ -115,6 +115,66 @@
         text-align: center;
     }
 
+    .feedback-filters,
+    .feedback-status-form {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: end;
+        gap: 0.75rem;
+        margin-bottom: 1.25rem;
+        padding: 1rem;
+        border: 1px solid #e5e7eb;
+        border-radius: 0.75rem;
+        background: #f8fafc;
+    }
+
+    .feedback-filter-field,
+    .feedback-status-field {
+        display: grid;
+        gap: 0.3rem;
+        min-width: 10rem;
+    }
+
+    .feedback-filter-field label,
+    .feedback-status-field label {
+        color: var(--medium);
+        font-size: 0.82rem;
+        font-weight: 600;
+    }
+
+    .feedback-filter-field select,
+    .feedback-status-field select,
+    .feedback-status-field textarea {
+        min-height: 2.5rem;
+        padding: 0.5rem 0.65rem;
+        border: 1px solid #cbd5e1;
+        border-radius: 0.45rem;
+        background: #fff;
+    }
+
+    .feedback-status-field textarea {
+        min-width: min(28rem, 80vw);
+        min-height: 4rem;
+        resize: vertical;
+    }
+
+    .feedback-status-form {
+        align-items: start;
+        margin-top: 1rem;
+        margin-bottom: 0;
+    }
+
+    .feedback-history {
+        margin: 0.8rem 0 0;
+        padding-left: 1.2rem;
+        color: var(--medium);
+        font-size: 0.875rem;
+    }
+
+    .feedback-history li + li {
+        margin-top: 0.3rem;
+    }
+
     @media (max-width: 600px) {
         .feedback-record dl {
             grid-template-columns: 1fr;
@@ -132,8 +192,33 @@
 <div class="admin-feedback-page">
     <div class="page-header admin-feedback-intro">
         <h1 class="page-title">反馈中心</h1>
-        <p class="page-subtitle">查看最近收到的反馈、复现信息和初始处理状态。当前版本只记录“已收到”，不会自动发送邮件或短信。</p>
+        <p class="page-subtitle">查看反馈、复现信息并按顺序推进处理状态。当前版本只提供站内通知，不会自动发送邮件或短信。</p>
     </div>
+
+    <form class="feedback-filters" method="GET" action="{{ url_for('main.admin_feedback') }}">
+        <div class="feedback-filter-field">
+            <label for="feedback-status-filter">处理状态</label>
+            <select id="feedback-status-filter" name="status">
+                <option value="">全部状态</option>
+                {% for value, label in feedback_statuses %}
+                <option value="{{ value }}" {% if status_filter == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="feedback-filter-field">
+            <label for="feedback-category-filter">反馈类型</label>
+            <select id="feedback-category-filter" name="category">
+                <option value="">全部类型</option>
+                {% for value, label in feedback_categories %}
+                <option value="{{ value }}" {% if category_filter == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <button class="btn btn-primary" type="submit">应用筛选</button>
+        {% if status_filter or category_filter %}
+        <a class="btn btn-outline-secondary" href="{{ url_for('main.admin_feedback') }}">清除筛选</a>
+        {% endif %}
+    </form>
 
     <div class="feedback-list">
         {% for record in feedback_records %}
@@ -142,7 +227,7 @@
                 <span class="feedback-record-id">{{ record.feedback_id }}</span>
                 <div class="feedback-record-meta">
                     <span>{{ record.category_label }}</span>
-                    <span class="feedback-status">已收到</span>
+                    <span class="feedback-status">{{ record.status_label }}</span>
                     <time datetime="{{ record.submitted_at }}">{{ record.submitted_at }}</time>
                 </div>
             </div>
@@ -161,6 +246,30 @@
                     <dd>{{ record.submitted_by or '游客' }}</dd>
                 </dl>
             </details>
+            <ol class="feedback-history" aria-label="处理进度">
+                {% for item in record.status_history %}
+                <li><span>{{ item.status_label }}</span> · <time datetime="{{ item.at }}">{{ item.at }}</time></li>
+                {% endfor %}
+            </ol>
+            <form class="feedback-status-form" method="POST"
+                action="{{ url_for('main.admin_feedback_status', feedback_id=record.feedback_id) }}">
+                <input type="hidden" name="return_status" value="{{ status_filter }}">
+                <input type="hidden" name="return_category" value="{{ category_filter }}">
+                <div class="feedback-status-field">
+                    <label for="feedback-status-{{ record.feedback_id }}">更新状态</label>
+                    <select id="feedback-status-{{ record.feedback_id }}" name="status">
+                        {% for value, label in feedback_statuses %}
+                        <option value="{{ value }}" {% if record.status == value %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="feedback-status-field">
+                    <label for="feedback-note-{{ record.feedback_id }}">处理备注（仅管理员）</label>
+                    <textarea id="feedback-note-{{ record.feedback_id }}" name="note" maxlength="500"
+                        placeholder="可选：记录分派、复现或解决说明"></textarea>
+                </div>
+                <button class="btn btn-primary" type="submit">保存状态</button>
+            </form>
         </article>
         {% else %}
         <div class="feedback-empty">还没有收到反馈。</div>

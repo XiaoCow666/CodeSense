@@ -132,6 +132,32 @@
         </div>
 
         <div class="form-group">
+            {{ form.bio.label }}
+            {{ form.bio(class="form-control", rows="4", maxlength="300", placeholder="介绍你的学习方向、兴趣或教学方向（可选）") }}
+            <div class="form-text">最多 300 个字符；只有选择公开后，简介才会出现在公开资料页。</div>
+            {% if form.bio.errors %}
+            <div class="text-danger">
+                {% for error in form.bio.errors %}
+                {{ error }}
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="form-group">
+            {{ form.profile_visibility.label }}
+            {{ form.profile_visibility(class="form-control", aria_describedby="profile-visibility-help") }}
+            <div class="form-text" id="profile-visibility-help">公开链接只展示姓名、头像和简介，不展示邮箱、学号、班级或学习记录。</div>
+            {% if form.profile_visibility.errors %}
+            <div class="text-danger">
+                {% for error in form.profile_visibility.errors %}
+                {{ error }}
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="form-group">
             {{ form.avatar.label }}
             {{ form.avatar(class="form-control") }}
             <div class="form-text">支持 jpg、jpeg、png、gif、webp。</div>
@@ -158,8 +184,15 @@
         </div>
         {% endif %}
 
-        {{ form.submit(class="btn-submit") }}
+    {{ form.submit(class="btn-submit") }}
     </form>
+
+    {% if profile_settings and profile_settings.profile_visibility == 'public' %}
+    <p class="form-text mt-3">
+        <i class="bi bi-link-45deg" aria-hidden="true"></i>
+        <a href="{{ url_for('main.public_profile', user_username=user.username) }}">查看我的公开资料页</a>
+    </p>
+    {% endif %}
 
     <a href="{{ url_for('users.change_password') }}" class="back-link">
         <i class="bi bi-shield-lock"></i> 修改登录密码
