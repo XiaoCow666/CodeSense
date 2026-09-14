@@ -417,7 +417,15 @@ def generate_guidance(code, assignment_title, assignment_description, language="
         # 使用基于规则的生成器
         return generate_rule_based_guidance(code, assignment_title, assignment_description, language)
 
-def generate_answer_to_question(code, question, assignment_title, assignment_description, language="cpp", _stream=False):
+def generate_answer_to_question(
+    code,
+    question,
+    assignment_title,
+    assignment_description,
+    language="cpp",
+    _stream=False,
+    knowledge_context=None,
+):
     """
     根据学生的提问和代码生成回答
     code: 学生当前编写的代码
@@ -480,6 +488,13 @@ def generate_answer_to_question(code, question, assignment_title, assignment_des
 请根据以上原则，给出引导性回答（不超过300字，重点突出，语气友好）。
 如果问题涉及代码错误，指出问题的"方向"而非"答案"。
 """
+            prompt += f"""
+
+## 知识证据边界
+{knowledge_context or '当前没有已检索的知识库证据。不要编造知识点引用，回答仅基于题目和代码。'}
+如果使用上面的证据，请在相关内容后标注对应的 [K] 引用；没有证据时不要生成引用标记。
+"""
+
             print(f"发送问题到大模型API，提示词长度: {len(prompt)}")
             
             if _stream:
@@ -524,8 +539,14 @@ def generate_guidance_stream(code, assignment_title, assignment_description, lan
         yield from result
 
 
-def generate_answer_to_question_stream(code, question, assignment_title,
-                                       assignment_description, language="cpp"):
+def generate_answer_to_question_stream(
+    code,
+    question,
+    assignment_title,
+    assignment_description,
+    language="cpp",
+    knowledge_context=None,
+):
     """Stream an answer to a code question while keeping JSON callers intact."""
     result = generate_answer_to_question(
         code,
@@ -534,6 +555,7 @@ def generate_answer_to_question_stream(code, question, assignment_title,
         assignment_description,
         language,
         _stream=True,
+        knowledge_context=knowledge_context,
     )
     if isinstance(result, str):
         yield result

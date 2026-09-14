@@ -33,6 +33,11 @@ from utils.upload_safety import UploadValidationError, validate_upload
 from services.ai_evaluator import AIEvaluator
 from services.api_keys import api_keys  # 导入 API 密钥管理器
 from services.demo_database import current_demo_run_id
+from services.knowledge_rag import (
+    build_knowledge_prompt_context,
+    render_knowledge_receipt,
+    retrieve_assignment_knowledge,
+)
 from tasks.submission_tasks import evaluate_submission_async
 from tasks.submission_queue import (
     SubmissionQueueUnavailable,
@@ -324,6 +329,23 @@ def _text_chunks(text, size=120):
     text = str(text or '')
     for index in range(0, len(text), size):
         yield text[index:index + size]
+
+
+def _retrieve_knowledge_context(assignment_id):
+    """Retrieve assignment evidence and emit bounded operational metrics."""
+    retrieval = retrieve_assignment_knowledge(assignment_id)
+    metrics = retrieval["metrics"]
+    current_app.logger.info(
+        "knowledge_rag status=%s candidates=%s hits=%s latency_ms=%.2f "
+        "citation_completeness=%.3f fallback=%s",
+        retrieval["status"],
+        metrics["candidate_count"],
+        metrics["hit_count"],
+        metrics["retrieval_latency_ms"],
+        metrics["citation_completeness"],
+        bool(retrieval.get("fallback")),
+    )
+    return retrieval
 
 
 @api.route('/submit', methods=['POST'])
@@ -723,6 +745,12 @@ def ask_question():
         if not can_access_assignment(assignment, current_user):
             return error_response("您无权访问此作业", 403)
 
+        knowledge_retrieval = _retrieve_knowledge_context(assignment_id)
+        knowledge_prompt_context = build_knowledge_prompt_context(
+            knowledge_retrieval
+        )
+        knowledge_receipt = render_knowledge_receipt(knowledge_retrieval)
+
         # 仅对合法且有权限的请求计入冷却时间；同时容忍旧版或损坏的
         # session 值，避免 fromisoformat 异常把一个普通请求变成 500。
         now = datetime.utcnow()
@@ -758,6 +786,7 @@ def ask_question():
                             assignment_title=assignment.title,
                             assignment_description=assignment.description,
                             language=language,
+                            knowledge_context=knowledge_prompt_context,
                         ):
                             if not chunk:
                                 continue
@@ -779,6 +808,7 @@ def ask_question():
                                 formatted_answer = answer
                         else:
                             formatted_answer = '很抱歉，我无法理解您的问题或无法基于当前代码生成回答。请尝试重新表述您的问题或提供更多代码上下文。'
+                        formatted_answer += knowledge_receipt
 
                         if student_id:
                             try:
@@ -801,7 +831,11 @@ def ask_question():
                             'done': True,
                             'content': formatted_answer,
                             'answer': formatted_answer,
-                            'data': {'answer': formatted_answer},
+                            'data': {
+                                'answer': formatted_answer,
+                                'knowledge_retrieval': knowledge_retrieval,
+                            },
+                            'knowledge_retrieval': knowledge_retrieval,
                         })
                     except Exception as stream_error:
                         db.session.rollback()
@@ -820,7 +854,8 @@ def ask_question():
                 question=question,
                 assignment_title=assignment.title,
                 assignment_description=assignment.description,
-                language=language
+                language=language,
+                knowledge_context=knowledge_prompt_context,
             )
             
             # 输出调试信息
@@ -847,6 +882,8 @@ def ask_question():
                     formatted_answer = f"<p>{escaped_answer}</p>"
             else:
                 formatted_answer = "很抱歉，我无法理解您的问题或无法基于当前代码生成回答。请尝试重新表述您的问题或提供更多代码上下文。"
+
+            formatted_answer += knowledge_receipt
             
             # 记录学生提问日志
             if student_id:
@@ -871,7 +908,8 @@ def ask_question():
                 success=True,
                 message="问题回答成功",
                 data={
-                    'answer': formatted_answer
+                    'answer': formatted_answer,
+                    'knowledge_retrieval': knowledge_retrieval,
                 }
             )
             
