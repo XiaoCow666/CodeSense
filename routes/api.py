@@ -331,9 +331,9 @@ def _text_chunks(text, size=120):
         yield text[index:index + size]
 
 
-def _retrieve_knowledge_context(assignment_id):
+def _retrieve_knowledge_context(assignment_id, query=""):
     """Retrieve assignment evidence and emit bounded operational metrics."""
-    retrieval = retrieve_assignment_knowledge(assignment_id)
+    retrieval = retrieve_assignment_knowledge(assignment_id, query=query)
     metrics = retrieval["metrics"]
     current_app.logger.info(
         "knowledge_rag status=%s candidates=%s hits=%s latency_ms=%.2f "
@@ -748,7 +748,7 @@ def ask_question():
         if not can_access_assignment(assignment, current_user):
             return error_response("您无权访问此作业", 403)
 
-        knowledge_retrieval = _retrieve_knowledge_context(assignment_id)
+        knowledge_retrieval = _retrieve_knowledge_context(assignment_id, question)
         knowledge_prompt_context = build_knowledge_prompt_context(
             knowledge_retrieval
         )

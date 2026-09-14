@@ -13,10 +13,12 @@ import logging
 import time
 
 from models import AssignmentKnowledgePoint, KnowledgePointScore, db
+from services.knowledge_pipeline import KnowledgeDocument, build_offline_pipeline
 
 
 MAX_EVIDENCE = 8
 logger = logging.getLogger(__name__)
+knowledge_pipeline = build_offline_pipeline()
 NO_KNOWLEDGE_EVIDENCE = {
     "code": "NO_KNOWLEDGE_EVIDENCE",
     "message": "当前作业没有已标注知识点，回答仅基于题目和代码。",
@@ -62,12 +64,19 @@ def _result(status, evidence, candidate_count, started_at, fallback=None):
     }
 
 
-def retrieve_assignment_knowledge(assignment_id, *, limit=MAX_EVIDENCE):
+def retrieve_assignment_knowledge(
+    assignment_id,
+    *,
+    limit=MAX_EVIDENCE,
+    query="",
+):
     """Retrieve bounded, explicit knowledge evidence for one assignment.
 
     The retrieval is intentionally assignment-scoped and does not inspect a
-    student's private ``KnowledgePointScore`` rows.  Evidence order follows
-    the teacher/AI-maintained weight and then the stable row id.
+    student's private ``KnowledgePointScore`` rows.  With a query, the
+    replaceable offline pipeline first scores lexical overlap and then uses
+    the teacher/AI-maintained weight and stable row ID as deterministic
+    tie-breakers.  An empty query preserves priority order.
     """
 
     started_at = time.perf_counter()
@@ -101,20 +110,39 @@ def retrieve_assignment_knowledge(assignment_id, *, limit=MAX_EVIDENCE):
             RETRIEVAL_UNAVAILABLE.copy(),
         )
 
-    evidence = []
+    documents = []
     for record in records:
         code = str(record.knowledge_point or "").strip()
         if not code:
             continue
         name = KnowledgePointScore.KNOWLEDGE_POINTS.get(code, code)
-        evidence.append({
-            "evidence_id": f"assignment-kp:{record.id}",
-            "citation": f"[K{len(evidence) + 1}]",
-            "source_type": "assignment_knowledge_point",
-            "title": name,
-            "content": f"当前作业显式绑定知识点：{name}（{code}）。",
-            "created_at": _created_at_value(record),
-        })
+        documents.append(
+            KnowledgeDocument(
+                document_id=f"assignment-kp:{record.id}",
+                title=name,
+                content=f"当前作业显式绑定知识点：{name}（{code}）。",
+                source_type="assignment_knowledge_point",
+                priority=float(record.weight or 0.0),
+                metadata={"created_at": _created_at_value(record)},
+            )
+        )
+
+    citations = knowledge_pipeline.search(
+        query,
+        documents,
+        limit=bounded_limit,
+    )
+    evidence = [
+        {
+            "evidence_id": citation.evidence_id,
+            "citation": citation.citation,
+            "source_type": citation.source_type,
+            "title": citation.title,
+            "content": citation.content,
+            "created_at": citation.metadata.get("created_at"),
+        }
+        for citation in citations
+    ]
 
     if not evidence:
         return _result("no_result", [], len(records), started_at, NO_KNOWLEDGE_EVIDENCE.copy())

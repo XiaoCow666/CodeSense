@@ -117,6 +117,42 @@ def test_ask_question_returns_scoped_citations_and_metrics(knowledge_context, mo
     assert "参考知识证据" in data["answer"]
 
 
+def test_ask_question_reranks_matching_knowledge_before_priority(
+    knowledge_context, monkeypatch
+):
+    app, client, assignment_id = knowledge_context
+    with app.app_context():
+        AssignmentKnowledgePoint.add_to_assignment(
+            assignment_id,
+            "pointer",
+            weight=2.0,
+        )
+        AssignmentKnowledgePoint.add_to_assignment(
+            assignment_id,
+            "array",
+            weight=1.0,
+        )
+
+    monkeypatch.setattr(
+        api_routes,
+        "generate_answer_to_question",
+        lambda **_: "请先检查数组边界。",
+    )
+    response = client.post(
+        "/api/ask_question",
+        json={
+            "assignment_id": assignment_id,
+            "code": "int main(){return 0;}",
+            "question": "数组边界怎么检查？",
+        },
+    )
+
+    assert response.status_code == 200
+    evidence = response.json["data"]["knowledge_retrieval"]["evidence"]
+    assert evidence[0]["title"] == "数组"
+    assert evidence[0]["citation"] == "[K1]"
+
+
 def test_ask_question_sse_includes_retrieval_receipt(knowledge_context, monkeypatch):
     _, client, assignment_id = knowledge_context
     captured = {}
