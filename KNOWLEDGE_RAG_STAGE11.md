@@ -15,6 +15,11 @@
 
 可证伪假设：如果把流水线阶段拆成标准输入/输出契约，并用透明的离线词法实现接入，那么学生问题可以优先得到相关的作业知识证据；在没有匹配词时仍按来源优先级稳定排序，不需要改变数据库、权限、部署或学生端响应字段。
 
+修复前红灯证据：在 `origin/main` 的临时基线工作树运行等价断言
+`tests/test_stage11_baseline_red.py::test_stage11_query_reaches_knowledge_adapter`，结果为
+`TypeError: _retrieve_knowledge_context() takes 1 positional argument but 2 were given`，
+退出码 1。该临时测试随后已删除，没有进入提交。
+
 成功指标：
 
 1. 每个阶段都能通过构造函数替换，并且离线样本可独立运行。
