@@ -71,6 +71,7 @@ def test_ask_question_exposes_retrieval_evidence_and_fallback_state(
     data = response.json["data"]
     assert data["knowledge_retrieval"]["status"] == "no_result"
     assert data["knowledge_retrieval"]["fallback"]["code"] == "NO_KNOWLEDGE_EVIDENCE"
+    assert data["knowledge_retrieval"]["metrics"]["no_result_fallback"] is True
     assert "没有已标注知识点" in data["answer"]
 
 
@@ -108,6 +109,7 @@ def test_ask_question_returns_scoped_citations_and_metrics(knowledge_context, mo
     assert retrieval["metrics"]["hit_count"] == 1
     assert retrieval["metrics"]["retrieval_hit_rate"] == 1.0
     assert retrieval["metrics"]["citation_completeness"] == 1.0
+    assert retrieval["metrics"]["no_result_fallback"] is False
     assert retrieval["evidence"][0]["citation"] == "[K1]"
     assert "数组" in captured["knowledge_context"]
     assert "[K1]" in data["answer"]
@@ -142,6 +144,7 @@ def test_ask_question_sse_includes_retrieval_receipt(knowledge_context, monkeypa
     assert [event["type"] for event in events] == ["start", "delta", "done"]
     done = events[-1]
     assert done["knowledge_retrieval"]["status"] == "no_result"
+    assert done["knowledge_retrieval"]["metrics"]["no_result_fallback"] is True
     assert done["data"]["knowledge_retrieval"]["fallback"]["code"] == (
         "NO_KNOWLEDGE_EVIDENCE"
     )

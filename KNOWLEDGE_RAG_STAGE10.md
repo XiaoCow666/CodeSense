@@ -56,6 +56,7 @@ guidance_generator  ◄── 有界知识上下文（禁止编造引用）
 | `retrieval_hit_rate` | `hit_count / candidate_count`；无候选时为 `0.0` |
 | `retrieval_latency_ms` | 单次显式查询从开始到结果构建的本地耗时 |
 | `citation_completeness` | 具有稳定 `evidence_id` 和 `[K]` 标记的证据占比 |
+| `no_result_fallback` | 是否发生无结果回退；发生时为 `true` |
 | `fallback` | 无结果时的可解释回退对象；当前代码为 `NO_KNOWLEDGE_EVIDENCE` |
 
 验证命令：

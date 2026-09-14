@@ -41,6 +41,7 @@ def _result(status, evidence, candidate_count, started_at, fallback=None):
             / hit_count,
             3,
         ) if hit_count else 0.0,
+        "no_result_fallback": bool(fallback),
     }
     return {
         "status": status,
