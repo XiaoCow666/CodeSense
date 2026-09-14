@@ -274,3 +274,12 @@ def test_render_html_keeps_heading_text_intact():
     html = MarkdownFormatter.render_html("# Title")
     assert "<h1>Title</h1>" in html
     assert "<p>e</p>" not in html
+
+
+def test_enhance_does_not_treat_inline_hash_as_heading():
+    # A "#" in the middle of a line is not a heading. The old unanchored
+    # heading pass matched it anyway and split the tail off (data loss):
+    # "a #1 fan\nnext" -> "a #1 fa\n\nn\nnext". The (?m)^ anchor of the
+    # fixed pass leaves this input byte-for-byte untouched.
+    text = "a #1 fan\nnext"
+    assert MarkdownFormatter.enhance(text) == text
