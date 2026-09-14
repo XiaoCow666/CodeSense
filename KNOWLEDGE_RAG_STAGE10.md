@@ -43,7 +43,8 @@ guidance_generator  ◄── 有界知识上下文（禁止编造引用）
 2. 学生提问时只按当前作业 ID读取显式绑定知识点，按权重降序、主键升序排序，最多取 8 条。
 3. 生成器只收到这组有限上下文；回答末尾追加确定性的证据回执。
 4. 没有知识点时不猜测、不读取任何学生画像，返回 `NO_KNOWLEDGE_EVIDENCE`，并说明回答仅基于题目和代码。
-5. 日志只记录状态、候选数、命中数、延迟、引用完整度和是否回退，不记录学生代码、问题或知识点私有分数。
+5. 知识源查询异常时回滚当前查询事务，返回 `KNOWLEDGE_RETRIEVAL_UNAVAILABLE`，仍允许回答链路继续，并明确说明知识证据暂不可用。
+6. 日志只记录状态、候选数、命中数、延迟、引用完整度和是否回退，不记录学生代码、问题或知识点私有分数。
 
 本次没有新增数据库表/字段、权限规则、部署配置、Redis 依赖或外部向量服务；因此不改变数据库结构、权限、部署和现有接口的必需字段。原有 `answer` 字段仍保留，新增信息仅位于响应数据和答案末尾的证据回执中。
 
@@ -56,7 +57,8 @@ guidance_generator  ◄── 有界知识上下文（禁止编造引用）
 | `retrieval_hit_rate` | `hit_count / candidate_count`；无候选时为 `0.0` |
 | `retrieval_latency_ms` | 单次显式查询从开始到结果构建的本地耗时 |
 | `citation_completeness` | 具有稳定 `evidence_id` 和 `[K]` 标记的证据占比 |
-| `no_result_fallback` | 是否发生无结果回退；发生时为 `true` |
+| `no_result_fallback` | 是否发生“没有已标注知识点”的回退；发生时为 `true` |
+| `retrieval_error_fallback` | 知识源查询异常时是否安全降级；发生时为 `true` |
 | `fallback` | 无结果时的可解释回退对象；当前代码为 `NO_KNOWLEDGE_EVIDENCE` |
 
 验证命令：
@@ -65,7 +67,7 @@ guidance_generator  ◄── 有界知识上下文（禁止编造引用）
 D:\xproject\新建文件夹\CodeSense-main\pr-student-learning-route-worktree\.venv\Scripts\python.exe -m pytest tests/test_knowledge_rag.py -q --disable-warnings
 ```
 
-覆盖结果：4 passed。用例包含无知识点回退、有知识点 `[K1]` 引用与指标、SSE 首尾事件兼容，以及不读取学生私有评分的边界。
+覆盖结果：6 passed。用例包含无知识点回退、有知识点 `[K1]` 引用与指标、SSE 首尾事件兼容、知识源异常安全降级、回答链路降级，以及不读取学生私有评分的边界。
 
 另外在隔离的 SQLite 测量环境中对同一作业的 2 条显式知识点连续检索 50 次，实测结果为：
 `status=grounded`、`candidate_count=2`、`hit_count=2`、`retrieval_hit_rate=1.0`、

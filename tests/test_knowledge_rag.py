@@ -6,6 +6,7 @@ from app import create_app
 from config import TestingConfig as _TestingConfig
 from models import Assignment, AssignmentKnowledgePoint, KnowledgePointScore, User, db
 from routes import api as api_routes
+from services import knowledge_rag
 from services.knowledge_rag import retrieve_assignment_knowledge
 
 
@@ -168,3 +169,66 @@ def test_retriever_does_not_read_student_private_scores(knowledge_context):
     assert retrieval["status"] == "no_result"
     assert retrieval["metrics"]["candidate_count"] == 0
     assert retrieval["metrics"]["hit_count"] == 0
+
+
+def test_retriever_returns_safe_fallback_when_knowledge_source_is_unavailable(
+    knowledge_context, monkeypatch
+):
+    app, _, assignment_id = knowledge_context
+
+    class BrokenQuery:
+        def filter_by(self, **_kwargs):
+            raise RuntimeError("knowledge table unavailable")
+
+    with app.app_context():
+        monkeypatch.setattr(
+            knowledge_rag.AssignmentKnowledgePoint,
+            "query",
+            BrokenQuery(),
+        )
+        retrieval = retrieve_assignment_knowledge(assignment_id)
+
+    assert retrieval["status"] == "unavailable"
+    assert retrieval["fallback"]["code"] == "KNOWLEDGE_RETRIEVAL_UNAVAILABLE"
+    assert retrieval["metrics"]["no_result_fallback"] is False
+    assert retrieval["metrics"]["retrieval_error_fallback"] is True
+    assert "暂时不可用" in knowledge_rag.build_knowledge_prompt_context(retrieval)
+    assert "暂时不可用" in knowledge_rag.render_knowledge_receipt(retrieval)
+
+
+def test_ask_question_continues_with_answer_only_when_knowledge_source_is_unavailable(
+    knowledge_context, monkeypatch
+):
+    app, client, assignment_id = knowledge_context
+
+    class BrokenQuery:
+        def filter_by(self, **_kwargs):
+            raise RuntimeError("knowledge table unavailable")
+
+    with app.app_context():
+        monkeypatch.setattr(
+            knowledge_rag.AssignmentKnowledgePoint,
+            "query",
+            BrokenQuery(),
+        )
+
+    monkeypatch.setattr(
+        api_routes,
+        "generate_answer_to_question",
+        lambda **_: "请先检查边界条件。",
+    )
+    response = client.post(
+        "/api/ask_question",
+        json={
+            "assignment_id": assignment_id,
+            "code": "int main(){return 0;}",
+            "question": "边界值怎么检查？",
+        },
+    )
+
+    assert response.status_code == 200
+    retrieval = response.json["data"]["knowledge_retrieval"]
+    assert retrieval["status"] == "unavailable"
+    assert retrieval["fallback"]["code"] == "KNOWLEDGE_RETRIEVAL_UNAVAILABLE"
+    assert retrieval["metrics"]["retrieval_error_fallback"] is True
+    assert "知识证据暂时不可用" in response.json["data"]["answer"]
