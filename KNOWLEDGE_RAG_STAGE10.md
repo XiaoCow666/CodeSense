@@ -75,6 +75,14 @@ D:\xproject\新建文件夹\CodeSense-main\pr-student-learning-route-worktree\.v
 检索基线，不是生产端到端 SLA；测试启动时 Redis 不可用并自动回退到文件系统会话，
 该环境现象也不纳入检索延迟结论。
 
+在加入知识源异常降级和日志指标区分后的完整验证命令为：
+
+```powershell
+D:\xproject\新建文件夹\CodeSense-main\pr-student-learning-route-worktree\.venv\Scripts\python.exe -m pytest -q --disable-warnings
+```
+
+实测结果：`658 passed`，退出码 0，耗时 `13:23`。
+
 ## 5. 风险、回滚与未解决问题
 
 - 主要取舍：复用现有显式绑定，换取低改动和可解释性；当前不做自然语言相关性排序、向量搜索或大规模召回。
