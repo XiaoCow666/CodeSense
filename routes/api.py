@@ -337,13 +337,16 @@ def _retrieve_knowledge_context(assignment_id):
     metrics = retrieval["metrics"]
     current_app.logger.info(
         "knowledge_rag status=%s candidates=%s hits=%s latency_ms=%.2f "
-        "citation_completeness=%.3f fallback=%s",
+        "citation_completeness=%.3f no_result_fallback=%s "
+        "retrieval_error_fallback=%s fallback_code=%s",
         retrieval["status"],
         metrics["candidate_count"],
         metrics["hit_count"],
         metrics["retrieval_latency_ms"],
         metrics["citation_completeness"],
-        bool(retrieval.get("fallback")),
+        metrics["no_result_fallback"],
+        metrics["retrieval_error_fallback"],
+        (retrieval.get("fallback") or {}).get("code"),
     )
     return retrieval
 
