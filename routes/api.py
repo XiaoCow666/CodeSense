@@ -28,6 +28,9 @@ from utils.guidance_generator import (
     generate_answer_to_question_stream,
 )  # 导入指导生成函数和答案生成函数
 from utils.code_advisor import generate_code_advice  # 导入新的代码建议系统
+from utils.markdown_formatter import (
+    enhance_code_blocks as format_markdown_code_blocks,
+)
 from utils.sse import sse_event, sse_response, stream_text_chunks, wants_sse
 from utils.upload_safety import UploadValidationError, validate_upload
 from services.ai_evaluator import AIEvaluator
@@ -47,10 +50,15 @@ from tasks.submission_queue import (
 import json
 import os
 from datetime import datetime
+from html import escape
 
 api = Blueprint('api', __name__, url_prefix='/api')
 
 _SUPPORTED_LANGUAGES = frozenset({'cpp', 'c++', 'c', 'python', 'py', 'java'})
+_QUESTION_ANSWER_FALLBACK = (
+    '很抱歉，我无法理解您的问题或无法基于当前代码生成回答。'
+    '请尝试重新表述您的问题或提供更多代码上下文。'
+)
 
 
 def _json_object():
@@ -349,6 +357,25 @@ def _retrieve_knowledge_context(assignment_id):
         (retrieval.get("fallback") or {}).get("code"),
     )
     return retrieval
+
+
+def _format_question_answer(answer, knowledge_receipt, language, student_id):
+    """Format the answer and evidence receipt through one Markdown path."""
+
+    answer_text = str(answer or _QUESTION_ANSWER_FALLBACK)
+    combined = answer_text + str(knowledge_receipt or '')
+    try:
+        return format_markdown_code_blocks(
+            combined,
+            default_lang=language,
+        )
+    except Exception:
+        current_app.logger.exception(
+            '学生提问 Markdown 格式化失败 student_id=%s',
+            student_id,
+        )
+        escaped_answer = escape(combined).replace('\n', '<br>')
+        return f'<p>{escaped_answer}</p>'
 
 
 @api.route('/submit', methods=['POST'])
@@ -801,17 +828,12 @@ def ask_question():
                             })
 
                         answer = ''.join(chunks)
-                        if answer:
-                            try:
-                                formatted_answer = enhance_code_blocks(
-                                    enhance_markdown(answer),
-                                    default_lang=language,
-                                )
-                            except Exception:
-                                formatted_answer = answer
-                        else:
-                            formatted_answer = '很抱歉，我无法理解您的问题或无法基于当前代码生成回答。请尝试重新表述您的问题或提供更多代码上下文。'
-                        formatted_answer += knowledge_receipt
+                        formatted_answer = _format_question_answer(
+                            answer,
+                            knowledge_receipt,
+                            language,
+                            student_id,
+                        )
 
                         if student_id:
                             try:
@@ -865,28 +887,12 @@ def ask_question():
             current_app.logger.debug('学生提问 AI 回答已生成 student_id=%s answer_length=%s',
                                      student_id, len(answer) if answer else 0)
             
-            # 使用markdown库正确地将Markdown转换为HTML
-            if answer:
-                try:
-                    # 增强Markdown格式，确保标题正确渲染
-                    answer = enhance_markdown(answer)
-                    
-                    # 增强代码块
-                    enhanced_answer = enhance_code_blocks(answer, default_lang=language)
-                    
-                    # 直接返回Markdown文本，不转换为HTML
-                    formatted_answer = enhanced_answer
-                    
-                    # 输出调试信息
-                except Exception:
-                    current_app.logger.exception('学生提问 Markdown 格式化失败 student_id=%s', student_id)
-                    # 如果Markdown转换失败，至少返回纯文本
-                    escaped_answer = answer.replace('<', '&lt;').replace('>', '&gt;').replace('\n', '<br>')
-                    formatted_answer = f"<p>{escaped_answer}</p>"
-            else:
-                formatted_answer = "很抱歉，我无法理解您的问题或无法基于当前代码生成回答。请尝试重新表述您的问题或提供更多代码上下文。"
-
-            formatted_answer += knowledge_receipt
+            formatted_answer = _format_question_answer(
+                answer,
+                knowledge_receipt,
+                language,
+                student_id,
+            )
             
             # 记录学生提问日志
             if student_id:

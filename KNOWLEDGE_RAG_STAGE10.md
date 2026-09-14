@@ -59,7 +59,10 @@ guidance_generator  ◄── 有界知识上下文（禁止编造引用）
 | `citation_completeness` | 具有稳定 `evidence_id` 和 `[K]` 标记的证据占比 |
 | `no_result_fallback` | 是否发生“没有已标注知识点”的回退；发生时为 `true` |
 | `retrieval_error_fallback` | 知识源查询异常时是否安全降级；发生时为 `true` |
-| `fallback` | 无结果时的可解释回退对象；当前代码为 `NO_KNOWLEDGE_EVIDENCE` |
+| `fallback` | 回退时的可解释对象；无知识点为 `NO_KNOWLEDGE_EVIDENCE`，查询异常为 `KNOWLEDGE_RETRIEVAL_UNAVAILABLE` |
+
+以上是检索记录层指标：`candidate_count` 是上限截断后的候选数，
+`citation_completeness` 只衡量证据字段是否完整，不能代表答案中的引用正确率。
 
 验证命令：
 
@@ -67,7 +70,7 @@ guidance_generator  ◄── 有界知识上下文（禁止编造引用）
 D:\xproject\新建文件夹\CodeSense-main\pr-student-learning-route-worktree\.venv\Scripts\python.exe -m pytest tests/test_knowledge_rag.py -q --disable-warnings
 ```
 
-覆盖结果：6 passed。用例包含无知识点回退、有知识点 `[K1]` 引用与指标、SSE 首尾事件兼容、知识源异常安全降级、回答链路降级，以及不读取学生私有评分的边界。
+覆盖结果：9 passed。用例包含无知识点回退、有知识点 `[K1]` 引用与指标、SSE 首尾事件兼容、知识源异常安全降级、回答链路降级、作业隔离、8 条截断排序、标题转义，以及不读取学生私有评分的边界。
 
 另外在隔离的 SQLite 测量环境中对同一作业的 2 条显式知识点连续检索 50 次，实测结果为：
 `status=grounded`、`candidate_count=2`、`hit_count=2`、`retrieval_hit_rate=1.0`、
@@ -81,7 +84,7 @@ D:\xproject\新建文件夹\CodeSense-main\pr-student-learning-route-worktree\.v
 D:\xproject\新建文件夹\CodeSense-main\pr-student-learning-route-worktree\.venv\Scripts\python.exe -m pytest -q --disable-warnings
 ```
 
-实测结果：`658 passed`，退出码 0，耗时 `13:23`。
+实测结果：`661 passed`，退出码 0，耗时 `14:30`。
 
 ## 5. 风险、回滚与未解决问题
 
