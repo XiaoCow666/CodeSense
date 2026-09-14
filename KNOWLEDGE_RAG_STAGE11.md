@@ -61,6 +61,7 @@ DocumentChunker ──► TextEmbedder ──► CandidateRetriever
 
 - 新增 `services/knowledge_pipeline.py`：数据对象、五类契约、默认离线流水线和可替换组件。
 - 修改 `services/knowledge_rag.py`：通过流水线生成证据，增加可选 `query` 参数；不传问题时仍按来源优先级工作。
+- 适配器为作业记录保留数值 `record_id` 和原有 `assignment-kp:<id>` 引用 ID；同权重、无匹配词时仍按数值 ID 排序。
 - 修改 `routes/api.py`：在学生提问链路传递已完成输入校验的问题文本，用于当前作业内的稳定重排。
 - 新增 `tests/test_knowledge_pipeline.py`，并在 `tests/test_knowledge_rag.py` 增加真实入口回归。
 - 没有数据库结构、权限、部署、Redis、外部模型或核心响应字段变更；`answer` 和现有 `knowledge_retrieval` 结构继续保留。
@@ -75,7 +76,15 @@ DocumentChunker ──► TextEmbedder ──► CandidateRetriever
 D:\xproject\新建文件夹\CodeSense-main\pr-student-learning-route-worktree\.venv\Scripts\python.exe -m pytest tests/test_knowledge_pipeline.py tests/test_knowledge_rag.py -q --disable-warnings
 ```
 
-实测：`10 passed`，退出码 0，耗时 `27.68s`。
+实测：`11 passed`，退出码 0，耗时 `27.68s`。
+
+包含既有 SSE 回归的实测命令为：
+
+```powershell
+D:\xproject\新建文件夹\CodeSense-main\pr-student-learning-route-worktree\.venv\Scripts\python.exe -m pytest tests/test_knowledge_pipeline.py tests/test_knowledge_rag.py tests/test_ai_sse_routes.py -q --disable-warnings
+```
+
+实测：`17 passed`，退出码 0，耗时 `48.28s`。
 
 整仓命令：
 
@@ -83,13 +92,14 @@ D:\xproject\新建文件夹\CodeSense-main\pr-student-learning-route-worktree\.v
 D:\xproject\新建文件夹\CodeSense-main\pr-student-learning-route-worktree\.venv\Scripts\python.exe -m pytest -q --disable-warnings
 ```
 
-实测：`662 passed`，退出码 0，耗时 `14:13`。
+实测：`663 passed`，退出码 0，耗时 `13:07`。
 
 离线容量样本使用 100 个文档、每次取 8 条、连续运行 100 次，实测：`mean=1.842 ms`、`P95=2.581 ms`。这是当前进程内的词法基线，不是生产端到端 SLA；它不代表真实向量服务、数据库或模型服务的延迟。
 
 覆盖的事实边界：
 
 - `array boundary` 问题会优先得到匹配证据，即使另一条证据的来源权重更高。
+- 同权重且空问题/无匹配问题时，数值记录 ID `2` 会排在 `10` 前；旧的 `assignment-kp:<id>` 引用 ID 保持不变。
 - 相同输入会产生相同 chunk/evidence ID 和 `[K1]`、`[K2]` 顺序。
 - 替换重排组件不会改变流水线调用契约。
 - `/api/ask_question` 的当前作业隔离、无结果回退和学生私有评分隔离测试保持通过。

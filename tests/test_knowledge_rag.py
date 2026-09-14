@@ -153,6 +153,37 @@ def test_ask_question_reranks_matching_knowledge_before_priority(
     assert evidence[0]["citation"] == "[K1]"
 
 
+def test_retriever_keeps_numeric_record_order_for_equal_priority(knowledge_context):
+    app, _, assignment_id = knowledge_context
+    with app.app_context():
+        db.session.add_all(
+            [
+                AssignmentKnowledgePoint(
+                    id=10,
+                    assignment_id=assignment_id,
+                    knowledge_point="pointer",
+                    weight=1.0,
+                ),
+                AssignmentKnowledgePoint(
+                    id=2,
+                    assignment_id=assignment_id,
+                    knowledge_point="array",
+                    weight=1.0,
+                ),
+            ]
+        )
+        db.session.commit()
+
+        empty_query = retrieve_assignment_knowledge(assignment_id, query="")
+        unmatched_query = retrieve_assignment_knowledge(
+            assignment_id,
+            query="unmatched terminology",
+        )
+
+    assert empty_query["evidence"][0]["evidence_id"] == "assignment-kp:2"
+    assert unmatched_query["evidence"][0]["evidence_id"] == "assignment-kp:2"
+
+
 def test_ask_question_sse_includes_retrieval_receipt(knowledge_context, monkeypatch):
     _, client, assignment_id = knowledge_context
     captured = {}

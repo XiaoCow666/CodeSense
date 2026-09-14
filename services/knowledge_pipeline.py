@@ -184,6 +184,14 @@ class LexicalCandidateRetriever:
 class StablePriorityReranker:
     """Prefer lexical matches, then source priority, then stable IDs."""
 
+    @staticmethod
+    def _stable_chunk_key(chunk: KnowledgeChunk):
+        record_id = chunk.metadata.get("record_id")
+        try:
+            return (0, int(record_id), chunk.ordinal, chunk.chunk_id)
+        except (TypeError, ValueError):
+            return (1, chunk.document_id, chunk.ordinal, chunk.chunk_id)
+
     def rerank(
         self,
         query_embedding: Mapping[str, float],
@@ -196,8 +204,7 @@ class StablePriorityReranker:
                 key=lambda candidate: (
                     -candidate.score,
                     -candidate.chunk.priority,
-                    candidate.chunk.document_id,
-                    candidate.chunk.ordinal,
+                    *self._stable_chunk_key(candidate.chunk),
                 ),
             )
         )
@@ -207,8 +214,12 @@ class StableCitationBuilder:
     """Build citations without exposing scores or private student data."""
 
     def build(self, candidate: RetrievalCandidate, rank: int) -> KnowledgeCitation:
+        evidence_id = candidate.chunk.metadata.get(
+            "evidence_id",
+            candidate.chunk.chunk_id,
+        )
         return KnowledgeCitation(
-            evidence_id=candidate.chunk.chunk_id,
+            evidence_id=str(evidence_id),
             citation=f"[K{rank}]",
             source_type=candidate.chunk.source_type,
             title=candidate.chunk.title,

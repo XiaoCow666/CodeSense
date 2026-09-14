@@ -123,7 +123,11 @@ def retrieve_assignment_knowledge(
                 content=f"当前作业显式绑定知识点：{name}（{code}）。",
                 source_type="assignment_knowledge_point",
                 priority=float(record.weight or 0.0),
-                metadata={"created_at": _created_at_value(record)},
+                metadata={
+                    "created_at": _created_at_value(record),
+                    "evidence_id": f"assignment-kp:{record.id}",
+                    "record_id": record.id,
+                },
             )
         )
 
