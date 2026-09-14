@@ -10,13 +10,16 @@ student-facing answer route.
 from __future__ import annotations
 
 import logging
+import re
 import time
+from html import escape
 
 from models import AssignmentKnowledgePoint, KnowledgePointScore, db
 
 
 MAX_EVIDENCE = 8
 logger = logging.getLogger(__name__)
+_MARKDOWN_SPECIAL = re.compile(r"([\\`*_\[\]{}()#+.!|>~-])")
 NO_KNOWLEDGE_EVIDENCE = {
     "code": "NO_KNOWLEDGE_EVIDENCE",
     "message": "当前作业没有已标注知识点，回答仅基于题目和代码。",
@@ -30,6 +33,13 @@ RETRIEVAL_UNAVAILABLE = {
 def _created_at_value(record):
     created_at = getattr(record, "created_at", None)
     return created_at.isoformat() if created_at else None
+
+
+def _safe_markdown_label(value):
+    """Escape a knowledge label before inserting it into Markdown output."""
+
+    escaped = escape(str(value or ""), quote=True)
+    return _MARKDOWN_SPECIAL.sub(r"\\\1", escaped)
 
 
 def _result(status, evidence, candidate_count, started_at, fallback=None):
@@ -147,7 +157,7 @@ def render_knowledge_receipt(retrieval):
 
     lines = ["\n\n### 参考知识证据"]
     lines.extend(
-        f"- {item['citation']} {item['title']}"
+        f"- {item['citation']} {_safe_markdown_label(item['title'])}"
         for item in retrieval.get("evidence", [])
     )
     return "\n".join(lines)

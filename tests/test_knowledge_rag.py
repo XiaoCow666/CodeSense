@@ -232,3 +232,64 @@ def test_ask_question_continues_with_answer_only_when_knowledge_source_is_unavai
     assert retrieval["fallback"]["code"] == "KNOWLEDGE_RETRIEVAL_UNAVAILABLE"
     assert retrieval["metrics"]["retrieval_error_fallback"] is True
     assert "知识证据暂时不可用" in response.json["data"]["answer"]
+
+
+def test_retriever_is_scoped_to_one_assignment(knowledge_context):
+    app, _, assignment_id = knowledge_context
+    with app.app_context():
+        other_assignment = Assignment(
+            title="其他作业",
+            description="不应被当前作业检索到。",
+            creator_id="rag-student",
+        )
+        db.session.add(other_assignment)
+        db.session.commit()
+        AssignmentKnowledgePoint.add_to_assignment(
+            other_assignment.id,
+            "other-only",
+        )
+        retrieval = retrieve_assignment_knowledge(assignment_id)
+
+    assert retrieval["status"] == "no_result"
+    assert all("other-only" not in item["content"] for item in retrieval["evidence"])
+
+
+def test_retriever_caps_evidence_and_orders_by_weight(knowledge_context):
+    app, _, assignment_id = knowledge_context
+    with app.app_context():
+        db.session.add_all(
+            [
+                AssignmentKnowledgePoint(
+                    assignment_id=assignment_id,
+                    knowledge_point=f"custom-{index}",
+                    weight=float(index),
+                )
+                for index in range(10)
+            ]
+        )
+        db.session.commit()
+        retrieval = retrieve_assignment_knowledge(assignment_id)
+
+    assert retrieval["status"] == "grounded"
+    assert len(retrieval["evidence"]) == 8
+    assert "custom-9" in retrieval["evidence"][0]["content"]
+    assert "custom-2" in retrieval["evidence"][-1]["content"]
+    assert retrieval["metrics"]["candidate_count"] == 8
+
+
+def test_knowledge_receipt_escapes_untrusted_title():
+    receipt = knowledge_rag.render_knowledge_receipt(
+        {
+            "status": "grounded",
+            "evidence": [
+                {
+                    "citation": "[K1]",
+                    "title": "<script>alert('x')</script> [unsafe]",
+                }
+            ],
+        }
+    )
+
+    assert "<script>" not in receipt
+    assert "&lt;script&gt;" in receipt
+    assert "\\[unsafe\\]" in receipt
