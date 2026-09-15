@@ -184,7 +184,7 @@ def test_retriever_keeps_numeric_record_order_for_equal_priority(knowledge_conte
     assert unmatched_query["evidence"][0]["evidence_id"] == "assignment-kp:2"
 
 
-def test_retriever_only_reranks_the_bounded_candidate_pool(knowledge_context):
+def test_retriever_indexes_beyond_legacy_eight_but_keeps_final_top_k(knowledge_context):
     app, _, assignment_id = knowledge_context
     with app.app_context():
         db.session.add_all(
@@ -212,9 +212,35 @@ def test_retriever_only_reranks_the_bounded_candidate_pool(knowledge_context):
             query="unique-ten",
         )
 
-    assert retrieval["metrics"]["candidate_count"] == 8
-    assert len(retrieval["evidence"]) == 8
-    assert all(item["evidence_id"] != "assignment-kp:10" for item in retrieval["evidence"])
+    assert retrieval["metrics"]["candidate_count"] == 10
+    assert len(retrieval["evidence"]) == 1
+    assert retrieval["evidence"][0]["evidence_id"] == "assignment-kp:10"
+    assert retrieval["metrics"]["retrieval_mode"] == "vector"
+
+
+def test_retriever_keeps_explicit_index_document_cap(knowledge_context):
+    app, _, assignment_id = knowledge_context
+    with app.app_context():
+        db.session.add_all(
+            [
+                AssignmentKnowledgePoint(
+                    id=index,
+                    assignment_id=assignment_id,
+                    knowledge_point=f"base-{index}",
+                    weight=1.0,
+                )
+                for index in range(1, 71)
+            ]
+        )
+        db.session.commit()
+        retrieval = retrieve_assignment_knowledge(
+            assignment_id,
+            query="base-70",
+        )
+
+    assert retrieval["metrics"]["candidate_count"] == 64
+    assert retrieval["metrics"]["indexed_chunk_count"] == 64
+    assert all(item["evidence_id"] != "assignment-kp:70" for item in retrieval["evidence"])
 
 
 def test_ask_question_sse_includes_retrieval_receipt(knowledge_context, monkeypatch):
@@ -294,6 +320,29 @@ def test_retriever_returns_safe_fallback_when_knowledge_source_is_unavailable(
     assert retrieval["metrics"]["retrieval_error_fallback"] is True
     assert "暂时不可用" in knowledge_rag.build_knowledge_prompt_context(retrieval)
     assert "暂时不可用" in knowledge_rag.render_knowledge_receipt(retrieval)
+
+
+def test_retriever_returns_safe_fallback_when_vector_index_fails(
+    knowledge_context, monkeypatch
+):
+    app, _, assignment_id = knowledge_context
+
+    class BrokenEmbedder:
+        def embed(self, _text):
+            raise RuntimeError("offline index failure")
+
+    with app.app_context():
+        AssignmentKnowledgePoint.add_to_assignment(
+            assignment_id,
+            "array",
+            weight=1.0,
+        )
+        monkeypatch.setattr(knowledge_rag, "knowledge_vector_embedder", BrokenEmbedder())
+        retrieval = retrieve_assignment_knowledge(assignment_id, query="数组")
+
+    assert retrieval["status"] == "unavailable"
+    assert retrieval["fallback"]["code"] == "KNOWLEDGE_RETRIEVAL_UNAVAILABLE"
+    assert retrieval["metrics"]["retrieval_mode"] == "unavailable"
 
 
 def test_ask_question_continues_with_answer_only_when_knowledge_source_is_unavailable(

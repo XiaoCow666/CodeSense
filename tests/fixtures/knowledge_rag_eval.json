@@ -1,0 +1,52 @@
+{
+  "documents": [
+    {
+      "document_id": "array-boundary",
+      "title": "数组边界",
+      "content": "检查下标范围，访问元素前确认索引合法。",
+      "source_type": "offline-eval",
+      "priority": 1
+    },
+    {
+      "document_id": "pointer-lifetime",
+      "title": "指针生命周期",
+      "content": "释放后不要解引用指针，使用前确认对象仍然有效。",
+      "source_type": "offline-eval",
+      "priority": 1
+    },
+    {
+      "document_id": "sorting-stability",
+      "title": "排序稳定性",
+      "content": "稳定排序会保持相等元素的原有相对顺序。",
+      "source_type": "offline-eval",
+      "priority": 1
+    }
+  ],
+  "queries": [
+    {
+      "query": "下标范围",
+      "relevant_document_ids": ["array-boundary"],
+      "expected_mode": "vector",
+      "top_k": 3
+    },
+    {
+      "query": "释放后解引用",
+      "relevant_document_ids": ["pointer-lifetime"],
+      "expected_mode": "vector",
+      "top_k": 3
+    },
+    {
+      "query": "边界",
+      "relevant_document_ids": ["array-boundary"],
+      "expected_mode": "keyword_fallback",
+      "top_k": 3
+    },
+    {
+      "query": "数据库迁移",
+      "document_ids": [],
+      "relevant_document_ids": [],
+      "expected_mode": "no_result",
+      "top_k": 3
+    }
+  ]
+}

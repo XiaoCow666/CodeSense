@@ -1,10 +1,11 @@
 """Bounded, assignment-scoped knowledge retrieval for student answers.
 
-This is an explicit-evidence baseline, not a vector database.  It reads only
-the knowledge points attached to the current assignment and returns stable,
-non-sensitive citations plus a deterministic no-result state.  Keeping the
-retriever here makes a future index interchangeable without changing the
-student-facing answer route.
+This is an explicit-evidence, request-scoped vector prototype, not a
+persistent vector database.  It reads only the knowledge points attached to
+the current assignment and returns stable, non-sensitive citations plus a
+deterministic fallback state.  Keeping the index adapter here makes a future
+persistent implementation interchangeable without changing the student-facing
+answer route.
 """
 
 from __future__ import annotations
@@ -14,11 +15,14 @@ import time
 
 from models import AssignmentKnowledgePoint, KnowledgePointScore, db
 from services.knowledge_pipeline import KnowledgeDocument, build_offline_pipeline
+from services.knowledge_vector_store import HybridKnowledgeIndex, NgramCountEmbedder
 
 
 MAX_EVIDENCE = 8
+MAX_INDEX_DOCUMENTS = 64
 logger = logging.getLogger(__name__)
 knowledge_pipeline = build_offline_pipeline()
+knowledge_vector_embedder = NgramCountEmbedder()
 NO_KNOWLEDGE_EVIDENCE = {
     "code": "NO_KNOWLEDGE_EVIDENCE",
     "message": "当前作业没有已标注知识点，回答仅基于题目和代码。",
@@ -34,7 +38,16 @@ def _created_at_value(record):
     return created_at.isoformat() if created_at else None
 
 
-def _result(status, evidence, candidate_count, started_at, fallback=None):
+def _result(
+    status,
+    evidence,
+    candidate_count,
+    started_at,
+    fallback=None,
+    *,
+    retrieval_mode=None,
+    indexed_chunk_count=0,
+):
     hit_count = len(evidence)
     latency_ms = max(0.0, (time.perf_counter() - started_at) * 1000.0)
     metrics = {
@@ -55,6 +68,8 @@ def _result(status, evidence, candidate_count, started_at, fallback=None):
         "retrieval_error_fallback": bool(
             fallback and fallback.get("code") == RETRIEVAL_UNAVAILABLE["code"]
         ),
+        "retrieval_mode": retrieval_mode or ("unavailable" if fallback else "unknown"),
+        "indexed_chunk_count": int(indexed_chunk_count),
     }
     return {
         "status": status,
@@ -74,16 +89,24 @@ def retrieve_assignment_knowledge(
 
     The retrieval is intentionally assignment-scoped and does not inspect a
     student's private ``KnowledgePointScore`` rows.  With a query, the
-    replaceable offline pipeline first scores lexical overlap and then uses
-    the teacher/AI-maintained weight and stable row ID as deterministic
-    tie-breakers.  An empty query preserves priority order.
+    replaceable offline index first scores sparse-vector overlap, then tries a
+    title/body keyword fallback, and finally uses the teacher/AI-maintained
+    weight and stable row ID for the legacy priority fallback.  An empty query
+    preserves priority order.
     """
 
     started_at = time.perf_counter()
     try:
         assignment_id = int(assignment_id)
     except (TypeError, ValueError):
-        return _result("no_result", [], 0, started_at, NO_KNOWLEDGE_EVIDENCE.copy())
+        return _result(
+            "no_result",
+            [],
+            0,
+            started_at,
+            NO_KNOWLEDGE_EVIDENCE.copy(),
+            retrieval_mode="no_result",
+        )
 
     try:
         bounded_limit = max(1, min(int(limit), MAX_EVIDENCE))
@@ -94,7 +117,7 @@ def retrieve_assignment_knowledge(
                 AssignmentKnowledgePoint.weight.desc(),
                 AssignmentKnowledgePoint.id.asc(),
             )
-            .limit(bounded_limit)
+            .limit(MAX_INDEX_DOCUMENTS)
             .all()
         )
     except Exception:
@@ -108,6 +131,7 @@ def retrieve_assignment_knowledge(
             0,
             started_at,
             RETRIEVAL_UNAVAILABLE.copy(),
+            retrieval_mode="unavailable",
         )
 
     documents = []
@@ -131,11 +155,34 @@ def retrieve_assignment_knowledge(
             )
         )
 
-    citations = knowledge_pipeline.search(
-        query,
-        documents,
-        limit=bounded_limit,
-    )
+    try:
+        chunks = tuple(
+            chunk
+            for document in documents
+            for chunk in knowledge_pipeline.chunker.split(document)
+        )
+        index = HybridKnowledgeIndex(
+            chunks,
+            embedder=knowledge_vector_embedder,
+        )
+        search_result = index.search(query, top_k=bounded_limit)
+        citations = tuple(
+            knowledge_pipeline.citation_builder.build(candidate, rank)
+            for rank, candidate in enumerate(search_result.candidates, start=1)
+        )
+    except Exception:
+        db.session.rollback()
+        logger.exception(
+            "knowledge vector index failed; using safe answer-only fallback"
+        )
+        return _result(
+            "unavailable",
+            [],
+            len(records),
+            started_at,
+            RETRIEVAL_UNAVAILABLE.copy(),
+            retrieval_mode="unavailable",
+        )
     evidence = [
         {
             "evidence_id": citation.evidence_id,
@@ -149,8 +196,23 @@ def retrieve_assignment_knowledge(
     ]
 
     if not evidence:
-        return _result("no_result", [], len(records), started_at, NO_KNOWLEDGE_EVIDENCE.copy())
-    return _result("grounded", evidence, len(records), started_at)
+        return _result(
+            "no_result",
+            [],
+            len(records),
+            started_at,
+            NO_KNOWLEDGE_EVIDENCE.copy(),
+            retrieval_mode=search_result.mode,
+            indexed_chunk_count=search_result.indexed_chunk_count,
+        )
+    return _result(
+        "grounded",
+        evidence,
+        len(records),
+        started_at,
+        retrieval_mode=search_result.mode,
+        indexed_chunk_count=search_result.indexed_chunk_count,
+    )
 
 
 def build_knowledge_prompt_context(retrieval):
