@@ -20,6 +20,13 @@
       "content": "稳定排序会保持相等元素的原有相对顺序。",
       "source_type": "offline-eval",
       "priority": 1
+    },
+    {
+      "document_id": "array-indexing",
+      "title": "数组下标",
+      "content": "数组下标从零开始，访问元素前确认索引合法。",
+      "source_type": "offline-eval",
+      "priority": 1
     }
   ],
   "queries": [
@@ -50,7 +57,7 @@
     },
     {
       "query": "下标",
-      "relevant_document_ids": ["array-boundary", "sorting-stability"],
+      "relevant_document_ids": ["array-boundary", "array-indexing"],
       "expected_mode": "vector",
       "top_k": 1
     }
