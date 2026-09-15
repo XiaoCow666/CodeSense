@@ -64,11 +64,11 @@ KnowledgeDocument -> chunk -> embed -> candidate retrieve -> rerank -> citation
 ## 实际结果
 
 - 修复前基线：阶段 11 定向命令 `python -m pytest tests/test_knowledge_pipeline.py tests/test_knowledge_rag.py -q --disable-warnings` 为 `13 passed`；其中 10 条作业知识点只读取前 8 条，唯一匹配的第 10 条证据被漏掉。
-- 本次审查指定定向命令：`python -m pytest tests/test_knowledge_eval.py tests/test_knowledge_vector_store.py tests/test_knowledge_rag.py -q --disable-warnings` 为 `19 passed`，退出码 0，42.57s。
+- 本次审查指定定向命令：`python -m pytest tests/test_knowledge_eval.py tests/test_knowledge_vector_store.py tests/test_knowledge_rag.py -q --disable-warnings` 为 `19 passed`，退出码 0，47.06s。
 - 全量回归（前一提交 `d370b5f`）：`python -m pytest -q --disable-warnings` 为 `681 passed`，退出码 0，13:26；该结果未在本次标签修订后重跑，warnings 为既有项目噪音和测试环境输出。
 - 固定评估命令：`python -m services.knowledge_eval`；5 个固定问题，4 个有标注问题，最后一题的两个相关文档现在均为真实的数组下标文档（`array-boundary`、`array-indexing`），不再把排序稳定性文档误标为相关文档。按“每题前 k 个去重文档命中数 / 该题相关文档数”计算 Recall@1=0.875、Recall@k=0.875；模式为 3 次 vector、1 次 keyword fallback、1 次 no-result，期望模式不匹配数为 0；共索引 16 个切片。
-- 固定评估的普通问题耗时：切分/索引构建 mean 0.400ms、P95 1.736ms；查询 mean 0.053ms、P95 0.111ms；合计 mean 0.454ms、P95 1.797ms。
-- 固定 64 文档性能样本、64 个切片、100 次查询、top-k=8：构建 1.101ms；查询 mean 0.454ms、P95 0.573ms；总耗时 46.522ms，按运行摊销 0.465ms/次。
+- 固定评估的普通问题耗时：切分/索引构建 mean 0.507ms、P95 2.239ms；查询 mean 0.061ms、P95 0.119ms；合计 mean 0.570ms、P95 2.326ms。
+- 固定 64 文档性能样本、64 个切片、100 次查询、top-k=8：构建 1.096ms；查询 mean 0.463ms、P95 0.473ms；总耗时 47.388ms，按运行摊销 0.474ms/次。
 - 行为回归：查询第 10 条唯一知识点时从旧的“前 8 条漏检”变为返回 `assignment-kp:10`；最终结果仍最多 8 条。超过 64 条时第 65 条及以后保持明确的资源边界。
 - 故障实验：向量 embedding 抛出异常时返回 `KNOWLEDGE_RETRIEVAL_UNAVAILABLE`，学生端继续 answer-only，不暴露内部异常或伪造引用。
 - `git diff --check`：通过。
