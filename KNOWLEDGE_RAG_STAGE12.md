@@ -64,10 +64,12 @@ KnowledgeDocument -> chunk -> embed -> candidate retrieve -> rerank -> citation
 ## 实际结果
 
 - 修复前基线：阶段 11 定向命令 `python -m pytest tests/test_knowledge_pipeline.py tests/test_knowledge_rag.py -q --disable-warnings` 为 `13 passed`；其中 10 条作业知识点只读取前 8 条，唯一匹配的第 10 条证据被漏掉。
-- 修复后定向命令：`python -m pytest tests/test_knowledge_pipeline.py tests/test_knowledge_vector_store.py tests/test_knowledge_eval.py tests/test_knowledge_rag.py -q --disable-warnings` 为 `20 passed`，退出码 0，38.34s。
-- JSON/SSE 扩展回归：`python -m pytest tests/test_knowledge_pipeline.py tests/test_knowledge_vector_store.py tests/test_knowledge_eval.py tests/test_knowledge_rag.py tests/test_ai_sse_routes.py -q --disable-warnings` 为 `26 passed`，退出码 0，58.50s。
-- 全量回归：`python -m pytest -q --disable-warnings` 为 `678 passed`，退出码 0，13:23；warnings 为既有项目噪音和测试环境输出，本次没有失败用例。
-- 固定评估命令：`python -m services.knowledge_eval`；4 个固定问题，3 个有标注问题的 Recall@1=1.0、Recall@k=1.0，模式为 2 次 vector、1 次 keyword fallback、1 次 no-result；均值 0.043ms，P95 0.079ms。
+- 修复后定向命令：`python -m pytest tests/test_knowledge_pipeline.py tests/test_knowledge_vector_store.py tests/test_knowledge_eval.py tests/test_knowledge_rag.py -q --disable-warnings` 为 `19 passed`，退出码 0，37.94s。
+- 评审要求的评估命令：`python -m pytest tests/test_knowledge_eval.py -q --disable-warnings` 为 `4 passed`，退出码 0，0.24s；`python -m pytest tests/test_knowledge_eval.py tests/test_knowledge_rag.py -q --disable-warnings` 为 `15 passed`，退出码 0，37.89s。
+- 全量回归：`python -m pytest -q --disable-warnings` 为 `681 passed`，退出码 0，13:26；warnings 为既有项目噪音和测试环境输出，本次没有失败用例。
+- 固定评估命令：`python -m services.knowledge_eval`；5 个固定问题，4 个有标注问题，按“每题前 k 个去重文档命中数 / 该题相关文档数”计算 Recall@1=0.875、Recall@k=0.875；模式为 3 次 vector、1 次 keyword fallback、1 次 no-result，期望模式不匹配数为 0。
+- 固定评估的普通问题耗时：切分/索引构建 mean 0.381ms、P95 1.701ms；查询 mean 0.051ms、P95 0.103ms；合计 mean 0.433ms、P95 1.762ms。
+- 固定 64 文档性能样本、64 个切片、100 次查询、top-k=8：构建 0.901ms；查询 mean 0.418ms、P95 0.493ms；总耗时 42.745ms，按运行摊销 0.427ms/次。
 - 行为回归：查询第 10 条唯一知识点时从旧的“前 8 条漏检”变为返回 `assignment-kp:10`；最终结果仍最多 8 条。超过 64 条时第 65 条及以后保持明确的资源边界。
 - 故障实验：向量 embedding 抛出异常时返回 `KNOWLEDGE_RETRIEVAL_UNAVAILABLE`，学生端继续 answer-only，不暴露内部异常或伪造引用。
 - `git diff --check`：通过。
@@ -75,7 +77,7 @@ KnowledgeDocument -> chunk -> embed -> candidate retrieve -> rerank -> citation
 ## 事实、推断与未解决问题
 
 - 已确认事实：索引只存在于单次调用创建的 `HybridKnowledgeIndex`；未写入数据库、磁盘、Redis 或跨请求全局缓存；候选读取上限为 64，最终证据上限为 8；固定集和回归测试均在无生产凭据的隔离环境运行。
-- 仅属推断：字符 bigram 稀疏向量能减少中文单字误匹配，但不等同于语义 embedding；固定集 Recall=1.0 只说明这 4 个样本，不代表线上知识库质量。
+- 仅属推断：字符 bigram 稀疏向量能减少中文单字误匹配，但不等同于语义 embedding；固定集 Recall=0.875 只说明这 5 个样本，不能代表线上知识库质量。
 - 未解决：每次请求仍会重建索引；64 条是保守资源上限，不是线上容量结论；未验证真实 Redis、外部 AI、生产数据库、并发压力、浏览器全流程或持久化向量库迁移。
 
 ## 取舍、回滚与后续建议

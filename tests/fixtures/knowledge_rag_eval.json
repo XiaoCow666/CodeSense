@@ -47,6 +47,18 @@
       "relevant_document_ids": [],
       "expected_mode": "no_result",
       "top_k": 3
+    },
+    {
+      "query": "下标",
+      "relevant_document_ids": ["array-boundary", "sorting-stability"],
+      "expected_mode": "vector",
+      "top_k": 1
     }
-  ]
+  ],
+  "performance": {
+    "document_count": 64,
+    "runs": 100,
+    "query": "边界条件",
+    "top_k": 8
+  }
 }
