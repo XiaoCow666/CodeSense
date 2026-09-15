@@ -1,5 +1,6 @@
 from services.knowledge_pipeline import (
     KnowledgeDocument,
+    LexicalCandidateRetriever,
     OfflineKnowledgePipeline,
     ParagraphChunker,
     StableCitationBuilder,
@@ -57,6 +58,27 @@ def test_offline_pipeline_chunks_and_citations_are_deterministic():
         "sample#chunk-1",
     ]
     assert all(citation.citation.startswith("[K") for citation in first)
+
+
+def test_candidate_retriever_keeps_late_match_before_small_limit():
+    documents = [
+        KnowledgeDocument("early", "无关", "unrelated material", "offline-sample"),
+        KnowledgeDocument("late", "目标", "the target evidence", "offline-sample"),
+    ]
+    chunker = ParagraphChunker()
+    embedder = TokenCountEmbedder()
+    chunks = tuple(chunk for document in documents for chunk in chunker.split(document))
+    embeddings = {chunk.chunk_id: embedder.embed(chunk.text) for chunk in chunks}
+
+    candidates = LexicalCandidateRetriever().retrieve(
+        embedder.embed("target"),
+        chunks,
+        embeddings,
+        limit=1,
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0].chunk.document_id == "late"
 
 
 class ReverseReranker:

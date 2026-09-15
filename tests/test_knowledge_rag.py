@@ -184,6 +184,39 @@ def test_retriever_keeps_numeric_record_order_for_equal_priority(knowledge_conte
     assert unmatched_query["evidence"][0]["evidence_id"] == "assignment-kp:2"
 
 
+def test_retriever_only_reranks_the_bounded_candidate_pool(knowledge_context):
+    app, _, assignment_id = knowledge_context
+    with app.app_context():
+        db.session.add_all(
+            [
+                AssignmentKnowledgePoint(
+                    id=index,
+                    assignment_id=assignment_id,
+                    knowledge_point=f"base-{index}",
+                    weight=1.0,
+                )
+                for index in range(1, 10)
+            ]
+            + [
+                AssignmentKnowledgePoint(
+                    id=10,
+                    assignment_id=assignment_id,
+                    knowledge_point="unique-ten",
+                    weight=1.0,
+                )
+            ]
+        )
+        db.session.commit()
+        retrieval = retrieve_assignment_knowledge(
+            assignment_id,
+            query="unique-ten",
+        )
+
+    assert retrieval["metrics"]["candidate_count"] == 8
+    assert len(retrieval["evidence"]) == 8
+    assert all(item["evidence_id"] != "assignment-kp:10" for item in retrieval["evidence"])
+
+
 def test_ask_question_sse_includes_retrieval_receipt(knowledge_context, monkeypatch):
     _, client, assignment_id = knowledge_context
     captured = {}

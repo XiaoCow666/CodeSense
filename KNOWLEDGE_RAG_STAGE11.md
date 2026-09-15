@@ -51,7 +51,7 @@ DocumentChunker ──► TextEmbedder ──► CandidateRetriever
 | --- | --- | --- | --- |
 | 切分 | `DocumentChunker.split()` | `ParagraphChunker` | Markdown/代码感知切分 |
 | 嵌入 | `TextEmbedder.embed()` | `TokenCountEmbedder` | 本地模型或受控向量服务 |
-| 候选召回 | `CandidateRetriever.retrieve()` | `LexicalCandidateRetriever` | 倒排索引/向量索引 |
+| 候选召回 | `CandidateRetriever.retrieve()` | `LexicalCandidateRetriever`（先按匹配分数再截断） | 倒排索引/向量索引 |
 | 重排 | `CandidateReranker.rerank()` | `StablePriorityReranker` | 相关性模型或规则组合 |
 | 引用 | `CitationBuilder.build()` | `StableCitationBuilder` | 版本化来源/审计字段 |
 
@@ -76,7 +76,7 @@ DocumentChunker ──► TextEmbedder ──► CandidateRetriever
 D:\xproject\新建文件夹\CodeSense-main\pr-student-learning-route-worktree\.venv\Scripts\python.exe -m pytest tests/test_knowledge_pipeline.py tests/test_knowledge_rag.py -q --disable-warnings
 ```
 
-实测：`11 passed`，退出码 0，耗时 `27.68s`。
+实测：`13 passed`，退出码 0，耗时 `33.38s`。
 
 包含既有 SSE 回归的实测命令为：
 
@@ -84,7 +84,7 @@ D:\xproject\新建文件夹\CodeSense-main\pr-student-learning-route-worktree\.v
 D:\xproject\新建文件夹\CodeSense-main\pr-student-learning-route-worktree\.venv\Scripts\python.exe -m pytest tests/test_knowledge_pipeline.py tests/test_knowledge_rag.py tests/test_ai_sse_routes.py -q --disable-warnings
 ```
 
-实测：`17 passed`，退出码 0，耗时 `48.28s`。
+实测：`19 passed`，退出码 0，耗时 `66.74s`。
 
 整仓命令：
 
@@ -92,9 +92,9 @@ D:\xproject\新建文件夹\CodeSense-main\pr-student-learning-route-worktree\.v
 D:\xproject\新建文件夹\CodeSense-main\pr-student-learning-route-worktree\.venv\Scripts\python.exe -m pytest -q --disable-warnings
 ```
 
-实测：`663 passed`，退出码 0，耗时 `13:07`。
+实测：`665 passed`，退出码 0，耗时 `13:22`。
 
-离线容量样本使用 100 个文档、每次取 8 条、连续运行 100 次，实测：`mean=1.842 ms`、`P95=2.581 ms`。这是当前进程内的词法基线，不是生产端到端 SLA；它不代表真实向量服务、数据库或模型服务的延迟。
+离线容量样本使用 100 个文档、每次取 8 条、连续运行 100 次，实测：`mean=2.054 ms`、`P95=2.649 ms`。这是当前进程内的词法基线，不是生产端到端 SLA；它不代表真实向量服务、数据库或模型服务的延迟。
 
 覆盖的事实边界：
 
@@ -107,7 +107,7 @@ D:\xproject\新建文件夹\CodeSense-main\pr-student-learning-route-worktree\.v
 ## 5. 风险、回滚与后续建议
 
 - 风险：当前词法嵌入不是语义模型，中文按字符粒度匹配，复杂同义表达可能召回不足。
-- 风险：当前候选池仍受阶段十的作业级最多 8 条边界限制，不应据此推断大规模索引容量。
+- 候选边界：当前适配器仍先按阶段十的作业级最多 8 条记录建立候选池，再在池内重排；第 9 条及之后的记录不会被当前重排找回，不应据此推断大规模索引容量。
 - 回滚：移除 `query` 传递并恢复 `knowledge_rag.py` 原有证据组装即可；不需要数据库回滚。
 - 未解决：真实文档切分策略、向量索引更新生命周期、脱敏策略、相关性评估集和告警阈值仍需负责人决策，不在本 PR 直接接入。
 - 后续建议：先用脱敏离线评估集比较词法基线与候选向量实现，再决定是否引入外部依赖和生产部署；若涉及 schema、权限、真实凭据或不可逆部署，应另开方案评审。

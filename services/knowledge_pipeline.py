@@ -44,6 +44,16 @@ class KnowledgeChunk:
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
 
+def _stable_chunk_key(chunk: KnowledgeChunk):
+    """Keep assignment record IDs numeric while generic IDs stay deterministic."""
+
+    record_id = chunk.metadata.get("record_id")
+    try:
+        return (0, int(record_id), chunk.ordinal, chunk.chunk_id)
+    except (TypeError, ValueError):
+        return (1, chunk.document_id, chunk.ordinal, chunk.chunk_id)
+
+
 @dataclass(frozen=True)
 class RetrievalCandidate:
     """A chunk returned by candidate retrieval before final reranking."""
@@ -178,19 +188,19 @@ class LexicalCandidateRetriever:
             matched = tuple(sorted(query_terms & chunk_terms))
             score = len(matched) / len(query_terms) if query_terms else 0.0
             candidates.append(RetrievalCandidate(chunk, score, matched))
-        return tuple(candidates[:max(1, int(limit))])
+        ordered = sorted(
+            candidates,
+            key=lambda candidate: (
+                -candidate.score,
+                -candidate.chunk.priority,
+                *_stable_chunk_key(candidate.chunk),
+            ),
+        )
+        return tuple(ordered[:max(1, int(limit))])
 
 
 class StablePriorityReranker:
     """Prefer lexical matches, then source priority, then stable IDs."""
-
-    @staticmethod
-    def _stable_chunk_key(chunk: KnowledgeChunk):
-        record_id = chunk.metadata.get("record_id")
-        try:
-            return (0, int(record_id), chunk.ordinal, chunk.chunk_id)
-        except (TypeError, ValueError):
-            return (1, chunk.document_id, chunk.ordinal, chunk.chunk_id)
 
     def rerank(
         self,
@@ -204,7 +214,7 @@ class StablePriorityReranker:
                 key=lambda candidate: (
                     -candidate.score,
                     -candidate.chunk.priority,
-                    *self._stable_chunk_key(candidate.chunk),
+                    *_stable_chunk_key(candidate.chunk),
                 ),
             )
         )
