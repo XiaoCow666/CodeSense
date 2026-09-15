@@ -13,6 +13,7 @@ from collections import Counter
 from dataclasses import dataclass
 import math
 import re
+import time
 from typing import Mapping, Sequence
 
 from services.knowledge_pipeline import (
@@ -31,6 +32,15 @@ class RetrievalResult:
     mode: str
     candidates: tuple[RetrievalCandidate, ...]
     indexed_chunk_count: int
+
+
+class KnowledgeRetrievalTimeout(TimeoutError):
+    """Raised when bounded indexing or retrieval exceeds its local budget."""
+
+
+def _check_deadline(deadline, clock) -> None:
+    if deadline is not None and clock() > deadline:
+        raise KnowledgeRetrievalTimeout("knowledge retrieval deadline exceeded")
 
 
 def _cosine_similarity(left: Mapping[str, float], right: Mapping[str, float]) -> float:
@@ -69,8 +79,14 @@ class NgramCountEmbedder:
 class InMemoryVectorStore:
     """Write and query one isolated sparse vector index."""
 
-    def __init__(self, embedder: TextEmbedder | None = None):
+    def __init__(
+        self,
+        embedder: TextEmbedder | None = None,
+        *,
+        clock=time.monotonic,
+    ):
         self.embedder = embedder or NgramCountEmbedder()
+        self._clock = clock
         self._chunks: tuple[KnowledgeChunk, ...] = ()
         self._embeddings: dict[str, Mapping[str, float]] = {}
 
@@ -78,19 +94,75 @@ class InMemoryVectorStore:
     def chunks(self) -> tuple[KnowledgeChunk, ...]:
         return self._chunks
 
-    def write(self, chunks: Sequence[KnowledgeChunk]) -> int:
+    def clone(self) -> "InMemoryVectorStore":
+        """Copy index state without re-embedding existing chunks."""
+
+        cloned = InMemoryVectorStore(self.embedder, clock=self._clock)
+        cloned._chunks = self._chunks
+        cloned._embeddings = dict(self._embeddings)
+        return cloned
+
+    def write(self, chunks: Sequence[KnowledgeChunk], *, deadline=None) -> int:
         """Replace this index with caller-owned chunks and their embeddings."""
 
-        self._chunks = tuple(chunks)
+        normalized = tuple(chunks)
+        embeddings = {}
+        for chunk in normalized:
+            _check_deadline(deadline, self._clock)
+            embeddings[chunk.chunk_id] = self.embedder.embed(chunk.text)
+        _check_deadline(deadline, self._clock)
+        self._chunks = normalized
+        self._embeddings = embeddings
+        return len(normalized)
+
+    def upsert(self, chunks: Sequence[KnowledgeChunk], *, deadline=None) -> int:
+        """Embed only changed chunks and atomically add or replace them."""
+
+        current = list(self._chunks)
+        positions = {chunk.chunk_id: index for index, chunk in enumerate(current)}
+        embeddings = dict(self._embeddings)
+        for chunk in chunks:
+            _check_deadline(deadline, self._clock)
+            position = positions.get(chunk.chunk_id)
+            if position is None:
+                positions[chunk.chunk_id] = len(current)
+                current.append(chunk)
+            else:
+                current[position] = chunk
+            embeddings[chunk.chunk_id] = self.embedder.embed(chunk.text)
+        _check_deadline(deadline, self._clock)
+        self._chunks = tuple(current)
+        self._embeddings = embeddings
+        return len(self._chunks)
+
+    def remove_documents(self, document_ids: Sequence[str], *, deadline=None) -> int:
+        """Remove all chunks belonging to the supplied document IDs."""
+
+        blocked = {str(document_id) for document_id in document_ids}
+        if not blocked:
+            return len(self._chunks)
+        kept = []
+        for chunk in self._chunks:
+            _check_deadline(deadline, self._clock)
+            if chunk.document_id not in blocked:
+                kept.append(chunk)
+        self._chunks = tuple(kept)
         self._embeddings = {
-            chunk.chunk_id: self.embedder.embed(chunk.text)
+            chunk.chunk_id: self._embeddings.get(chunk.chunk_id, {})
             for chunk in self._chunks
         }
         return len(self._chunks)
 
-    def search(self, query: str, *, top_k: int = 8) -> tuple[RetrievalCandidate, ...]:
+    def search(
+        self,
+        query: str,
+        *,
+        top_k: int = 8,
+        deadline=None,
+    ) -> tuple[RetrievalCandidate, ...]:
         """Return only positive cosine matches, in deterministic top-k order."""
 
+        _check_deadline(deadline, self._clock)
         query_embedding = self.embedder.embed(query)
         if not query_embedding:
             return ()
@@ -98,6 +170,7 @@ class InMemoryVectorStore:
         candidates = []
         query_terms = set(query_embedding)
         for chunk in self._chunks:
+            _check_deadline(deadline, self._clock)
             embedding = self._embeddings.get(chunk.chunk_id, {})
             score = _cosine_similarity(query_embedding, embedding)
             if score <= 0.0:
@@ -118,11 +191,15 @@ class InMemoryVectorStore:
                 *_stable_chunk_key(candidate.chunk),
             ),
         )
+        _check_deadline(deadline, self._clock)
         return tuple(ordered[: max(1, int(top_k))])
 
 
 class KeywordFallbackRetriever:
     """Find title/body matches when the vector index has no positive hit."""
+
+    def __init__(self, *, clock=time.monotonic):
+        self._clock = clock
 
     def retrieve(
         self,
@@ -130,13 +207,16 @@ class KeywordFallbackRetriever:
         chunks: Sequence[KnowledgeChunk],
         *,
         top_k: int = 8,
+        deadline=None,
     ) -> tuple[RetrievalCandidate, ...]:
+        _check_deadline(deadline, self._clock)
         query_terms = set(NgramCountEmbedder().embed(query))
         if not query_terms:
             return ()
 
         candidates = []
         for chunk in chunks:
+            _check_deadline(deadline, self._clock)
             # Titles are intentionally included here: metadata-only labels can
             # be useful fallback evidence even when the body vector is sparse.
             searchable_terms = set(
@@ -153,9 +233,11 @@ class KeywordFallbackRetriever:
                 )
             )
 
-        return tuple(
+        result = tuple(
             StablePriorityReranker().rerank({}, candidates)[: max(1, int(top_k))]
         )
+        _check_deadline(deadline, self._clock)
+        return result
 
 
 class HybridKnowledgeIndex:
@@ -166,19 +248,68 @@ class HybridKnowledgeIndex:
         chunks: Sequence[KnowledgeChunk],
         *,
         embedder: TextEmbedder | None = None,
+        deadline=None,
+        clock=time.monotonic,
     ):
-        self.vector_store = InMemoryVectorStore(embedder)
-        self.vector_store.write(chunks)
-        self.keyword_fallback = KeywordFallbackRetriever()
+        self._clock = clock
+        self._deadline = deadline
+        self.vector_store = InMemoryVectorStore(embedder, clock=clock)
+        self.vector_store.write(chunks, deadline=deadline)
+        self.keyword_fallback = KeywordFallbackRetriever(clock=clock)
 
     @property
     def indexed_chunk_count(self) -> int:
         return len(self.vector_store.chunks)
 
-    def search(self, query: str, *, top_k: int = 8) -> RetrievalResult:
+    def replace(self, chunks: Sequence[KnowledgeChunk], *, deadline=None) -> int:
+        return self.vector_store.write(
+            chunks,
+            deadline=self._deadline if deadline is None else deadline,
+        )
+
+    def clone(self) -> "HybridKnowledgeIndex":
+        """Clone the current index state without rebuilding embeddings."""
+
+        cloned = object.__new__(HybridKnowledgeIndex)
+        cloned._clock = self._clock
+        cloned._deadline = self._deadline
+        cloned.vector_store = self.vector_store.clone()
+        cloned.keyword_fallback = KeywordFallbackRetriever(clock=self._clock)
+        return cloned
+
+    def upsert(self, chunks: Sequence[KnowledgeChunk], *, deadline=None) -> int:
+        return self.vector_store.upsert(
+            chunks,
+            deadline=self._deadline if deadline is None else deadline,
+        )
+
+    def remove_documents(
+        self,
+        document_ids: Sequence[str],
+        *,
+        deadline=None,
+    ) -> int:
+        return self.vector_store.remove_documents(
+            document_ids,
+            deadline=self._deadline if deadline is None else deadline,
+        )
+
+    def search(
+        self,
+        query: str,
+        *,
+        top_k: int = 8,
+        deadline=None,
+    ) -> RetrievalResult:
         """Search with explicit mode reporting and a compatibility fallback."""
 
-        vector_candidates = self.vector_store.search(query, top_k=top_k)
+        effective_deadline = self._deadline if deadline is None else deadline
+        _check_deadline(effective_deadline, self._clock)
+        vector_candidates = self.vector_store.search(
+            query,
+            top_k=top_k,
+            deadline=effective_deadline,
+        )
         if vector_candidates:
             return RetrievalResult("vector", vector_candidates, self.indexed_chunk_count)
 
@@ -186,6 +317,7 @@ class HybridKnowledgeIndex:
             query,
             self.vector_store.chunks,
             top_k=top_k,
+            deadline=effective_deadline,
         )
         if keyword_candidates:
             return RetrievalResult(
@@ -209,6 +341,7 @@ class HybridKnowledgeIndex:
                 ),
             )[: max(1, int(top_k))]
         )
+        _check_deadline(effective_deadline, self._clock)
         return RetrievalResult(
             "priority_fallback" if priority_candidates else "no_result",
             priority_candidates,
