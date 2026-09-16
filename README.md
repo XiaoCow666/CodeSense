@@ -73,6 +73,10 @@
   <img src="docs/assets/codesense-v1.2.0-action-center-clear.png" alt="CodeSense v1.2.0 角色化行动中心清晰手绘信息图" width="100%">
 </p>
 
+<p align="center">
+  <img src="docs/assets/codesense-v1.3.0-candidate-knowledge-evidence.png" alt="CodeSense 作业知识证据工作区候选功能说明图" width="100%">
+</p>
+
 ## 为什么做这个项目
 
 普通 OJ 很擅长判断程序是否通过测试，但学生看到的通常只有 AC 或 WA。他们不一定知道问题出在算法、实现、边界条件还是调试过程。教师面对大量提交记录，也很难手工归纳每个班级反复出现的问题。
@@ -123,6 +127,10 @@ CodeSense 把代码提交、受限执行、AI 辅导、分阶段练习和学情�
 ### 学习会话连续性与状态可视化
 
 CodeSense 会把引导式学习过程投影为可解释的会话状态：学生离开或刷新页面后，可以从“继续学习”入口回到最近会话，并看到当前阶段、下一步动作和可恢复提示；教师可以在授权范围内查看会话概览、阶段进度，并按“进行中、空闲、已完成、已放弃”筛选。状态接口只读已有学习记录，不改写历史数据，也会明确区分服务器观察时间、已存客户端计时和时间戳来源。
+
+### 作业知识证据工作区
+
+作业详情、提交详情和 Code Studio 会围绕当前作业展示知识焦点与有界证据：学生先看到需要掌握的概念、证据摘要和具体下一步；教师和管理员可以查看知识覆盖与降级状态；AI 代码建议在回答完成时附带可展开的证据收据。检索严格限定在当前作业和当前用户可访问的范围内；没有匹配证据时会明确提示仍可继续提问，知识证据只用于学习参考，不是作业评分依据。
 
 ### 角色化行动中心
 
@@ -396,7 +404,7 @@ CodeSense 使用语义化版本号：
 - <code>MINOR</code>：向后兼容的功能增加；
 - <code>PATCH</code>：向后兼容的问题修复和小幅调整。
 
-当前版本是 [v1.2.0](https://github.com/XiaoCow666/CodeSense/releases/tag/v1.2.0)，增加了角色化行动中心与权限隔离的只读聚合 API。日常更新状态记录在运行记录中并同步到 GitHub Release；README 不作为日常更新日志，仅在新增重要功能或明显改变使用方式时补充说明。
+当前正式版本是 [v1.2.0](https://github.com/XiaoCow666/CodeSense/releases/tag/v1.2.0)，增加了角色化行动中心与权限隔离的只读聚合 API。作业知识证据工作区的候选变更记录在 [CHANGELOG.md](CHANGELOG.md) 的 `Unreleased` 部分；正式版本仍以匹配的 Git tag 和 GitHub Release 为准。
 
 ## Star History
 
