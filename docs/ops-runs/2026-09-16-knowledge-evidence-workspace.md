@@ -5,7 +5,7 @@
 - 日期：2026-09-16（Asia/Shanghai）
 - 隔离分支：`codex/local-opt-20260916`
 - 基线：`origin/main` at `3cd20ea`
-- 候选提交：`bddf47b` → `aea965d`
+- 候选提交：`bddf47b` → `0629462`
 - 最终决策：`keep`（保留在隔离分支）；生产发布为 `needs_human`
 - 发布原因：本地 HTTP 健康检查可用，但内置浏览器和 Chrome 对 localhost 均返回客户端拦截；Workbench CLI 可用但实例列表为空，无法确认安全的生产目标。
 
@@ -33,7 +33,7 @@
 | 9 | Code Studio 的提问入口应提供与证据一致的快速自检提示。 | `templates/submit_code.html`；页面/UI 测试。 | keep；回滚 `ed0ce97`；提示不生成答案或代码。 |
 | 10 | AI 代码建议必须只接收当前作业的有界检索上下文。 | `routes/api.py`、`build_knowledge_prompt_context`；AI grounding 测试。 | keep；回滚 `701226c`；无 assignment ID 时不做跨作业检索。 |
 | 11 | SSE 增量事件保持轻量，完成事件和旧 JSON 共享证据契约。 | `/api/code_advice` 的 done/JSON 字段；`tests/test_code_advice_knowledge.py`、SSE 回归。 | keep；回滚 `701226c`；证据只在完成时传输。 |
-| 12 | 动态收据必须可访问、可恢复且不能把正文当 HTML。 | `static/js/knowledge-evidence.js`、CSS 和 Code Studio hooks；Node syntax/UI/XSS 测试。 | keep；回滚 `0d33cf5`；渲染器只使用 `textContent`/DOM 节点。 |
+| 12 | 动态收据必须可访问、可恢复且不能把正文当 HTML；旧 JSON 路径也必须有挂载点。 | `static/js/knowledge-evidence.js`、CSS 和 Code Studio hooks；Node syntax/UI/XSS 测试。 | keep；回滚 `0d33cf5`、`2b274b7`、`0629462`；渲染器只使用 `textContent`/DOM 节点。 |
 | 13 | 兼容字段不能绕过安全投影泄露私有分数或私有提示。 | `build_public_knowledge_retrieval`；集成测试覆盖作业页、提交页、证据 API、代码建议，并加入提问回答出口。 | keep；回滚 `aea965d`；保留旧顶层名称，但只序列化白名单字段。 |
 | 14 | 质量评估和跨页面契约必须可重复。 | `tests/test_knowledge_evidence_integration.py`、本报告、`python -m services.knowledge_eval`。 | keep；删除本报告和集成测试即可回滚文档/测试层；发布仍受环境门阻塞。 |
 
@@ -62,6 +62,6 @@
 
 ## 回滚与风险
 
-候选变更按提交可逆：`0ed002e`、`d0c7807`、`a5df3d5`、`ed0ce97`、`701226c`、`0d33cf5`、`aea965d`，以及本报告提交。回滚优先使用对应提交的 `git revert`，不删除用户数据库或运行时文件。
+候选变更按提交可逆：`0ed002e`、`d0c7807`、`a5df3d5`、`ed0ce97`、`701226c`、`0d33cf5`、`aea965d`、`2b274b7`、`0629462`，以及本报告提交。回滚优先使用对应提交的 `git revert`，不删除用户数据库或运行时文件。
 
 剩余风险是生产环境无法在本轮被浏览器和 Workbench 双重确认；因此“功能候选保留”与“生产发布”明确分离，发布状态必须保持 `needs_human`。
