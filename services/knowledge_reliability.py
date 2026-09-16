@@ -34,15 +34,26 @@ class KnowledgePrivacyFilter:
     """Redact common contact and credential patterns before indexing."""
 
     SAFE_METADATA_KEYS = frozenset({"created_at", "evidence_id", "record_id"})
+    _SAFE_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9:_-]{0,127}\Z")
+    _SAFE_TIMESTAMP_PATTERN = re.compile(
+        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}"
+        r"(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?\Z"
+    )
     _PATTERNS = (
-        re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.I),
+        re.compile(
+            r"(?<![A-Z0-9._%+-])[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}"
+            r"(?![A-Z0-9._%+-])",
+            re.I,
+        ),
         re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)"),
         re.compile(
-            r"\b(?:ghp_|github_pat_|sk-|xox[baprs]-)[A-Za-z0-9_-]{8,}\b",
+            r"(?<![A-Za-z0-9_-])(?:ghp_|github_pat_|sk-|xox[baprs]-)"
+            r"[A-Za-z0-9_-]{8,}(?![A-Za-z0-9_-])",
             re.I,
         ),
         re.compile(
-            r"\b(?:password|passwd|token|secret|api[_-]?key)\s*[:=]\s*\S+",
+            r"(?<![A-Za-z0-9_])(?:password|passwd|token|secret|api[_-]?key)"
+            r"\s*[:=]\s*\S+",
             re.I,
         ),
     )
@@ -55,12 +66,29 @@ class KnowledgePrivacyFilter:
         return redacted
 
     @classmethod
+    def _sanitize_metadata(cls, metadata) -> dict:
+        """Keep only typed, bounded identifiers and ISO timestamps."""
+
+        sanitized = {}
+        for key, value in dict(metadata or {}).items():
+            if key == "evidence_id":
+                if isinstance(value, str) and cls._SAFE_ID_PATTERN.fullmatch(value):
+                    sanitized[key] = value
+            elif key == "record_id":
+                if (
+                    isinstance(value, int)
+                    and not isinstance(value, bool)
+                    and 0 <= value <= 2**63 - 1
+                ):
+                    sanitized[key] = value
+            elif key == "created_at":
+                if isinstance(value, str) and cls._SAFE_TIMESTAMP_PATTERN.fullmatch(value):
+                    sanitized[key] = value
+        return sanitized
+
+    @classmethod
     def sanitize_document(cls, document: KnowledgeDocument) -> KnowledgeDocument:
-        metadata = {
-            key: value
-            for key, value in dict(document.metadata).items()
-            if key in cls.SAFE_METADATA_KEYS
-        }
+        metadata = cls._sanitize_metadata(document.metadata)
         return KnowledgeDocument(
             document_id=str(document.document_id),
             title=cls.redact(document.title),

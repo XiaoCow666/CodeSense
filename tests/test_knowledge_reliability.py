@@ -119,8 +119,8 @@ def test_versioned_index_does_not_publish_a_failed_update():
 def test_privacy_filter_redacts_content_and_drops_unsafe_metadata():
     document = KnowledgeDocument(
         "private",
-        "联系 alice@example.com",
-        "手机号 13800138000，token=top-secret",
+        "联系alice@example.com",
+        "请联系alice@example.com，手机号 13800138000，请token=top-secret",
         "offline-eval",
         metadata={
             "evidence_id": "safe-id",
@@ -132,10 +132,30 @@ def test_privacy_filter_redacts_content_and_drops_unsafe_metadata():
     sanitized = KnowledgePrivacyFilter.sanitize_document(document)
 
     assert "alice@example.com" not in sanitized.title
+    assert "alice@example.com" not in sanitized.content
     assert "13800138000" not in sanitized.content
     assert "top-secret" not in sanitized.content
     assert "[已过滤]" in sanitized.title
+    assert "[已过滤]" in sanitized.content
     assert set(sanitized.metadata) == {"evidence_id", "record_id"}
+
+
+def test_privacy_filter_validates_whitelisted_metadata_types_and_formats():
+    document = KnowledgeDocument(
+        "private-metadata",
+        "安全标题",
+        "安全内容",
+        "offline-eval",
+        metadata={
+            "evidence_id": "alice@example.com",
+            "record_id": "7",
+            "created_at": "not-a-timestamp",
+        },
+    )
+
+    sanitized = KnowledgePrivacyFilter.sanitize_document(document)
+
+    assert sanitized.metadata == {}
 
 
 def test_rate_limiter_releases_capacity_after_window():
@@ -240,6 +260,47 @@ def test_retriever_rate_limit_stays_on_answer_only_path(knowledge_context):
     assert monitor.snapshot()["status_counts"]["rate_limited"] == 1
 
 
+def test_ask_question_rate_limit_returns_answer_only_response(
+    knowledge_context, monkeypatch
+):
+    app, client, assignment_id = knowledge_context
+    with app.app_context():
+        from models import AssignmentKnowledgePoint
+
+        AssignmentKnowledgePoint.add_to_assignment(assignment_id, "array")
+        monkeypatch.setattr(
+            "services.knowledge_rag.knowledge_rate_limiter",
+            SlidingWindowRateLimiter(max_requests=1, window_seconds=60),
+        )
+
+    monkeypatch.setattr(
+        api_routes,
+        "generate_answer_to_question",
+        lambda **_: "请先检查数组边界。",
+    )
+    payload = {
+        "assignment_id": assignment_id,
+        "code": "int main(){return 0;}",
+        "question": "数组边界怎么检查？",
+    }
+    first = client.post("/api/ask_question", json=payload)
+    assert first.status_code == 200
+
+    # The API has a separate ten-second student cooldown. Clear only that
+    # session value so this test reaches the RAG limiter on the second call.
+    with client.session_transaction() as session:
+        session.pop("last_ai_question_time", None)
+
+    second = client.post("/api/ask_question", json=payload)
+
+    assert second.status_code == 200
+    retrieval = second.json["data"]["knowledge_retrieval"]
+    assert retrieval["status"] == "rate_limited"
+    assert retrieval["fallback"]["code"] == "KNOWLEDGE_RETRIEVAL_RATE_LIMITED"
+    assert second.json["data"]["answer"].startswith("请先检查数组边界。")
+    assert "知识证据请求过于频繁" in second.json["data"]["answer"]
+
+
 def test_retriever_timeout_stays_on_answer_only_path(knowledge_context, monkeypatch):
     app, _, assignment_id = knowledge_context
     with app.app_context():
@@ -309,7 +370,7 @@ def test_retriever_privacy_filter_is_applied_before_citation(knowledge_context):
     with app.app_context():
         from models import AssignmentKnowledgePoint
 
-        AssignmentKnowledgePoint.add_to_assignment(assignment_id, "alice@example.com")
+        AssignmentKnowledgePoint.add_to_assignment(assignment_id, "联系alice@example.com")
         retrieval = retrieve_assignment_knowledge(
             assignment_id,
             query="联系",
