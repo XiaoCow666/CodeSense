@@ -43,7 +43,7 @@
 相关知识证据回归：65 passed
 集成/投影/API/AI 回归：28 passed
 孤立 submission worker：1 passed
-候选全量 pytest：729 passed, 2,668,773 warnings, 0 failed
+候选全量 pytest：729 passed, 2,668,764 warnings, 0 failed
 离线评估：5 queries, 4 relevant; Recall@1=0.875; Recall@k=0.875
 模式：vector=3, keyword_fallback=1, no_result=1; expected mismatch=0
 性能样本：64 documents/chunks; 100 runs; query p95=0.643 ms; total p95=1.586 ms
