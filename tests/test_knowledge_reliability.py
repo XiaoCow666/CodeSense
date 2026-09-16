@@ -153,6 +153,27 @@ def test_rate_limiter_releases_capacity_after_window():
     assert limiter.allow("assignment:1") is True
 
 
+def test_quality_monitor_bounds_caller_controlled_label_cardinality():
+    monitor = KnowledgeQualityMonitor(max_samples=2, max_labels=3)
+
+    for index in range(20):
+        monitor.record(
+            status=f"status-{index}",
+            mode=f"mode-{index}",
+            latency_ms=index,
+            fallback_code=f"fallback-{index}",
+        )
+
+    snapshot = monitor.snapshot()
+
+    assert len(snapshot["status_counts"]) <= 3
+    assert len(snapshot["mode_counts"]) <= 3
+    assert snapshot["status_counts"]["requests"] == 20
+    assert snapshot["status_counts"]["__other__"] > 0
+    assert snapshot["mode_counts"]["__other__"] > 0
+    assert snapshot["latency_sample_count"] == 2
+
+
 def test_vector_index_enforces_deadline_before_work():
     with pytest.raises(KnowledgeRetrievalTimeout):
         HybridKnowledgeIndex(

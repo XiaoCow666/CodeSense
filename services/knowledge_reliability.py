@@ -26,6 +26,8 @@ DEFAULT_RATE_LIMIT_REQUESTS = 120
 DEFAULT_RATE_LIMIT_WINDOW_SECONDS = 60
 MAX_RATE_LIMIT_KEYS = 4096
 MAX_MONITOR_SAMPLES = 512
+MAX_MONITOR_LABELS = 32
+MONITOR_OVERFLOW_LABEL = "__other__"
 
 
 class KnowledgePrivacyFilter:
@@ -239,12 +241,33 @@ class VersionedKnowledgeIndex:
 class KnowledgeQualityMonitor:
     """Bounded counters and latency samples without retaining query content."""
 
-    def __init__(self, *, max_samples: int = MAX_MONITOR_SAMPLES):
+    def __init__(
+        self,
+        *,
+        max_samples: int = MAX_MONITOR_SAMPLES,
+        max_labels: int = MAX_MONITOR_LABELS,
+    ):
         self._max_samples = max(1, int(max_samples))
+        self._max_labels = max(2, int(max_labels))
         self._counts: Counter[str] = Counter()
         self._mode_counts: Counter[str] = Counter()
         self._latencies: deque[float] = deque(maxlen=self._max_samples)
         self._lock = threading.Lock()
+
+    def _increment_bounded(self, counter: Counter[str], label: str) -> None:
+        """Keep caller-controlled status and mode cardinality bounded."""
+
+        normalized = str(label)
+        if normalized in counter or MONITOR_OVERFLOW_LABEL in counter:
+            counter[normalized if normalized in counter else MONITOR_OVERFLOW_LABEL] += 1
+            return
+
+        # Reserve one slot for the overflow bucket so new labels can never
+        # grow the counter beyond the configured bound.
+        if len(counter) < self._max_labels - 1:
+            counter[normalized] += 1
+        else:
+            counter[MONITOR_OVERFLOW_LABEL] += 1
 
     def record(
         self,
@@ -256,11 +279,14 @@ class KnowledgeQualityMonitor:
     ) -> None:
         with self._lock:
             self._counts["requests"] += 1
-            self._counts[str(status)] += 1
+            self._increment_bounded(self._counts, str(status))
             if fallback_code:
-                self._counts[f"fallback:{fallback_code}"] += 1
+                self._increment_bounded(
+                    self._counts,
+                    f"fallback:{fallback_code}",
+                )
             if mode:
-                self._mode_counts[str(mode)] += 1
+                self._increment_bounded(self._mode_counts, str(mode))
             self._latencies.append(max(0.0, float(latency_ms)))
 
     def snapshot(self) -> dict:

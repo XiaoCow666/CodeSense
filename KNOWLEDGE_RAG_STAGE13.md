@@ -63,7 +63,7 @@ AssignmentKnowledgePoint rows
 2. `VersionedKnowledgeIndex` 在当前索引 clone 上应用更新，成功后增加 revision 并保存有界旧快照；失败的候选不发布，rollback 直接恢复旧快照。
 3. `KnowledgePrivacyFilter` 只保留 `created_at`、`evidence_id`、`record_id` metadata，并对常见邮箱、手机号、凭据格式做保守替换。它不是完整 DLP 系统。
 4. `SlidingWindowRateLimiter` 按请求 key 保留固定时间窗事件，key 数有上限；默认配置可由 `KNOWLEDGE_RAG_RATE_LIMIT` 和 `KNOWLEDGE_RAG_RATE_WINDOW_SECONDS` 调整。检索 deadline 默认 250ms，范围限制在 1–5000ms，可由 `KNOWLEDGE_RAG_TIMEOUT_MS` 调整。
-5. `KnowledgeQualityMonitor` 只保留有限的 status/mode 计数和最近延迟样本；不会记录原始问题、答案或学生隐私信息。
+5. `KnowledgeQualityMonitor` 只保留有限的 status/mode/fallback 计数和最近延迟样本；标签基数也有上限，超出部分归入 `__other__`；不会记录原始问题、答案或学生隐私信息。
 
 ## 验证命令与结果
 
@@ -71,11 +71,11 @@ AssignmentKnowledgePoint rows
 
 - 定向兼容与可靠性测试：
   `python -m pytest tests/test_knowledge_pipeline.py tests/test_knowledge_vector_store.py tests/test_knowledge_eval.py tests/test_knowledge_rag.py tests/test_knowledge_reliability.py -q --disable-warnings`
-  当前结果：`33 passed`，退出码 0，49.59s；包含 10 条阶段十三测试。
+  当前结果：`34 passed`，退出码 0；包含 11 条阶段十三测试。
 - 容量与生命周期演练：`python -m services.knowledge_reliability_eval`
-  当前结果：64 文档、64 切片、1000 次查询；构建 2.471ms，查询总计 388.735ms、均值 0.389ms；更新 revision 2，回滚 revision 3，最终 revision 3、64 切片、rollback history depth 0。
+  当前结果：64 文档、64 切片、1000 次查询；构建 2.286ms，查询总计 473.909ms、均值 0.474ms；更新 revision 2，回滚 revision 3，最终 revision 3、64 切片、rollback history depth 0。
 - 全量回归：`python -m pytest -q --disable-warnings`
-  当前结果：`691 passed`，退出码 0，818.05s（13:38）；输出包含既有测试环境 warnings，本次没有失败用例。
+  当前结果：`692 passed`，退出码 0，901.81s（15:01）；输出包含既有测试环境 warnings，本次没有失败用例。
 - 静态检查：`python -m py_compile services/knowledge_vector_store.py services/knowledge_reliability.py services/knowledge_rag.py services/knowledge_reliability_eval.py`、`git diff --check`。
 
 ### 故障与恢复证据
@@ -84,6 +84,7 @@ AssignmentKnowledgePoint rows
 - `test_ask_question_timeout_returns_answer_only_response`：索引超时仍返回 200、超时回退码和 answer-only 内容。
 - `test_retriever_rate_limit_stays_on_answer_only_path`：超过窗口容量进入 rate-limited 回退，不进入索引查询。
 - `test_retriever_privacy_filter_is_applied_before_citation`：敏感文本在 citation 之前已过滤。
+- `test_quality_monitor_bounds_caller_controlled_label_cardinality`：任意外部标签不会令 status/mode 计数键无限增长，延迟样本仍保持有界。
 - `test_vector_store_upsert_only_embeds_changed_chunks`：初始 2 个切片加 1 次变更只产生 3 次 embedding 调用，证明变更切片不会重复计算旧 embedding。
 
 ## 事实、推断与未解决问题
