@@ -48,3 +48,19 @@ def test_evidence_styles_define_tokens_focus_mobile_and_reduced_motion():
     assert ":focus-within" in css
     assert "@media (max-width: 767px)" in css
     assert "@media (prefers-reduced-motion: reduce)" in css
+
+
+def test_submission_and_code_studio_reuse_the_evidence_workspace():
+    submission = (ROOT / "templates" / "submission_detail.html").read_text(
+        encoding="utf-8"
+    )
+    submit = (ROOT / "templates" / "submit_code.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'components/knowledge_evidence.html' in submission
+    assert "这道作业使用的知识焦点" in submission
+    assert "boundary_note=true" in submission
+    assert 'components/knowledge_evidence.html' in submit
+    assert "knowledge_evidence" in submit
+    assert "请用问题引导我检查" in submit

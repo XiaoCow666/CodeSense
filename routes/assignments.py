@@ -621,6 +621,10 @@ def submit_code(assignment_id):
     submission_count = Submission.query.filter_by(
         assignment_id=assignment_id
     ).count()
+    knowledge_evidence = _assignment_knowledge_evidence(
+        assignment.id,
+        audience='student',
+    )
     
     # 创建提交表单
     form = SubmissionForm()
@@ -640,6 +644,7 @@ def submit_code(assignment_id):
                 latest_submission=latest_submission,
                 submissions=submissions,
                 submission_count=submission_count,
+                knowledge_evidence=knowledge_evidence,
             )
         
         # 检查代码长度
@@ -651,7 +656,8 @@ def submit_code(assignment_id):
                 assignment=assignment,
                 latest_submission=latest_submission,
                 submissions=submissions,
-                submission_count=submission_count
+                submission_count=submission_count,
+                knowledge_evidence=knowledge_evidence,
             )
             
         try:
@@ -708,7 +714,8 @@ def submit_code(assignment_id):
         assignment=assignment,
         latest_submission=latest_submission,
         submissions=submissions,
-        submission_count=submission_count
+        submission_count=submission_count,
+        knowledge_evidence=knowledge_evidence,
     )
 
 @assignments.route('/submission/<int:submission_id>/evaluating')
@@ -1057,6 +1064,17 @@ def view_submission(submission_id):
             submission.feedback = "[反馈内容无法显示]"
         
         assignment = Assignment.query.get_or_404(submission.assignment_id)
+        knowledge_audience = (
+            'admin'
+            if current_user.usertype == '管理员'
+            else 'teacher'
+            if current_user.usertype == '教师'
+            else 'student'
+        )
+        knowledge_evidence = _assignment_knowledge_evidence(
+            assignment.id,
+            audience=knowledge_audience,
+        )
         review = get_submission_review(submission.id)
         ai_feedback_signal = None
         if (
@@ -1074,6 +1092,7 @@ def view_submission(submission_id):
             review=review,
             can_access_review=can_access_submission_review(submission, current_user),
             ai_feedback_signal=ai_feedback_signal,
+            knowledge_evidence=knowledge_evidence,
         )
     except Exception:
         current_app.logger.exception(

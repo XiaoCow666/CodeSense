@@ -1,6 +1,7 @@
 {% extends "layout.html" %}
 {% from "components/code_editor_new.html" import code_editor %}
 {% from "components/code_formatter.html" import format_code_block, format_markdown_content, format_ai_response %}
+{% from "components/knowledge_evidence.html" import knowledge_evidence_panel %}
 
 {% block title %}代码提交 - {{ assignment.title }} - CodeSense 酷森思{% endblock %}
 
@@ -11,6 +12,7 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/code_submit.css') }}">
 <!-- Highlight.js 样式（项目同源静态资源） -->
 <link rel="stylesheet" href="{{ url_for('static', filename='vendor/highlight.js/11.9.0/styles/github.min.css') }}?v=11.9.0">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/knowledge-evidence.css') }}">
 <style>
     /* 全新页面样式 */
     .code-studio-container {
@@ -895,6 +897,10 @@
                 </button>
             </div>
 
+            {% if knowledge_evidence is defined %}
+            {{ knowledge_evidence_panel(knowledge_evidence, audience='student', panel_id='code-studio-knowledge-evidence', compact=true) }}
+            {% endif %}
+
             <div class="ai-chat-messages" id="ai-chat-messages">
                 <!-- 欢迎消息 -->
                 <div class="ai-welcome-message" id="welcome-message">
@@ -902,6 +908,14 @@
                     <h5>你好！我是AI编程助手</h5>
                     <p>我可以帮你：分析代码、提供建议、解答疑问、调试错误</p>
                     <div class="ai-quick-prompts">
+                        {% if knowledge_evidence is defined and knowledge_evidence.get('evidence') %}
+                        {% for item in knowledge_evidence.get('evidence', [])[:3] %}
+                        <button class="ai-quick-prompt-btn knowledge-quick-prompt"
+                            data-prompt="请用问题引导我检查“{{ item.get('title') or '这个知识点' }}”相关思路">
+                            围绕 {{ item.get('title') or '这个知识点' }}
+                        </button>
+                        {% endfor %}
+                        {% endif %}
                         <button class="ai-quick-prompt-btn" data-prompt="帮我分析这段代码">分析代码</button>
                         <button class="ai-quick-prompt-btn" data-prompt="这段代码有什么问题？">检查错误</button>
                         <button class="ai-quick-prompt-btn" data-prompt="如何优化这段代码？">优化建议</button>

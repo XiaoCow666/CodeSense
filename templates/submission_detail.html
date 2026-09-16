@@ -1,4 +1,5 @@
 {% extends "layout.html" %}
+{% from "components/knowledge_evidence.html" import knowledge_evidence_panel %}
 
 {% block title %}提交详情 - {{ submission.id }} - CodeSense 酷森思{% endblock %}
 
@@ -205,6 +206,7 @@
         max-width: 52rem;
     }
 </style>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/knowledge-evidence.css') }}">
 {% endblock %}
 
 {% block content %}
@@ -236,6 +238,11 @@
         {% endif %}
     </div>
 </div>
+
+{% if knowledge_evidence is defined %}
+{% set knowledge_audience = 'admin' if session.get('usertype') == '管理员' else 'teacher' if session.get('usertype') == '教师' else 'student' %}
+{{ knowledge_evidence_panel(knowledge_evidence, audience=knowledge_audience, panel_id='submission-knowledge-evidence', compact=true, boundary_note=true, heading='这道作业使用的知识焦点') }}
+{% endif %}
 
 <div class="submission-card">
     <div class="submission-info">

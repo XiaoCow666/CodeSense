@@ -1,4 +1,4 @@
-{% macro knowledge_evidence_panel(view, audience='student', panel_id='knowledge-evidence-panel', compact=false, boundary_note=false) %}
+{% macro knowledge_evidence_panel(view, audience='student', panel_id='knowledge-evidence-panel', compact=false, boundary_note=false, heading=None) %}
 {% set evidence_view = view if view is mapping else {} %}
 {% set evidence_items = evidence_view.get('evidence', []) %}
 <section class="knowledge-evidence-panel{% if compact %} knowledge-evidence-panel--compact{% endif %}"
@@ -7,7 +7,7 @@
         <div>
             <p class="knowledge-evidence-panel__eyebrow">作业知识工作区</p>
             <h2 class="knowledge-evidence-panel__title" id="{{ panel_id }}-title">
-                {% if audience in ['teacher', 'admin'] %}作业知识证据{% else %}作业知识焦点{% endif %}
+                {% if heading %}{{ heading }}{% elif audience in ['teacher', 'admin'] %}作业知识证据{% else %}作业知识焦点{% endif %}
             </h2>
         </div>
         <span class="knowledge-evidence-status knowledge-evidence-status--{{ evidence_view.get('status', 'unknown') }}">
