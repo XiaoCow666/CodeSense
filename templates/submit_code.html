@@ -926,6 +926,9 @@
                 <!-- 消息将动态添加到这里 -->
             </div>
 
+            <div id="code-studio-analysis-evidence" class="knowledge-evidence-receipt-mount"
+                data-knowledge-evidence-receipt="true"></div>
+
             <div class="ai-chat-input-area">
                 <div class="ai-chat-input-wrapper">
                     <textarea class="ai-chat-textarea" id="ai-chat-input" placeholder="输入问题或选择快捷问题..."
@@ -1006,6 +1009,8 @@
 <!-- 安全代码处理和C++编辑器脚本 -->
 <script src="{{ url_for('static', filename='js/safe-code-processor.js') }}"></script>
 <script src="{{ url_for('static', filename='js/cpp-editor.js') }}"></script>
+<script src="{{ url_for('static', filename='js/knowledge-evidence.js') }}"></script>
+<script src="{{ url_for('static', filename='js/knowledge-evidence.js') }}"></script>
 
 <!-- 立即隐藏评估消息的脚本 -->
 <script>
@@ -1265,6 +1270,15 @@
         return indicator;
     }
 
+    function renderKnowledgeReceipt(messageElement, payload) {
+        if (!messageElement || !window.CodeSenseKnowledgeEvidence) return;
+        var wrapper = messageElement.parentElement;
+        var mount = wrapper && wrapper.querySelector('[data-knowledge-evidence-receipt]');
+        if (mount && payload) {
+            window.CodeSenseKnowledgeEvidence.render(mount, payload, { compact: true });
+        }
+    }
+
     // 发送到AI并处理响应（流式）
     async function sendToAI(message) {
         const code = getEditorContent();
@@ -1311,7 +1325,28 @@
                             const dataStr = line.slice(6);
                             try {
                                 const data = JSON.parse(dataStr);
-                                if (data.content) {
+                                if (data.done) {
+                                    var finalContent = data.answer || data.content || assistantMessage;
+                                    if (!assistantMessage && finalContent) {
+                                        assistantMessage = finalContent;
+                                        if (!messageElement) {
+                                            messageElement = createStreamingMessage();
+                                        }
+                                        updateStreamingMessage(messageElement, assistantMessage);
+                                    }
+                                    // 流式完成，保存到历史；完成事件中的完整 content 不再重复追加。
+                                    conversationHistory.push({
+                                        role: 'assistant',
+                                        content: assistantMessage
+                                    });
+                                    if (messageElement) {
+                                        messageElement.removeAttribute('data-streaming');
+                                        renderKnowledgeReceipt(
+                                            messageElement,
+                                            data.knowledge_evidence || (data.data && data.data.knowledge_evidence)
+                                        );
+                                    }
+                                } else if (data.content) {
                                     // 累积内容
                                     assistantMessage += data.content;
 
@@ -1320,16 +1355,6 @@
                                         messageElement = createStreamingMessage();
                                     }
                                     updateStreamingMessage(messageElement, assistantMessage);
-                                } else if (data.done) {
-                                    // 流式完成，保存到历史
-                                    conversationHistory.push({
-                                        role: 'assistant',
-                                        content: assistantMessage
-                                    });
-                                    // 移除流式标记
-                                    if (messageElement) {
-                                        messageElement.removeAttribute('data-streaming');
-                                    }
                                 } else if (data.error) {
                                     throw new Error(data.error);
                                 }
@@ -1343,7 +1368,12 @@
                 // 非流式响应（兼容旧版本）
                 const data = await response.json();
                 if (data.success) {
-                    addMessage('assistant', data.data.advice || '抱歉，我暂时无法回答这个问题。');
+                    const assistantWrapper = addMessage('assistant', data.data.advice || data.data.answer || '抱歉，我暂时无法回答这个问题。');
+                    const assistantContent = assistantWrapper && assistantWrapper.querySelector('.ai-message-content');
+                    renderKnowledgeReceipt(
+                        assistantContent,
+                        data.data.knowledge_evidence || data.knowledge_evidence
+                    );
                 } else {
                     addMessage('assistant', '抱歉，出现了错误：' + (data.message || '未知错误'));
                 }
@@ -1369,6 +1399,11 @@
 
         wrapper.appendChild(avatar);
         wrapper.appendChild(messageContent);
+
+        const evidenceReceipt = document.createElement('div');
+        evidenceReceipt.className = 'knowledge-evidence-receipt-mount';
+        evidenceReceipt.setAttribute('data-knowledge-evidence-receipt', 'true');
+        wrapper.appendChild(evidenceReceipt);
         chatMessages.appendChild(wrapper);
         scrollToBottom();
 
@@ -1542,6 +1577,17 @@
                 aiResponse.querySelectorAll('code:not(pre code)').forEach(function (block) {
                     block.classList.add('hljs-inline');
                 });
+            }
+        }
+
+        if (data.knowledge_evidence && window.CodeSenseKnowledgeEvidence) {
+            var analysisEvidence = document.getElementById('code-studio-analysis-evidence');
+            if (analysisEvidence) {
+                window.CodeSenseKnowledgeEvidence.render(
+                    analysisEvidence,
+                    data.knowledge_evidence,
+                    { compact: true, heading: '本次分析参考的作业知识' }
+                );
             }
         }
 

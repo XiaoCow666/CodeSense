@@ -64,3 +64,24 @@ def test_submission_and_code_studio_reuse_the_evidence_workspace():
     assert 'components/knowledge_evidence.html' in submit
     assert "knowledge_evidence" in submit
     assert "请用问题引导我检查" in submit
+
+
+def test_dynamic_evidence_renderer_is_safe_and_done_only():
+    renderer = (ROOT / "static" / "js" / "knowledge-evidence.js").read_text(
+        encoding="utf-8"
+    )
+    submit = (ROOT / "templates" / "submit_code.html").read_text(
+        encoding="utf-8",
+    )
+
+    assert "window.CodeSenseKnowledgeEvidence" in renderer
+    assert "replaceChildren" in renderer
+    assert "textContent" in renderer
+    assert 'role", "status"' in renderer or "role', 'status'" in renderer
+    assert "aria-live" in renderer
+    assert "innerHTML" not in renderer
+    assert "js/knowledge-evidence.js" in submit
+    assert "CodeSenseKnowledgeEvidence.render" in submit
+    done_index = submit.index("if (data.done)")
+    delta_index = submit.index("if (data.content)")
+    assert done_index < delta_index
