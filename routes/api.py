@@ -35,10 +35,12 @@ from services.api_keys import api_keys  # 导入 API 密钥管理器
 from services.demo_database import current_demo_run_id
 from services.action_center import build_action_center
 from services.knowledge_rag import (
+    MAX_EVIDENCE,
     build_knowledge_prompt_context,
     render_knowledge_receipt,
     retrieve_assignment_knowledge,
 )
+from services.knowledge_evidence import build_knowledge_evidence_view
 from tasks.submission_tasks import evaluate_submission_async
 from tasks.submission_queue import (
     SubmissionQueueUnavailable,
@@ -70,6 +72,21 @@ def _positive_int(value):
         parsed = int(value.strip())
         return parsed if parsed > 0 else None
     return None
+
+
+def _no_store(result):
+    """Apply privacy-safe cache headers to an API response result."""
+
+    if isinstance(result, tuple):
+        response, status_code = result
+    else:
+        response, status_code = result, None
+
+    response.headers['Cache-Control'] = 'no-store'
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    if status_code is None:
+        return response
+    return response, status_code
 
 
 def _language(value):
@@ -346,24 +363,128 @@ def _text_chunks(text, size=120):
         yield text[index:index + size]
 
 
-def _retrieve_knowledge_context(assignment_id, query=""):
+def _retrieve_knowledge_context(assignment_id, query="", *, limit=MAX_EVIDENCE):
     """Retrieve assignment evidence and emit bounded operational metrics."""
-    retrieval = retrieve_assignment_knowledge(assignment_id, query=query)
+    try:
+        retrieval = retrieve_assignment_knowledge(
+            assignment_id,
+            query=query,
+            limit=limit,
+        )
+    except Exception:
+        # The knowledge layer normally returns this fallback itself.  Keep
+        # the API answer-only even when an injected/legacy implementation
+        # raises before it can construct its safe result.  Do not log the
+        # query or exception text: both can contain user code or prompt data.
+        current_app.logger.error(
+            "knowledge_rag unavailable assignment_id=%s",
+            assignment_id,
+        )
+        retrieval = {
+            "status": "unavailable",
+            "evidence": [],
+            "metrics": {
+                "candidate_count": 0,
+                "hit_count": 0,
+                "retrieval_hit_rate": 0.0,
+                "retrieval_latency_ms": 0.0,
+                "citation_completeness": 0.0,
+                "no_result_fallback": False,
+                "retrieval_error_fallback": True,
+                "retrieval_mode": "unavailable",
+                "indexed_chunk_count": 0,
+            },
+            "fallback": {
+                "code": "KNOWLEDGE_RETRIEVAL_UNAVAILABLE",
+                "message": "知识证据暂时不可用。",
+            },
+        }
+
     metrics = retrieval["metrics"]
     current_app.logger.info(
         "knowledge_rag status=%s candidates=%s hits=%s latency_ms=%.2f "
         "citation_completeness=%.3f no_result_fallback=%s "
-        "retrieval_error_fallback=%s fallback_code=%s",
+        "retrieval_error_fallback=%s retrieval_mode=%s indexed_chunks=%s "
+        "fallback_code=%s",
         retrieval["status"],
-        metrics["candidate_count"],
-        metrics["hit_count"],
-        metrics["retrieval_latency_ms"],
-        metrics["citation_completeness"],
-        metrics["no_result_fallback"],
-        metrics["retrieval_error_fallback"],
+        metrics.get("candidate_count", 0),
+        metrics.get("hit_count", 0),
+        metrics.get("retrieval_latency_ms", 0.0),
+        metrics.get("citation_completeness", 0.0),
+        metrics.get("no_result_fallback", False),
+        metrics.get("retrieval_error_fallback", False),
+        metrics.get("retrieval_mode", "unknown"),
+        metrics.get("indexed_chunk_count", 0),
         (retrieval.get("fallback") or {}).get("code"),
     )
     return retrieval
+
+
+@api.route('/assignments/<int:assignment_id>/knowledge-evidence', methods=['GET'])
+@login_required
+def get_assignment_knowledge_evidence(assignment_id):
+    """Return a bounded, non-cacheable evidence view for an accessible task."""
+
+    assignment = Assignment.query.get(assignment_id)
+    if assignment is None or not can_access_assignment(assignment, current_user):
+        # Keep missing and forbidden assignments indistinguishable so this
+        # read-only endpoint cannot be used to enumerate assignment IDs.
+        return _no_store(error_response("无权访问此作业", 403))
+
+    query = request.args.get("q", "")
+    if not isinstance(query, str):
+        return _no_store(error_response("查询参数格式不正确", 400))
+    query = query.strip()
+    if len(query) > 2000:
+        return _no_store(error_response("查询内容不能超过 2000 个字符", 400))
+
+    raw_limit = request.args.get("limit")
+    limit = MAX_EVIDENCE
+    if raw_limit is not None:
+        limit = _positive_int(raw_limit)
+        if limit is None or limit > MAX_EVIDENCE:
+            return _no_store(error_response("证据条数必须是 1 到 8 的正整数", 400))
+
+    retrieval = _retrieve_knowledge_context(
+        assignment_id,
+        query,
+        limit=limit,
+    )
+    if getattr(current_user, "is_admin", False):
+        audience = "admin"
+        role = "admin"
+    elif getattr(current_user, "is_teacher", False):
+        audience = "teacher"
+        role = "teacher"
+    else:
+        audience = "student"
+        role = "student"
+    evidence_view = build_knowledge_evidence_view(
+        retrieval,
+        audience=audience,
+    )
+    metrics = retrieval.get("metrics", {})
+    current_app.logger.info(
+        "knowledge_evidence role=%s assignment_id=%s status=%s mode=%s "
+        "candidates=%s hits=%s latency_ms=%s",
+        role,
+        assignment_id,
+        evidence_view.get("status", "unknown"),
+        evidence_view.get("retrieval_mode", "unknown"),
+        metrics.get("candidate_count", 0),
+        metrics.get("hit_count", 0),
+        metrics.get("retrieval_latency_ms", 0.0),
+    )
+    return _no_store(
+        api_response(
+            success=True,
+            message="获取作业知识证据成功",
+            data={
+                "knowledge_retrieval": retrieval,
+                "knowledge_evidence": evidence_view,
+            },
+        )
+    )
 
 
 @api.route('/submit', methods=['POST'])
