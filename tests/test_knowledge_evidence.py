@@ -2,7 +2,42 @@ import math
 
 import pytest
 
-from services.knowledge_evidence import build_knowledge_evidence_view
+from services.knowledge_evidence import (
+    build_knowledge_evidence_view,
+    build_public_knowledge_retrieval,
+)
+
+
+def test_public_retrieval_keeps_compatibility_shape_without_internal_fields():
+    public = build_public_knowledge_retrieval(
+        {
+            "status": "grounded",
+            "evidence": [
+                {
+                    "evidence_id": "assignment-kp:7",
+                    "citation": "[K1]",
+                    "source_type": "assignment_knowledge_point",
+                    "title": "数组边界",
+                    "content": "证据正文",
+                    "private_score": 99,
+                }
+            ],
+            "metrics": {
+                "candidate_count": 2,
+                "hit_count": 1,
+                "retrieval_mode": "vector",
+                "private_metric": "drop me",
+            },
+            "fallback": None,
+            "private_prompt": "must not cross the response boundary",
+        }
+    )
+
+    assert public["status"] == "grounded"
+    assert public["evidence"][0]["citation"] == "[K1]"
+    assert "private_score" not in repr(public)
+    assert "private_metric" not in repr(public)
+    assert "private_prompt" not in repr(public)
 
 
 def test_grounded_view_keeps_only_safe_evidence_fields():

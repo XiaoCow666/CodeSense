@@ -40,7 +40,10 @@ from services.knowledge_rag import (
     render_knowledge_receipt,
     retrieve_assignment_knowledge,
 )
-from services.knowledge_evidence import build_knowledge_evidence_view
+from services.knowledge_evidence import (
+    build_knowledge_evidence_view,
+    build_public_knowledge_retrieval,
+)
 from tasks.submission_tasks import evaluate_submission_async
 from tasks.submission_queue import (
     SubmissionQueueUnavailable,
@@ -450,6 +453,7 @@ def get_assignment_knowledge_evidence(assignment_id):
         query,
         limit=limit,
     )
+    public_retrieval = build_public_knowledge_retrieval(retrieval)
     if getattr(current_user, "is_admin", False):
         audience = "admin"
         role = "admin"
@@ -460,7 +464,7 @@ def get_assignment_knowledge_evidence(assignment_id):
         audience = "student"
         role = "student"
     evidence_view = build_knowledge_evidence_view(
-        retrieval,
+        public_retrieval,
         audience=audience,
     )
     metrics = retrieval.get("metrics", {})
@@ -480,7 +484,7 @@ def get_assignment_knowledge_evidence(assignment_id):
             success=True,
             message="获取作业知识证据成功",
             data={
-                "knowledge_retrieval": retrieval,
+                "knowledge_retrieval": public_retrieval,
                 "knowledge_evidence": evidence_view,
             },
         )
@@ -885,6 +889,9 @@ def ask_question():
             return error_response("您无权访问此作业", 403)
 
         knowledge_retrieval = _retrieve_knowledge_context(assignment_id, question)
+        public_knowledge_retrieval = build_public_knowledge_retrieval(
+            knowledge_retrieval
+        )
         knowledge_prompt_context = build_knowledge_prompt_context(
             knowledge_retrieval
         )
@@ -972,9 +979,9 @@ def ask_question():
                             'answer': formatted_answer,
                             'data': {
                                 'answer': formatted_answer,
-                                'knowledge_retrieval': knowledge_retrieval,
+                                'knowledge_retrieval': public_knowledge_retrieval,
                             },
-                            'knowledge_retrieval': knowledge_retrieval,
+                            'knowledge_retrieval': public_knowledge_retrieval,
                         })
                     except Exception as stream_error:
                         db.session.rollback()
@@ -1048,7 +1055,7 @@ def ask_question():
                 message="问题回答成功",
                 data={
                     'answer': formatted_answer,
-                    'knowledge_retrieval': knowledge_retrieval,
+                    'knowledge_retrieval': public_knowledge_retrieval,
                 }
             )
             
@@ -1146,8 +1153,11 @@ def get_code_advice():
                 assignment_id,
                 user_question,
             )
+            public_knowledge_retrieval = build_public_knowledge_retrieval(
+                knowledge_retrieval
+            )
             knowledge_evidence = build_knowledge_evidence_view(
-                knowledge_retrieval,
+                public_knowledge_retrieval,
                 audience="student",
             )
             knowledge_prompt_context = build_knowledge_prompt_context(
@@ -1157,7 +1167,7 @@ def get_code_advice():
         knowledge_fields = {}
         if knowledge_retrieval is not None:
             knowledge_fields = {
-                "knowledge_retrieval": knowledge_retrieval,
+                "knowledge_retrieval": public_knowledge_retrieval,
                 "knowledge_evidence": knowledge_evidence,
             }
 

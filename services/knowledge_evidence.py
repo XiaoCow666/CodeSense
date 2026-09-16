@@ -38,6 +38,10 @@ _FALLBACK_CODES = {
     "no_result": "NO_KNOWLEDGE_EVIDENCE",
     "unavailable": "KNOWLEDGE_RETRIEVAL_UNAVAILABLE",
 }
+_FALLBACK_MESSAGES = {
+    "no_result": "当前作业没有已标注知识点，回答仅基于题目和代码。",
+    "unavailable": "知识证据暂时不可用，回答仅基于题目和代码。",
+}
 _STATUS_COPY = {
     "grounded": {
         "status_label": "已找到作业知识证据",
@@ -116,6 +120,18 @@ def _safe_retrieval_mode(value: Any, *, default: str = "unknown") -> str:
     return default
 
 
+def _safe_rate(value: Any) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return 0.0
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return 0.0
+    if not math.isfinite(number):
+        return 0.0
+    return round(min(max(number, 0.0), 1.0), 3)
+
+
 def _project_evidence(raw_evidence: Any) -> list[dict[str, str | None]]:
     if not isinstance(raw_evidence, (list, tuple)):
         return []
@@ -145,6 +161,99 @@ def _project_evidence(raw_evidence: Any) -> list[dict[str, str | None]]:
             }
         )
     return projected
+
+
+def build_public_knowledge_retrieval(
+    retrieval: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Keep the legacy retrieval envelope while removing internal fields.
+
+    The retrieval service is also used as an internal prompt/diagnostic
+    boundary, so callers must not serialize its mapping directly.  This
+    compatibility projection retains the established top-level names and
+    metric types while allowing only bounded evidence, fallback, and metric
+    fields to cross into a browser response.
+    """
+
+    if not isinstance(retrieval, Mapping):
+        retrieval = None
+
+    raw_status = retrieval.get("status") if retrieval else None
+    status = (
+        raw_status
+        if isinstance(raw_status, str) and raw_status in _ALLOWED_STATUSES
+        else "unknown"
+    )
+    evidence = _project_evidence(
+        retrieval.get("evidence") if retrieval else None
+    ) if status == "grounded" else []
+    if status == "grounded" and not evidence:
+        status = "no_result"
+
+    raw_metrics = retrieval.get("metrics") if retrieval else None
+    metrics = raw_metrics if isinstance(raw_metrics, Mapping) else {}
+    if status == "unknown":
+        retrieval_mode = "unknown"
+    elif status == "unavailable":
+        retrieval_mode = "unavailable"
+    else:
+        retrieval_mode = _safe_retrieval_mode(metrics.get("retrieval_mode"))
+
+    fallback_code = _fallback_code(retrieval, status=status)
+    fallback = None
+    if fallback_code:
+        raw_fallback = retrieval.get("fallback") if retrieval else None
+        raw_message = (
+            raw_fallback.get("message")
+            if isinstance(raw_fallback, Mapping)
+            else None
+        )
+        fallback = {
+            "code": fallback_code,
+            "message": _safe_text(
+                raw_message,
+                limit=240,
+                default=_FALLBACK_MESSAGES[status],
+            ),
+        }
+
+    return {
+        "status": status,
+        "evidence": evidence,
+        "metrics": {
+            "candidate_count": _safe_nonnegative_int(
+                metrics.get("candidate_count"),
+                maximum=MAX_CANDIDATES,
+            ),
+            "hit_count": _safe_nonnegative_int(
+                metrics.get("hit_count"),
+                maximum=MAX_EVIDENCE,
+            ),
+            "retrieval_hit_rate": _safe_rate(metrics.get("retrieval_hit_rate")),
+            "retrieval_latency_ms": _safe_nonnegative_float(
+                metrics.get("retrieval_latency_ms")
+            ),
+            "citation_completeness": _safe_rate(
+                metrics.get("citation_completeness")
+            ),
+            "no_result_fallback": (
+                bool(metrics.get("no_result_fallback"))
+                if isinstance(metrics.get("no_result_fallback"), bool)
+                else status == "no_result"
+            ),
+            "retrieval_error_fallback": (
+                bool(metrics.get("retrieval_error_fallback"))
+                if isinstance(metrics.get("retrieval_error_fallback"), bool)
+                else status == "unavailable"
+            ),
+            "retrieval_mode": retrieval_mode,
+            "indexed_chunk_count": _safe_nonnegative_int(
+                metrics.get("indexed_chunk_count"),
+                maximum=MAX_INDEXED_CHUNKS,
+            ),
+        },
+        "fallback": fallback,
+    }
 
 
 def _fallback_code(retrieval: Mapping[str, Any] | None, *, status: str) -> str | None:
