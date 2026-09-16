@@ -5,18 +5,19 @@
 - 日期：2026-09-16（Asia/Shanghai）
 - 隔离分支：`codex/local-opt-20260916`
 - 基线：`origin/main` at `3cd20ea`
-- 代码候选提交：`bddf47b` → `0629462`；本轮配套补齐提交：`711b484`、`75371c7`
-- 最终决策：`keep`（保留在隔离分支）；生产发布为 `needs_human`
-- 发布原因：本地 HTTP 健康检查可用，但内置浏览器和 Chrome 对 localhost 均返回客户端拦截；正确的 Workbench ECS 目标已找到，但生产工作树存在 438 个跟踪文件改动和 2 个未跟踪文件，无法安全运行会覆盖/合并的更新脚本。
+- 正式发布提交：`ab517af`；包含知识证据工作区、README/CHANGELOG 正式版本信息和 v1.3.0 信息图。
+- 最终决策：`release`；GitHub `main`、tag `v1.3.0` 和生产代码均已对齐到 `ab517af`。
+- 生产保留：部署前生产工作树的 440 个改动项（含 2 个未跟踪文件）已保存为可恢复 stash `15ef813d25fd07ae1184f77be416d87133ac36dc`，未执行 reset、clean 或强推。
 
-本轮没有数据库迁移、依赖变更、模型供应商变更或生产数据库写入。候选保留在独立 worktree，未修改本地 `main`。
+本轮没有数据库迁移、模型供应商变更或生产数据库写入；更新脚本完成了代码快进、依赖检查、服务重启和线上核验。
 
 ## 最新每日定义补齐
 
-- 已生成并核验版本化功能说明图：`docs/assets/codesense-v1.3.0-candidate-knowledge-evidence.png`。
-- 已把作业知识证据工作区补充到 `README.md` 和 `CHANGELOG.md` 的 `Unreleased` 部分，说明学生、教师、管理员和 AI 的可见收益及“不是评分依据”的边界。
-- 信息图采用基线 `v1.2.0`、候选 `v1.3.0` 和候选提交 `07011fe` 标识；没有把候选版本描述为已上线。
-- 生产闭环仍未执行：Workbench 目标已确认，但预部署只读门禁发现 `/var/www/codesense` 不干净，因此不能安全运行 `/var/www/codesense/update.sh`；GitHub Release、项目知识库和两个群的外发同步均保持未执行。
+- 已生成并核验正式版本化功能说明图：`docs/assets/codesense-v1.3.0-knowledge-evidence.png`，已去除候选/待发布表述。
+- 已把作业知识证据工作区写入 `README.md` 和 `CHANGELOG.md` 的正式 `v1.3.0` 条目，说明学生、教师、管理员和 AI 的可见收益及“不是评分依据”的边界。
+- 已通过 Workbench 在 `i-f8zbujornnh55dsydozz` / `cn-heyuan` 执行 `/var/www/codesense/update.sh`；脚本成功结束，线上代码与正式提交一致。
+- 已创建并核验 [GitHub v1.3.0 Release](https://github.com/XiaoCow666/CodeSense/releases/tag/v1.3.0)，上传正式信息图；已更新并复读项目知识库至 revision 14。
+- 已由小牛顿向 CodeSense 研发协作和实际外部 CoDeBuGo 总群发送同一版产品介绍与信息图，消息 ID 见发布闭环记录。
 
 ## 研究输入与落地原则
 
@@ -50,8 +51,8 @@
 相关知识证据回归：65 passed
 集成/投影/API/AI 回归：28 passed
 孤立 submission worker：1 passed
-候选全量 pytest：729 passed, 2,668,764 warnings, 0 failed
-补齐文档/信息图后的当前树复跑：729 passed, 2,668,764 warnings, 0 failed（487.50s）
+候选代码收口全量 pytest：729 passed, 2,668,764 warnings, 0 failed
+正式文档/信息图后的当前树复跑：720 passed, 2,668,761 warnings, 0 failed（454.59s；Python 3.13）
 离线评估：5 queries, 4 relevant; Recall@1=0.875; Recall@k=0.875
 模式：vector=3, keyword_fallback=1, no_result=1; expected mismatch=0
 性能样本：64 documents/chunks; 100 runs; query p95=0.643 ms; total p95=1.586 ms
@@ -65,15 +66,16 @@
 
 - 使用隔离实例和测试数据库启动本地 Flask；PowerShell 健康检查返回 200。
 - 内置浏览器尝试 `http://127.0.0.1:5055/healthz` 和 `http://localhost:5055/healthz` 均被客户端阻止；Chrome 连接同样被阻止。没有绕过安全策略，也没有输入生产凭证。
-- Workbench 只读枚举在 `cn-heyuan` 找到运行中的 ECS `i-f8zbujornnh55dsydozz`；其应用服务、两个 worker、`/healthz` 和 `/readyz` 均正常，但 `/var/www/codesense` 相对本地 HEAD 有 438 个跟踪文件改动和 2 个未跟踪文件，不能运行 `update.sh`。
-- `git ls-remote origin refs/heads/main` 可读，远端 `main` 仍为 `3cd20ea`；候选未推送。
-- 对候选分支执行 `git push --dry-run` 成功，仅验证远端写权限，未创建远端分支或改变远端引用。
-- 已补齐本地候选的 `README.md`、`CHANGELOG.md` 和版本化信息图；正式版本号、GitHub Release、飞书同步均未创建。
-- 已只读复核项目知识库仍为 revision 12，两个目标群也已解析到 `CodeSense 研发协作` 与实际外部 `CoDeBuGo 总群`；因 update.sh 未成功，未写知识库、未发送群消息。
-- 待人工先处理或明确保留生产工作树中的现有改动，并完成浏览器冒烟；之后才可再次运行 `/var/www/codesense/update.sh` 及后续外发闭环。
+- Workbench 只读门禁确认生产树有 440 个改动项和 2 个未跟踪文件；先创建 stash `15ef813d25fd07ae1184f77be416d87133ac36dc`，工作树清洁且 `.env` 保留未被纳入。
+- 执行 `/var/www/codesense/update.sh` 成功：服务器从 `4f49d8f` 快进到 `ab517af`，依赖检查完成，应用和两个 RQ worker 重启成功。
+- 部署后核验通过：服务器 `HEAD` 与 `origin/main` 均为 `ab517af`，工作树 clean，stash 仍在；`codesense`、两个 worker、`/healthz`、`/readyz` 和 `/login` 均正常。
+- GitHub `main` 已非强制快进到 `ab517af`；tag `v1.3.0`、Release 和信息图资产均已创建，Release 资产 SHA-256 与本地文件一致。
+- 项目知识库已从 revision 12 更新至 revision 14，并复读确认 v1.3.0 章节、产品边界和信息图资源均存在。
+- 两个目标群已发送并复读确认同一版产品介绍：CodeSense 研发协作消息 `om_x100b6592c52b8cacb3dadd6c39edcdd`；实际外部 CoDeBuGo 总群消息 `om_x100b6592de8724a8b301595e693db5b`。
+- 浏览器对 localhost 的客户端拦截仍存在，但不影响本轮线上核验；公开线上接口和登录页已通过只读请求验证。
 
 ## 回滚与风险
 
 候选变更按提交可逆：`0ed002e`、`d0c7807`、`a5df3d5`、`ed0ce97`、`701226c`、`0d33cf5`、`aea965d`、`2b274b7`、`0629462`，以及本报告提交。回滚优先使用对应提交的 `git revert`，不删除用户数据库或运行时文件。
 
-剩余风险是生产工作树未清洁且浏览器冒烟被本机客户端拦截；因此“功能候选保留”与“生产发布”明确分离，发布状态必须保持 `needs_human`。不得通过 stash、reset、clean、强推或手工覆盖来消除生产改动。
+生产原有改动已保存在 stash 中，没有被删除或覆盖；它们不属于 v1.3.0，后续如需恢复应先逐项审阅再合并。v1.3.0 本身可通过 `git revert` 回滚，生产侧也可在确认后恢复 `stash@{0}`。当前发布闭环无待处理门禁。
