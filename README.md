@@ -21,12 +21,12 @@
   <a href="https://github.com/XiaoCow666/CodeSense/stargazers"><img src="https://img.shields.io/github/stars/XiaoCow666/CodeSense?style=flat-square&logo=github" alt="GitHub stars"></a>
   <a href="https://github.com/XiaoCow666/CodeSense/network/members"><img src="https://img.shields.io/github/forks/XiaoCow666/CodeSense?style=flat-square&logo=github" alt="GitHub forks"></a>
   <a href="https://github.com/XiaoCow666/CodeSense/blob/main/LICENSE"><img src="https://img.shields.io/github/license/XiaoCow666/CodeSense?style=flat-square" alt="License"></a>
-  <img src="https://img.shields.io/badge/version-v1.2.0-2563eb?style=flat-square" alt="v1.2.0">
+  <img src="https://img.shields.io/badge/version-v1.3.0-2563eb?style=flat-square" alt="v1.3.0">
   <img src="https://img.shields.io/badge/Python-3.8--3.13-3776ab?style=flat-square&logo=python&logoColor=white" alt="Python 3.8–3.13">
   <img src="https://img.shields.io/badge/Flask-2.2.3-000000?style=flat-square&logo=flask&logoColor=white" alt="Flask 2.2.3">
 </p>
 
-> 当前版本：<a href="https://github.com/XiaoCow666/CodeSense/releases/tag/v1.2.0"><code>v1.2.0</code></a>。
+> 当前版本：<a href="https://github.com/XiaoCow666/CodeSense/releases/tag/v1.3.0"><code>v1.3.0</code></a>。
 >
 > 这是 CodeSense Standard Edition 的当前正式版本。发布级变更会记录在 [CHANGELOG.md](CHANGELOG.md)、Git tag 和 GitHub Release 中。
 
@@ -74,7 +74,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/codesense-v1.3.0-candidate-knowledge-evidence.png" alt="CodeSense 作业知识证据工作区候选功能说明图" width="100%">
+  <img src="docs/assets/codesense-v1.3.0-knowledge-evidence.png" alt="CodeSense v1.3.0 作业知识证据工作区信息图" width="100%">
 </p>
 
 ## 为什么做这个项目
@@ -404,7 +404,7 @@ CodeSense 使用语义化版本号：
 - <code>MINOR</code>：向后兼容的功能增加；
 - <code>PATCH</code>：向后兼容的问题修复和小幅调整。
 
-当前正式版本是 [v1.2.0](https://github.com/XiaoCow666/CodeSense/releases/tag/v1.2.0)，增加了角色化行动中心与权限隔离的只读聚合 API。作业知识证据工作区的候选变更记录在 [CHANGELOG.md](CHANGELOG.md) 的 `Unreleased` 部分；正式版本仍以匹配的 Git tag 和 GitHub Release 为准。
+当前正式版本是 [v1.3.0](https://github.com/XiaoCow666/CodeSense/releases/tag/v1.3.0)，增加了作业知识证据工作区：学生可以围绕当前作业定位知识焦点，教师和管理员可以查看覆盖与降级状态，AI 代码建议会附带可展开的证据收据。检索遵循作业范围和用户权限边界，知识证据只用于学习参考，不是作业评分依据。
 
 ## Star History
 

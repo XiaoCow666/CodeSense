@@ -6,13 +6,17 @@ This file records release-level information for users and maintainers. Versions 
 
 ## [Unreleased]
 
+后续尚未发布的变更记录在这里。
+
+Future unreleased changes will be listed here.
+
+## [1.3.0] - 2026-09-16
+
 ### Added
 
 - 增加作业知识证据工作区，在作业详情、提交详情和 Code Studio 展示当前作业的知识焦点、有限证据和回答收据。
 - 为学生提供基于证据的学习下一步，为教师和管理员提供知识覆盖与降级状态；没有匹配证据时仍可继续提问。
 - AI 代码建议的完成响应增加可展开的证据收据；检索遵循当前作业和当前用户权限边界，知识证据不是作业评分依据。
-
-Future unreleased changes will be listed here.
 
 ## [1.2.0] - 2026-09-15
 
@@ -48,7 +52,8 @@ CodeSense 标准版首个正式版本。
 
 First formal release of the CodeSense Standard Edition.
 
-[Unreleased]: https://github.com/XiaoCow666/CodeSense/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/XiaoCow666/CodeSense/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/XiaoCow666/CodeSense/releases/tag/v1.3.0
 [1.2.0]: https://github.com/XiaoCow666/CodeSense/releases/tag/v1.2.0
 [1.1.0]: https://github.com/XiaoCow666/CodeSense/releases/tag/v1.1.0
 [1.0.0]: https://github.com/XiaoCow666/CodeSense/releases/tag/v1.0.0
