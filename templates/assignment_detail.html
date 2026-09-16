@@ -1,5 +1,6 @@
 {% extends "layout.html" %}
 {% from "components/code_editor.html" import code_editor %}
+{% from "components/knowledge_evidence.html" import knowledge_evidence_panel %}
 
 {% block title %}{{ assignment.title }} - 题目详情 - CodeSense 酷森思{% endblock %}
 
@@ -129,6 +130,7 @@
         color: var(--primary-color);
     }
 </style>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/knowledge-evidence.css') }}">
 {% endblock %}
 
 {% block content %}
@@ -220,6 +222,11 @@
     </div>
     {% endif %}
 </div>
+
+{% if knowledge_evidence is defined %}
+{% set knowledge_audience = 'admin' if session.get('usertype') == '管理员' else 'teacher' if session.get('usertype') == '教师' else 'student' %}
+{{ knowledge_evidence_panel(knowledge_evidence, audience=knowledge_audience, panel_id='assignment-knowledge-evidence') }}
+{% endif %}
 
 {% if session.get('usertype') in ['管理员', '教师'] %}
 <!-- 管理员/教师视图 -->

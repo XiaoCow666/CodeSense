@@ -51,7 +51,7 @@ _STATUS_COPY = {
     },
     "unavailable": {
         "status_label": "证据暂时不可用",
-        "summary": "知识证据暂时不可用，但 AI 指导仍可继续。",
+        "summary": "知识证据暂时不可用，但基础指导仍可继续。",
         "next_step": "继续查看基础指导，稍后重试证据检索。",
     },
     "unknown": {

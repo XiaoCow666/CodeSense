@@ -1,0 +1,210 @@
+:root {
+    --knowledge-ink: #14213D;
+    --knowledge-blue: #2F80ED;
+    --knowledge-paper: #F7FAFC;
+    --knowledge-teal: #0F766E;
+    --knowledge-amber: #B45309;
+}
+
+.knowledge-evidence-panel {
+    margin: 1.5rem 0 2rem;
+    padding: 1.35rem 1.5rem;
+    color: var(--knowledge-ink);
+    background: var(--knowledge-paper);
+    border: 1px solid rgba(20, 33, 61, 0.16);
+    border-left: 4px solid var(--knowledge-blue);
+    border-radius: 0.7rem;
+    box-shadow: 0 8px 24px rgba(20, 33, 61, 0.07);
+}
+
+.knowledge-evidence-panel--compact {
+    margin: 1rem 0;
+    padding: 1rem 1.1rem;
+}
+
+.knowledge-evidence-panel__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.knowledge-evidence-panel__eyebrow,
+.knowledge-evidence-diagnostics__title {
+    margin: 0 0 0.3rem;
+    color: var(--knowledge-blue);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.knowledge-evidence-panel__title {
+    margin: 0;
+    color: var(--knowledge-ink);
+    font-size: 1.15rem;
+}
+
+.knowledge-evidence-status {
+    flex: 0 0 auto;
+    padding: 0.3rem 0.6rem;
+    border: 1px solid currentColor;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
+.knowledge-evidence-status--grounded {
+    color: var(--knowledge-teal);
+}
+
+.knowledge-evidence-status--no_result,
+.knowledge-evidence-status--unavailable,
+.knowledge-evidence-status--unknown {
+    color: var(--knowledge-amber);
+}
+
+.knowledge-evidence-panel__status {
+    max-width: 58rem;
+    margin: 1rem 0 0;
+    padding: 0.85rem 1rem;
+    background: #fff;
+    border-radius: 0.45rem;
+}
+
+.knowledge-evidence-panel__status strong,
+.knowledge-evidence-panel__status p,
+.knowledge-evidence-panel__recovery p,
+.knowledge-evidence-detail__body p {
+    margin: 0;
+    line-height: 1.65;
+}
+
+.knowledge-evidence-panel__status p {
+    margin-top: 0.25rem;
+    color: #475569;
+}
+
+.knowledge-evidence-panel__boundary {
+    margin: 0.8rem 0 0;
+    color: #475569;
+    font-size: 0.86rem;
+}
+
+.knowledge-evidence-panel__details {
+    display: grid;
+    gap: 0.65rem;
+    margin-top: 1rem;
+}
+
+.knowledge-evidence-detail {
+    overflow: hidden;
+    background: #fff;
+    border: 1px solid rgba(47, 128, 237, 0.22);
+    border-radius: 0.45rem;
+}
+
+.knowledge-evidence-detail summary {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.75rem 0.9rem;
+    cursor: pointer;
+    font-weight: 650;
+}
+
+.knowledge-evidence-detail summary:focus-visible,
+.knowledge-evidence-panel a:focus-visible,
+.knowledge-evidence-panel button:focus-visible {
+    outline: 3px solid rgba(47, 128, 237, 0.45);
+    outline-offset: 3px;
+}
+
+.knowledge-evidence-detail:focus-within {
+    border-color: var(--knowledge-blue);
+}
+
+.knowledge-evidence-citation {
+    color: var(--knowledge-blue);
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: 0.82rem;
+}
+
+.knowledge-evidence-detail__body {
+    padding: 0 0.9rem 0.9rem;
+    color: #334155;
+}
+
+.knowledge-evidence-detail__source {
+    display: block;
+    margin-top: 0.55rem;
+    color: #64748B;
+    font-size: 0.78rem;
+}
+
+.knowledge-evidence-panel__recovery {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    margin-top: 0.9rem;
+    color: var(--knowledge-amber);
+}
+
+.knowledge-evidence-panel__recovery-mark {
+    display: inline-grid;
+    flex: 0 0 auto;
+    width: 1.5rem;
+    height: 1.5rem;
+    place-items: center;
+    border: 1px solid currentColor;
+    border-radius: 50%;
+    font-weight: 700;
+}
+
+.knowledge-evidence-diagnostics {
+    margin-top: 1rem;
+    padding-top: 0.85rem;
+    border-top: 1px solid rgba(20, 33, 61, 0.14);
+}
+
+.knowledge-evidence-diagnostics__grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    color: #475569;
+    font-size: 0.82rem;
+}
+
+.knowledge-evidence-diagnostics__grid span {
+    padding: 0.3rem 0.55rem;
+    background: #fff;
+    border-radius: 0.3rem;
+}
+
+@media (max-width: 767px) {
+    .knowledge-evidence-panel {
+        padding: 1rem;
+        border-radius: 0.55rem;
+    }
+
+    .knowledge-evidence-panel__header {
+        display: block;
+    }
+
+    .knowledge-evidence-status {
+        display: inline-block;
+        margin-top: 0.7rem;
+    }
+
+    .knowledge-evidence-detail summary {
+        align-items: flex-start;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .knowledge-evidence-panel,
+    .knowledge-evidence-detail {
+        scroll-behavior: auto;
+        transition: none;
+    }
+}

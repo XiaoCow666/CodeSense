@@ -42,6 +42,8 @@ from services.submission_reviews import (
     transition_review,
 )
 from services.notifications import create_notification
+from services.knowledge_evidence import build_knowledge_evidence_view
+from services.knowledge_rag import retrieve_assignment_knowledge
 from io import BytesIO
 from sqlalchemy import desc, func
 import traceback  # 添加traceback模块
@@ -84,6 +86,36 @@ class InMemoryPagination:
 
     def __bool__(self):
         return len(self.items) > 0
+
+
+def _assignment_knowledge_evidence(assignment_id, *, audience="student"):
+    """Build a safe page view without letting knowledge failures block pages."""
+
+    try:
+        retrieval = retrieve_assignment_knowledge(assignment_id, query="")
+    except Exception:
+        # The retriever already has its own safe fallback.  This boundary also
+        # protects legacy/injected implementations without logging page data.
+        current_app.logger.error(
+            "assignment knowledge evidence unavailable assignment_id=%s",
+            assignment_id,
+        )
+        retrieval = {
+            "status": "unavailable",
+            "evidence": [],
+            "metrics": {
+                "candidate_count": 0,
+                "hit_count": 0,
+                "indexed_chunk_count": 0,
+                "retrieval_latency_ms": 0.0,
+                "retrieval_mode": "unavailable",
+            },
+            "fallback": {
+                "code": "KNOWLEDGE_RETRIEVAL_UNAVAILABLE",
+                "message": "知识证据暂时不可用。",
+            },
+        }
+    return build_knowledge_evidence_view(retrieval, audience=audience)
 
 @assignments.route('/assignments/generate', methods=['POST'])
 @login_required
@@ -479,6 +511,17 @@ def view_assignment(assignment_id):
         return redirect(url_for('main.home'))
 
     usertype = current_user.usertype
+    knowledge_audience = (
+        'admin'
+        if usertype == '管理员'
+        else 'teacher'
+        if usertype == '教师'
+        else 'student'
+    )
+    knowledge_evidence = _assignment_knowledge_evidence(
+        assignment.id,
+        audience=knowledge_audience,
+    )
     if usertype in ('管理员', '教师'):
         # 教师只能看到自己管理班级的提交；出题教师可以继续查看该题目的
         # 全部提交，便于维护自己发布的题目。
@@ -510,6 +553,7 @@ def view_assignment(assignment_id):
             score_distribution=score_distribution,
             recent_submissions=recent_submissions,
             usertype=usertype,
+            knowledge_evidence=knowledge_evidence,
         )
 
     student_id = current_user.student_id
@@ -530,6 +574,7 @@ def view_assignment(assignment_id):
         average_score=assignment.average_score if assignment.count > 0 else 0,
         max_score=max(scores) if scores else 0,
         usertype=usertype,
+        knowledge_evidence=knowledge_evidence,
     )
 
 

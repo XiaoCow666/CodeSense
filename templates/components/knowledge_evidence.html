@@ -1,0 +1,67 @@
+{% macro knowledge_evidence_panel(view, audience='student', panel_id='knowledge-evidence-panel', compact=false, boundary_note=false) %}
+{% set evidence_view = view if view is mapping else {} %}
+{% set evidence_items = evidence_view.get('evidence', []) %}
+<section class="knowledge-evidence-panel{% if compact %} knowledge-evidence-panel--compact{% endif %}"
+    id="{{ panel_id }}" aria-labelledby="{{ panel_id }}-title">
+    <div class="knowledge-evidence-panel__header">
+        <div>
+            <p class="knowledge-evidence-panel__eyebrow">作业知识工作区</p>
+            <h2 class="knowledge-evidence-panel__title" id="{{ panel_id }}-title">
+                {% if audience in ['teacher', 'admin'] %}作业知识证据{% else %}作业知识焦点{% endif %}
+            </h2>
+        </div>
+        <span class="knowledge-evidence-status knowledge-evidence-status--{{ evidence_view.get('status', 'unknown') }}">
+            {{ evidence_view.get('status_label', '证据状态不可用') }}
+        </span>
+    </div>
+
+    <div class="knowledge-evidence-panel__status" role="status" aria-live="polite" aria-atomic="true">
+        <strong>{{ evidence_view.get('summary', '当前无法确认知识证据状态。') }}</strong>
+        <p>{{ evidence_view.get('next_step', '继续使用基础指导，稍后重试。') }}</p>
+    </div>
+
+    {% if boundary_note %}
+    <p class="knowledge-evidence-panel__boundary">
+        <i class="bi bi-info-circle" aria-hidden="true"></i>
+        这里展示的是 AI/知识检索参考，不是本次评分依据。
+    </p>
+    {% endif %}
+
+    {% if evidence_items %}
+    <div class="knowledge-evidence-panel__details">
+        {% for item in evidence_items %}
+        <details class="knowledge-evidence-detail">
+            <summary>
+                <span class="knowledge-evidence-citation">{{ item.get('citation', '证据') }}</span>
+                <span>{{ item.get('title') or '未命名知识证据' }}</span>
+            </summary>
+            <div class="knowledge-evidence-detail__body">
+                <p>{{ item.get('content') or '暂无证据摘要。' }}</p>
+                <span class="knowledge-evidence-detail__source">
+                    {{ item.get('source_label') or '作业知识证据' }}{% if item.get('created_at') %} · {{ item.get('created_at') }}{% endif %}
+                </span>
+            </div>
+        </details>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="knowledge-evidence-panel__recovery">
+        <span class="knowledge-evidence-panel__recovery-mark" aria-hidden="true">?</span>
+        <p>{{ evidence_view.get('next_step', '继续使用基础指导，稍后重试。') }}</p>
+    </div>
+    {% endif %}
+
+    {% set diagnostics = evidence_view.get('diagnostics') %}
+    {% if diagnostics and audience in ['teacher', 'admin'] %}
+    <div class="knowledge-evidence-diagnostics" aria-label="作业知识诊断">
+        <p class="knowledge-evidence-diagnostics__title">作业知识诊断</p>
+        <div class="knowledge-evidence-diagnostics__grid">
+            <span>候选证据 {{ diagnostics.get('candidate_count', 0) }}</span>
+            <span>命中证据 {{ diagnostics.get('hit_count', 0) }}</span>
+            <span>索引块 {{ diagnostics.get('indexed_chunk_count', 0) }}</span>
+            <span>模式 {{ diagnostics.get('retrieval_mode', 'unknown') }}</span>
+        </div>
+    </div>
+    {% endif %}
+</section>
+{% endmacro %}
