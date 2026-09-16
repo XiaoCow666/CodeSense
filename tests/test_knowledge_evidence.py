@@ -35,6 +35,7 @@ def test_public_retrieval_keeps_compatibility_shape_without_internal_fields():
 
     assert public["status"] == "grounded"
     assert public["evidence"][0]["citation"] == "[K1]"
+    assert public["evidence"][0]["source_type"] == "assignment_knowledge_point"
     assert "private_score" not in repr(public)
     assert "private_metric" not in repr(public)
     assert "private_prompt" not in repr(public)

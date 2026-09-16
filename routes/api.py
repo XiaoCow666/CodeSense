@@ -893,9 +893,9 @@ def ask_question():
             knowledge_retrieval
         )
         knowledge_prompt_context = build_knowledge_prompt_context(
-            knowledge_retrieval
+            public_knowledge_retrieval
         )
-        knowledge_receipt = render_knowledge_receipt(knowledge_retrieval)
+        knowledge_receipt = render_knowledge_receipt(public_knowledge_retrieval)
 
         # 仅对合法且有权限的请求计入冷却时间；同时容忍旧版或损坏的
         # session 值，避免 fromisoformat 异常把一个普通请求变成 500。
@@ -1161,7 +1161,7 @@ def get_code_advice():
                 audience="student",
             )
             knowledge_prompt_context = build_knowledge_prompt_context(
-                knowledge_retrieval,
+                public_knowledge_retrieval,
             )
 
         knowledge_fields = {}

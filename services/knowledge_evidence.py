@@ -132,7 +132,11 @@ def _safe_rate(value: Any) -> float:
     return round(min(max(number, 0.0), 1.0), 3)
 
 
-def _project_evidence(raw_evidence: Any) -> list[dict[str, str | None]]:
+def _project_evidence(
+    raw_evidence: Any,
+    *,
+    include_source_type: bool = False,
+) -> list[dict[str, str | None]]:
     if not isinstance(raw_evidence, (list, tuple)):
         return []
 
@@ -147,19 +151,20 @@ def _project_evidence(raw_evidence: Any) -> list[dict[str, str | None]]:
             continue
 
         source_type = _safe_text(raw_item.get("source_type"), limit=64)
-        projected.append(
-            {
-                "evidence_id": evidence_id,
-                "citation": citation,
-                "title": _safe_text(raw_item.get("title"), limit=240),
-                "content": _safe_text(raw_item.get("content"), limit=1200),
-                "source_label": _SOURCE_LABELS.get(
-                    source_type,
-                    _DEFAULT_SOURCE_LABEL,
-                ),
-                "created_at": _safe_created_at(raw_item.get("created_at")),
-            }
-        )
+        item = {
+            "evidence_id": evidence_id,
+            "citation": citation,
+            "title": _safe_text(raw_item.get("title"), limit=240),
+            "content": _safe_text(raw_item.get("content"), limit=1200),
+            "source_label": _SOURCE_LABELS.get(
+                source_type,
+                _DEFAULT_SOURCE_LABEL,
+            ),
+            "created_at": _safe_created_at(raw_item.get("created_at")),
+        }
+        if include_source_type and source_type in _SOURCE_LABELS:
+            item["source_type"] = source_type
+        projected.append(item)
     return projected
 
 
@@ -185,7 +190,8 @@ def build_public_knowledge_retrieval(
         else "unknown"
     )
     evidence = _project_evidence(
-        retrieval.get("evidence") if retrieval else None
+        retrieval.get("evidence") if retrieval else None,
+        include_source_type=True,
     ) if status == "grounded" else []
     if status == "grounded" and not evidence:
         status = "no_result"

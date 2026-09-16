@@ -1243,6 +1243,10 @@
         wrapper.appendChild(avatar);
         wrapper.appendChild(messageContent);
 
+        if (role === 'assistant') {
+            appendKnowledgeEvidenceMount(wrapper);
+        }
+
         chatMessages.appendChild(wrapper);
         scrollToBottom();
 
@@ -1276,6 +1280,15 @@
         if (mount && payload) {
             window.CodeSenseKnowledgeEvidence.render(mount, payload, { compact: true });
         }
+    }
+
+    function appendKnowledgeEvidenceMount(wrapper) {
+        if (!wrapper) return null;
+        var evidenceReceipt = document.createElement('div');
+        evidenceReceipt.className = 'knowledge-evidence-receipt-mount';
+        evidenceReceipt.setAttribute('data-knowledge-evidence-receipt', 'true');
+        wrapper.appendChild(evidenceReceipt);
+        return evidenceReceipt;
     }
 
     // 发送到AI并处理响应（流式）
@@ -1398,11 +1411,7 @@
 
         wrapper.appendChild(avatar);
         wrapper.appendChild(messageContent);
-
-        const evidenceReceipt = document.createElement('div');
-        evidenceReceipt.className = 'knowledge-evidence-receipt-mount';
-        evidenceReceipt.setAttribute('data-knowledge-evidence-receipt', 'true');
-        wrapper.appendChild(evidenceReceipt);
+        appendKnowledgeEvidenceMount(wrapper);
         chatMessages.appendChild(wrapper);
         scrollToBottom();
 

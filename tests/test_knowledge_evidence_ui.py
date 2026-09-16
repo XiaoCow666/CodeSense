@@ -82,6 +82,7 @@ def test_dynamic_evidence_renderer_is_safe_and_done_only():
     assert "innerHTML" not in renderer
     assert "js/knowledge-evidence.js" in submit
     assert "CodeSenseKnowledgeEvidence.render" in submit
+    assert submit.count("appendKnowledgeEvidenceMount(wrapper);") == 2
     done_index = submit.index("if (data.done)")
     delta_index = submit.index("if (data.content)")
     assert done_index < delta_index
