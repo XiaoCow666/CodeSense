@@ -1131,6 +1131,9 @@ def get_code_advice():
         # 如果提供了作业ID，获取作业详情作为上下文
         assignment_title = None
         assignment_description = None
+        knowledge_retrieval = None
+        knowledge_evidence = None
+        knowledge_prompt_context = ""
         if assignment_id:
             assignment = Assignment.query.get(assignment_id)
             if not assignment:
@@ -1139,6 +1142,24 @@ def get_code_advice():
                 return error_response("您无权访问此作业", 403)
             assignment_title = assignment.title
             assignment_description = assignment.description
+            knowledge_retrieval = _retrieve_knowledge_context(
+                assignment_id,
+                user_question,
+            )
+            knowledge_evidence = build_knowledge_evidence_view(
+                knowledge_retrieval,
+                audience="student",
+            )
+            knowledge_prompt_context = build_knowledge_prompt_context(
+                knowledge_retrieval,
+            )
+
+        knowledge_fields = {}
+        if knowledge_retrieval is not None:
+            knowledge_fields = {
+                "knowledge_retrieval": knowledge_retrieval,
+                "knowledge_evidence": knowledge_evidence,
+            }
 
         # 判断是否为聊天式交互（有用户问题）还是代码分析
         if user_question:
@@ -1208,6 +1229,8 @@ def get_code_advice():
 
 {f'作业要求：{assignment_description[:200]}' if assignment_description else ''}
 
+{knowledge_prompt_context}
+
 请根据教育引导原则，针对用户的问题给出引导性回答（不超过300字）。如果学生划线了特定代码片段，重点围绕该片段进行引导。"""
 
                 messages.append({"role": "user", "content": user_prompt})
@@ -1247,7 +1270,11 @@ def get_code_advice():
                             'done': True,
                             'content': full_content,
                             'answer': full_content,
-                            'data': {'answer': full_content},
+                            'data': {
+                                'answer': full_content,
+                                **knowledge_fields,
+                            },
+                            **knowledge_fields,
                         })
                     except LLMServiceError as exc:
                         yield sse_event({
@@ -1306,7 +1333,12 @@ def get_code_advice():
                             'content': advice,
                             'advice': advice,
                             'metrics': metrics,
-                            'data': {'advice': advice, 'metrics': metrics},
+                            'data': {
+                                'advice': advice,
+                                'metrics': metrics,
+                                **knowledge_fields,
+                            },
+                            **knowledge_fields,
                         })
                     except Exception as stream_error:
                         current_app.logger.exception('流式代码分析失败')
@@ -1349,7 +1381,8 @@ def get_code_advice():
                     message="代码建议生成成功",
                     data={
                         'advice': advice,
-                        'metrics': metrics
+                        'metrics': metrics,
+                        **knowledge_fields,
                     }
                 )
 
