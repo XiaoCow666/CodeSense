@@ -5,7 +5,7 @@
 - 日期：2026-09-16（Asia/Shanghai）
 - 隔离分支：`codex/local-opt-20260916`
 - 基线：`origin/main` at `3cd20ea`
-- 代码候选提交：`bddf47b` → `0629462`；本轮配套补齐提交：`711b484`
+- 代码候选提交：`bddf47b` → `0629462`；本轮配套补齐提交：`711b484`、`75371c7`
 - 最终决策：`keep`（保留在隔离分支）；生产发布为 `needs_human`
 - 发布原因：本地 HTTP 健康检查可用，但内置浏览器和 Chrome 对 localhost 均返回客户端拦截；正确的 Workbench ECS 目标已找到，但生产工作树存在 438 个跟踪文件改动和 2 个未跟踪文件，无法安全运行会覆盖/合并的更新脚本。
 
@@ -67,6 +67,7 @@
 - 内置浏览器尝试 `http://127.0.0.1:5055/healthz` 和 `http://localhost:5055/healthz` 均被客户端阻止；Chrome 连接同样被阻止。没有绕过安全策略，也没有输入生产凭证。
 - Workbench 只读枚举在 `cn-heyuan` 找到运行中的 ECS `i-f8zbujornnh55dsydozz`；其应用服务、两个 worker、`/healthz` 和 `/readyz` 均正常，但 `/var/www/codesense` 相对本地 HEAD 有 438 个跟踪文件改动和 2 个未跟踪文件，不能运行 `update.sh`。
 - `git ls-remote origin refs/heads/main` 可读，远端 `main` 仍为 `3cd20ea`；候选未推送。
+- 对候选分支执行 `git push --dry-run` 成功，仅验证远端写权限，未创建远端分支或改变远端引用。
 - 已补齐本地候选的 `README.md`、`CHANGELOG.md` 和版本化信息图；正式版本号、GitHub Release、飞书同步均未创建。
 - 已只读复核项目知识库仍为 revision 12，两个目标群也已解析到 `CodeSense 研发协作` 与实际外部 `CoDeBuGo 总群`；因 update.sh 未成功，未写知识库、未发送群消息。
 - 待人工先处理或明确保留生产工作树中的现有改动，并完成浏览器冒烟；之后才可再次运行 `/var/www/codesense/update.sh` 及后续外发闭环。
