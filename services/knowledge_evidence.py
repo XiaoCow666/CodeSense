@@ -16,9 +16,12 @@ from typing import Any
 MAX_EVIDENCE = 8
 MAX_CANDIDATES = 64
 MAX_INDEXED_CHUNKS = 64
+MAX_EMBEDDING_CALLS = 128
 MAX_LATENCY_MS = 600_000.0
 
-_ALLOWED_STATUSES = frozenset({"grounded", "no_result", "unavailable"})
+_ALLOWED_STATUSES = frozenset(
+    {"grounded", "no_result", "unavailable", "timeout", "rate_limited"}
+)
 _ALLOWED_AUDIENCES = frozenset({"teacher", "admin"})
 _ALLOWED_RETRIEVAL_MODES = frozenset(
     {
@@ -27,6 +30,8 @@ _ALLOWED_RETRIEVAL_MODES = frozenset(
         "priority_fallback",
         "no_result",
         "unavailable",
+        "timeout",
+        "rate_limited",
         "unknown",
     }
 )
@@ -37,10 +42,14 @@ _DEFAULT_SOURCE_LABEL = "作业知识证据"
 _FALLBACK_CODES = {
     "no_result": "NO_KNOWLEDGE_EVIDENCE",
     "unavailable": "KNOWLEDGE_RETRIEVAL_UNAVAILABLE",
+    "timeout": "KNOWLEDGE_RETRIEVAL_TIMEOUT",
+    "rate_limited": "KNOWLEDGE_RETRIEVAL_RATE_LIMITED",
 }
 _FALLBACK_MESSAGES = {
     "no_result": "当前作业没有已标注知识点，回答仅基于题目和代码。",
     "unavailable": "知识证据暂时不可用，回答仅基于题目和代码。",
+    "timeout": "知识证据检索超时，回答仅基于题目和代码。",
+    "rate_limited": "知识证据请求过于频繁，回答仅基于题目和代码。",
 }
 _STATUS_COPY = {
     "grounded": {
@@ -57,6 +66,16 @@ _STATUS_COPY = {
         "status_label": "证据暂时不可用",
         "summary": "知识证据暂时不可用，但基础指导仍可继续。",
         "next_step": "继续查看基础指导，稍后重试证据检索。",
+    },
+    "timeout": {
+        "status_label": "证据检索超时",
+        "summary": "知识证据检索超时，但基础指导仍可继续。",
+        "next_step": "继续查看基础指导，稍后重试证据检索。",
+    },
+    "rate_limited": {
+        "status_label": "证据请求受限",
+        "summary": "知识证据请求过于频繁，但基础指导仍可继续。",
+        "next_step": "稍后重试证据检索。",
     },
     "unknown": {
         "status_label": "证据状态不可用",
@@ -200,8 +219,8 @@ def build_public_knowledge_retrieval(
     metrics = raw_metrics if isinstance(raw_metrics, Mapping) else {}
     if status == "unknown":
         retrieval_mode = "unknown"
-    elif status == "unavailable":
-        retrieval_mode = "unavailable"
+    elif status in {"unavailable", "timeout", "rate_limited"}:
+        retrieval_mode = status
     else:
         retrieval_mode = _safe_retrieval_mode(metrics.get("retrieval_mode"))
 
@@ -256,6 +275,32 @@ def build_public_knowledge_retrieval(
             "indexed_chunk_count": _safe_nonnegative_int(
                 metrics.get("indexed_chunk_count"),
                 maximum=MAX_INDEXED_CHUNKS,
+            ),
+            "embedding_provider": _safe_text(
+                metrics.get("embedding_provider"),
+                limit=64,
+            ) or None,
+            "embedding_calls": _safe_nonnegative_int(
+                metrics.get("embedding_calls"),
+                maximum=MAX_EMBEDDING_CALLS,
+            ),
+            "embedding_estimated_cost": _safe_nonnegative_float(
+                metrics.get("embedding_estimated_cost")
+            ),
+            "embedding_budget_exceeded": (
+                bool(metrics.get("embedding_budget_exceeded"))
+                if isinstance(metrics.get("embedding_budget_exceeded"), bool)
+                else False
+            ),
+            "retrieval_timeout_fallback": (
+                bool(metrics.get("retrieval_timeout_fallback"))
+                if isinstance(metrics.get("retrieval_timeout_fallback"), bool)
+                else status == "timeout"
+            ),
+            "rate_limit_fallback": (
+                bool(metrics.get("rate_limit_fallback"))
+                if isinstance(metrics.get("rate_limit_fallback"), bool)
+                else status == "rate_limited"
             ),
         },
         "fallback": fallback,

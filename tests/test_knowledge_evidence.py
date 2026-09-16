@@ -133,6 +133,35 @@ def test_unavailable_preserves_only_the_known_fallback_code():
     assert "稍后重试" in view["next_step"]
 
 
+@pytest.mark.parametrize(
+    ("status", "fallback_code"),
+    [
+        ("timeout", "KNOWLEDGE_RETRIEVAL_TIMEOUT"),
+        ("rate_limited", "KNOWLEDGE_RETRIEVAL_RATE_LIMITED"),
+    ],
+)
+def test_public_projection_preserves_reliability_fallback_states(
+    status, fallback_code
+):
+    public = build_public_knowledge_retrieval(
+        {
+            "status": status,
+            "evidence": [],
+            "fallback": {"code": fallback_code, "message": "safe fallback"},
+            "metrics": {"retrieval_mode": status},
+        }
+    )
+
+    assert public["status"] == status
+    assert public["metrics"]["retrieval_mode"] == status
+    assert public["fallback"]["code"] == fallback_code
+
+    view = build_knowledge_evidence_view(public)
+    assert view["status"] == status
+    assert view["fallback_code"] == fallback_code
+    assert view["has_evidence"] is False
+
+
 @pytest.mark.parametrize("audience", ["teacher", "admin"])
 def test_teacher_and_admin_receive_bounded_diagnostics(audience):
     view = build_knowledge_evidence_view(

@@ -408,7 +408,8 @@ def _retrieve_knowledge_context(assignment_id, query="", *, limit=MAX_EVIDENCE):
         "knowledge_rag status=%s candidates=%s hits=%s latency_ms=%.2f "
         "citation_completeness=%.3f no_result_fallback=%s "
         "retrieval_error_fallback=%s retrieval_mode=%s indexed_chunks=%s "
-        "fallback_code=%s",
+        "fallback_code=%s embedding_provider=%s embedding_calls=%s "
+        "embedding_cost=%s embedding_budget_exceeded=%s",
         retrieval["status"],
         metrics.get("candidate_count", 0),
         metrics.get("hit_count", 0),
@@ -419,6 +420,10 @@ def _retrieve_knowledge_context(assignment_id, query="", *, limit=MAX_EVIDENCE):
         metrics.get("retrieval_mode", "unknown"),
         metrics.get("indexed_chunk_count", 0),
         (retrieval.get("fallback") or {}).get("code"),
+        metrics.get("embedding_provider"),
+        metrics.get("embedding_calls", 0),
+        metrics.get("embedding_estimated_cost", 0.0),
+        metrics.get("embedding_budget_exceeded", False),
     )
     return retrieval
 

@@ -345,6 +345,31 @@ def test_retriever_returns_safe_fallback_when_vector_index_fails(
     assert retrieval["metrics"]["retrieval_mode"] == "unavailable"
 
 
+def test_rag_can_select_token_provider_and_exposes_bounded_usage(
+    knowledge_context, monkeypatch
+):
+    app, _, assignment_id = knowledge_context
+    with app.app_context():
+        AssignmentKnowledgePoint.add_to_assignment(
+            assignment_id,
+            "array",
+            weight=1.0,
+        )
+        db.session.commit()
+        monkeypatch.setenv("KNOWLEDGE_RAG_EMBEDDER", "token")
+        retrieval = retrieve_assignment_knowledge(
+            assignment_id,
+            query="数组",
+        )
+
+    assert retrieval["status"] == "grounded"
+    metrics = retrieval["metrics"]
+    assert metrics["embedding_provider"] == "token"
+    assert metrics["embedding_calls"] >= 2
+    assert metrics["embedding_estimated_cost"] == 0.0
+    assert metrics["embedding_budget_exceeded"] is False
+
+
 def test_ask_question_continues_with_answer_only_when_knowledge_source_is_unavailable(
     knowledge_context, monkeypatch
 ):
