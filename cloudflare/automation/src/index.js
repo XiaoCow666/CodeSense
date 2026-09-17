@@ -150,6 +150,13 @@ function pullRequestContext(event) {
   };
 }
 
+function outcomeStateKey(outcome) {
+  if (outcome?.merge?.merged === true || outcome?.merged === true) return "merged";
+  const decision = outcome?.review?.decision || "unknown";
+  const reasons = [...new Set(outcome?.gate?.reasons || [])].sort();
+  return `${decision}:${reasons.join(",") || "not_ready"}`;
+}
+
 async function fetchPullRequestDiff(event, env) {
   const diff = await githubDiff(env, event);
   return { available: diff.available, text: truncateUtf8(diff.text, MAX_REVIEW_CONTEXT_BYTES) };
@@ -311,8 +318,9 @@ async function processGithubEffects(env, event, reviewResult) {
   }
   if (!reviewResult) return null;
   const outcome = await processGithubReview(env, event, reviewResult);
-  const task = await runAction(env, event, "task_update", `task-pr:${outcome.repository}#${outcome.number}:${outcome.headSha}`, () => applyGithubOutcome(env, outcome));
-  const knowledge = await runAction(env, event, "knowledge_record", `wiki-pr:${outcome.repository}#${outcome.number}:${outcome.headSha}`, () => appendKnowledgeRecord(env, outcome));
+  const stateKey = outcomeStateKey(outcome);
+  const task = await runAction(env, event, "task_update", `task-pr:${outcome.repository}#${outcome.number}:${outcome.headSha}:${stateKey}`, () => applyGithubOutcome(env, outcome));
+  const knowledge = await runAction(env, event, "knowledge_record", `wiki-pr:${outcome.repository}#${outcome.number}:${outcome.headSha}:${stateKey}`, () => appendKnowledgeRecord(env, outcome));
   return { ...outcome, task, knowledge };
 }
 
