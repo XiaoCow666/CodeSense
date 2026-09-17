@@ -349,7 +349,6 @@ Record research links, the twelve acceptance items, changed files, test classifi
 - [ ] **Step 6: Commit release preparation**
 
 ```powershell
-git add README.md CHANGELOG.md docs/ops-runs/2026-09-17-rag-evidence-recovery.md docs/assets/codesense-v1.4.0-rag-evidence-recovery.png
+git add README.md CHANGELOG.md docs/ops-runs/2026-09-17-rag-evidence-recovery.md docs/assets/codesense-v1.4.0-rag-quality-loop.png
 git commit -m "docs: prepare v1.4.0 rag evidence release"
 ```
-
