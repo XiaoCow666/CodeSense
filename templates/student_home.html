@@ -444,6 +444,42 @@
     </div>
 </div>
 
+<!-- 自适应下一步：只展示服务端基于当前账号历史记录生成的只读建议。 -->
+<section class="card mt-4" style="margin-top: 2rem; margin-bottom: 2rem;" aria-labelledby="adaptive-learning-title">
+    <div class="card-header d-flex justify-content-between align-items-center gap-3" style="padding: 1rem 1.5rem;">
+        <div class="card-title mb-0" id="adaptive-learning-title">
+            <i class="bi bi-signpost-split" style="margin-right: 10px;" aria-hidden="true"></i>自适应下一步
+        </div>
+        <span class="badge rounded-pill text-bg-{% if adaptive_learning_plan.status == 'ready' %}primary{% else %}secondary{% endif %}">
+            {% if adaptive_learning_plan.status == 'ready' %}基于已有记录{% else %}等待更多记录{% endif %}
+        </span>
+    </div>
+    <div class="card-body" style="padding: 1.5rem;">
+        <div class="row align-items-center g-3">
+            <div class="col-lg-8">
+                <h2 class="h5 mb-2">{{ adaptive_learning_plan.headline }}</h2>
+                <p class="text-muted mb-3">{{ adaptive_learning_plan.summary }}</p>
+                <ul class="list-unstyled mb-3" aria-label="推荐依据">
+                    {% for evidence in adaptive_learning_plan.evidence %}
+                    <li class="small mb-2 d-flex gap-2">
+                        <i class="bi bi-check2-circle text-primary" aria-hidden="true"></i>
+                        <span><strong>{{ evidence.label }}：</strong>{{ evidence.detail }}</span>
+                    </li>
+                    {% endfor %}
+                </ul>
+                <p class="small text-muted mb-0">
+                    <i class="bi bi-shield-check me-1" aria-hidden="true"></i>{{ adaptive_learning_plan.boundary }}
+                </p>
+            </div>
+            <div class="col-lg-4 d-flex align-items-lg-center justify-content-lg-end">
+                <a class="btn btn-primary w-100" href="{{ adaptive_learning_plan.action.href }}">
+                    <i class="bi bi-arrow-right-circle me-1" aria-hidden="true"></i>{{ adaptive_learning_plan.action.label }}
+                </a>
+            </div>
+        </div>
+    </div>
+</section>
+
 <!-- 继续学习 -->
 <div class="card mt-4" style="margin-top: 2rem; margin-bottom: 2rem;" aria-labelledby="recent-learning-title">
     <div class="card-header d-flex justify-content-between align-items-center" style="padding: 1rem 1.5rem;">

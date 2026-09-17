@@ -8,7 +8,7 @@ import json  # 添加json模块导入
 from flask import Blueprint, render_template, redirect, url_for, flash, request, jsonify, Response, current_app, abort, g
 from flask_login import login_required, current_user
 from sqlalchemy import and_, func, or_
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 from models import (
     db,
     User,
@@ -43,6 +43,7 @@ from services.notifications import (
 )
 from services.submission_reviews import count_open_reviews
 from services.session_lifecycle import latest_session_activity, session_lifecycle_payload
+from services.adaptive_learning import build_adaptive_learning_plan
 from services.action_center import build_action_center
 from services.profile import get_profile_settings, PROFILE_VISIBILITY_PUBLIC
 from utils.auth import admin_required
@@ -153,6 +154,16 @@ def home():
         active_assignment_ids = [row[0] for row in assigned_assignments_query.filter(
             (Assignment.due_date >= now) | (Assignment.due_date.is_(None))
         ).with_entities(Assignment.id).all()]
+
+        # 自适应建议仅使用已经按学生班级筛选出的当前作业。预加载知识点标签，
+        # 避免推荐规则按作业逐条查询，也不读取作业描述或学生代码。
+        active_assignments = []
+        if active_assignment_ids:
+            active_assignments = Assignment.query.options(
+                selectinload(Assignment.knowledge_points),
+            ).filter(
+                Assignment.id.in_(active_assignment_ids),
+            ).all()
 
         # 2. 首页统计保留历史作业，避免截止日期过滤让学生误以为数据被清空。
         # 当前有效作业仍单独保留，供页面展示“当前未截止”信息。
@@ -268,6 +279,25 @@ def home():
         # 这样首屏不会只显示“加载中”，网络较慢时也能看到真实的演示数据。
         knowledge_profile = KnowledgePointScore.get_student_profile(student_id)
         knowledge_profile_rows = _knowledge_profile_rows(knowledge_profile)
+        adaptive_learning_plan = build_adaptive_learning_plan(
+            active_assignments=active_assignments,
+            recent_learning_sessions=recent_learning_sessions,
+            knowledge_profile_rows=knowledge_profile_rows,
+            recent_submissions=submissions,
+            submitted_assignment_ids=submitted_assignment_ids,
+        )
+        adaptive_action = adaptive_learning_plan['action']
+        assignment_id = adaptive_action.get('assignment_id')
+        if adaptive_action['kind'] == 'resume_learning' and assignment_id:
+            adaptive_action['href'] = url_for('thinking.arena', assignment_id=assignment_id)
+        elif adaptive_action['kind'] in {
+            'practice_knowledge_point',
+            'retry_submission',
+            'start_assignment',
+        } and assignment_id:
+            adaptive_action['href'] = url_for('assignments.submit_code', assignment_id=assignment_id)
+        else:
+            adaptive_action['href'] = url_for('assignments.student_assignments')
         analysis_status = trend_record.status or 'pending'
         # 1. 通过统一的能力引擎获取雷达图数据
         ability_scores = current_user.get_ability_scores()
@@ -349,6 +379,7 @@ def home():
             'phi_grad': round(phi_grad, 1),
             'recent_assignments': recent_assignments,
             'recent_learning_sessions': recent_learning_sessions,
+            'adaptive_learning_plan': adaptive_learning_plan,
             'submissions': submissions,
             'knowledge_profile': knowledge_profile,
             'knowledge_profile_rows': knowledge_profile_rows,
