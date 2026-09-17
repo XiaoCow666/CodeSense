@@ -3,8 +3,6 @@ name: Test CodeSense
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-  push:
-    branches: [main]
   workflow_dispatch:
     inputs:
       pr:
@@ -14,6 +12,7 @@ on:
 
 permissions:
   contents: read
+  checks: write
 
 jobs:
   test:
@@ -22,8 +21,33 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        continue-on-error: true
         with:
           ref: ${{ inputs.pr != '' && format('refs/pull/{0}/merge', inputs.pr) || github.ref }}
+
+      - name: Create manual PR check
+        id: create-check
+        if: inputs.pr != ''
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ inputs.pr }}
+        with:
+          script: |
+            const pull = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: Number(process.env.PR_NUMBER),
+            });
+            const check = await github.rest.checks.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: `Test CodeSense (manual PR #${process.env.PR_NUMBER})`,
+              head_sha: pull.data.head.sha,
+              status: "in_progress",
+              details_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              output: { title: "正在测试 PR 合并版本", summary: "测试完成后将把结果写回该 PR。" },
+            });
+            core.setOutput("check_id", String(check.data.id));
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -35,7 +59,30 @@ jobs:
         run: python -m pip install -r requirements.txt -r requirements-test.txt
 
       - name: Run tests
+        id: tests
         env:
           FLASK_CONFIG: testing
           TEST_DATABASE_URL: "sqlite:///:memory:"
         run: python -m pytest tests -q
+
+      - name: Complete manual PR check
+        if: always() && inputs.pr != ''
+        uses: actions/github-script@v7
+        env:
+          CHECK_ID: ${{ steps.create-check.outputs.check_id }}
+          TEST_OUTCOME: ${{ steps.tests.outcome }}
+          PR_NUMBER: ${{ inputs.pr }}
+        with:
+          script: |
+            const conclusion = process.env.TEST_OUTCOME === "success" ? "success" : "failure";
+            await github.rest.checks.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              check_run_id: Number(process.env.CHECK_ID),
+              status: "completed",
+              conclusion,
+              output: {
+                title: conclusion === "success" ? "PR 合并版本测试通过" : "PR 合并版本测试失败",
+                summary: `手动测试 PR #${process.env.PR_NUMBER} 的合并版本，工作流结果：${conclusion}。`,
+              },
+            });
