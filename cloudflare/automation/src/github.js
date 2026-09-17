@@ -93,6 +93,14 @@ export async function freshPullRequest(env, reference) {
   return githubApi(env, "GET", `/repos/${encodeSegment(owner)}/${encodeSegment(repo)}/pulls/${Number(reference.number)}`);
 }
 
+export async function pullRequestsForHeadSha(env, repository, sha) {
+  const normalizedRepository = repositoryName(repository);
+  const [owner, repo] = normalizedRepository.split("/");
+  const value = await githubApi(env, "GET", `/repos/${encodeSegment(owner)}/${encodeSegment(repo)}/pulls?state=open&per_page=100`);
+  if (!Array.isArray(value)) return [];
+  return value.filter((pullRequest) => pullRequest?.head?.sha === sha);
+}
+
 export async function commitChecks(env, reference, sha) {
   const repository = repositoryName(reference.repository);
   const [owner, repo] = repository.split("/");

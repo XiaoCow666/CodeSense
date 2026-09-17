@@ -6,6 +6,7 @@ import {
   mergeGithubPullRequest,
   normalizeReviewResult,
   postGithubReview,
+  pullRequestsForHeadSha,
   pullRequestReference,
   repositoryName,
   reviewMarker,
@@ -108,9 +109,24 @@ export function shouldInvokeLuoxin(env, event) {
   if (event.event_type === "pull_request_review") return action === "submitted" && !String(eventPayload(event).review?.body || "").includes("<!-- codesense-head:");
   if (event.event_type === "pull_request_review_comment") return action === "created";
   if (event.event_type === "issue_comment") return action === "created" && /(?:^|\s)(?:@codex|@牛顿|\/review)(?:\s|$|[，。！？,.!?：:])/i.test(eventPayload(event).comment?.body || "");
-  if (event.event_type === "check_suite") return CHECK_ACTIONS.has(action) && Boolean(eventPayload(event).check_suite?.pull_requests?.length);
-  if (event.event_type === "check_run") return action === "completed" && Boolean(eventPayload(event).check_run?.pull_requests?.length);
+  if (event.event_type === "check_suite") return CHECK_ACTIONS.has(action) && Boolean(eventPayload(event).pull_request || eventPayload(event).check_suite?.pull_requests?.length);
+  if (event.event_type === "check_run") return action === "completed" && Boolean(eventPayload(event).pull_request || eventPayload(event).check_run?.pull_requests?.length);
   return false;
+}
+
+async function hydrateGithubCheckEvent(env, event) {
+  if (event.source !== "github" || !["check_run", "check_suite"].includes(event.event_type)) return event;
+  const payload = eventPayload(event);
+  const existingPullRequests = event.event_type === "check_run" ? payload.check_run?.pull_requests : payload.check_suite?.pull_requests;
+  if (payload.pull_request || existingPullRequests?.length) return event;
+  const repository = payload.repository?.full_name;
+  const check = event.event_type === "check_run" ? payload.check_run : payload.check_suite;
+  const sha = check?.head_sha || check?.check_suite?.head_sha;
+  if (!repository || !sha || !projectForRepository(env, repository)) return event;
+  const matches = await pullRequestsForHeadSha(env, repository, sha);
+  const pullRequest = matches.find((item) => item?.state === "open") || matches[0];
+  if (!pullRequest) return event;
+  return { ...event, payload: { ...payload, pull_request: pullRequest } };
 }
 
 function pullRequestContext(event) {
@@ -361,14 +377,15 @@ async function persistEvent(env, message) {
 
   let reviewResult = null;
   let sideEffects = null;
-  if (event.source === "internal" && event.event_type === "reconcile") {
-    sideEffects = await processInternalReconcile(env, event);
+  const effectiveEvent = await hydrateGithubCheckEvent(env, event);
+  if (effectiveEvent.source === "internal" && effectiveEvent.event_type === "reconcile") {
+    sideEffects = await processInternalReconcile(env, effectiveEvent);
   } else {
-    if (await shouldInvokeLuoxin(env, event)) reviewResult = await callLuoxin(env, event);
-    if (event.source === "github") sideEffects = await processGithubEffects(env, event, reviewResult);
-    if (event.source === "feishu") sideEffects = await processFeishuEvent(env, event, reviewResult);
+    if (await shouldInvokeLuoxin(env, effectiveEvent)) reviewResult = await callLuoxin(env, effectiveEvent);
+    if (effectiveEvent.source === "github") sideEffects = await processGithubEffects(env, effectiveEvent, reviewResult);
+    if (effectiveEvent.source === "feishu") sideEffects = await processFeishuEvent(env, effectiveEvent, reviewResult);
   }
-  if (event.source === "github" && sideEffects?.handled) await notifyGithubOutcome(env, event, sideEffects);
+  if (effectiveEvent.source === "github" && sideEffects?.handled) await notifyGithubOutcome(env, effectiveEvent, sideEffects);
   await env.STATE_DB.prepare("UPDATE event_inbox SET status = 'processed', action_status = 'completed', processed_at = ?, result_json = ?, action_result_json = ?, error = NULL WHERE event_id = ?").bind(seenAt, reviewResult ? JSON.stringify(reviewResult) : null, sideEffects ? JSON.stringify(sideEffects) : null, eventId).run();
 }
 

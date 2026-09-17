@@ -58,6 +58,20 @@ test("completed check-run events can trigger a fresh PR review", () => {
   assert.equal(shouldInvokeLuoxin({}, event), true);
 });
 
+test("hydrated check-run events can trigger a fresh PR review when GitHub omits pull_requests", () => {
+  const event = {
+    source: "github",
+    event_type: "check_run",
+    payload: {
+      action: "completed",
+      repository: { full_name: "XiaoCow666/CodeSense" },
+      check_run: { head_sha: "abc", pull_requests: [] },
+      pull_request: { number: 12, head: { sha: "abc" } },
+    },
+  };
+  assert.equal(shouldInvokeLuoxin({}, event), true);
+});
+
 test("old failed reruns do not keep a newer successful check red", () => {
   const current = latestCheckRuns([
     { id: 1, name: "build", status: "completed", conclusion: "failure", completed_at: "2026-09-17T01:00:00Z" },
