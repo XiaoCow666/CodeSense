@@ -8,8 +8,9 @@ tests import it directly: no Flask app, database, Redis, or network access.
 
 The assertions pin behavior verified against the current implementation that
 is also implied by the docstrings. The heading-spacing pass in ``enhance``
-has known quirks on isolated heading lines; that path is deliberately not
-pinned here so a future fix to it stays green.
+previously corrupted heading text (``"# Title"`` became ``"# Titl\n\ne"``);
+it is fixed and covered by the dedicated "heading integrity" regression
+tests at the end of this file.
 """
 
 import pytest
@@ -230,3 +231,96 @@ def test_render_html_escapes_angle_brackets_inside_code_blocks():
         "if (a &lt; b && c &gt; d) {}\n"
         "</code></pre>"
     )
+
+
+# ---------------------------------------------------------------------------
+# heading integrity (two regressions in enhance()'s heading passes):
+# 1) the "blank line AFTER heading" pass split the last character off every
+#    heading line, e.g. "# Title" became "# Titl\n\ne", and re-running
+#    enhance() kept shredding the tail further;
+# 2) the "blank line BEFORE heading" pass matched inside multi-mark headings:
+#    "## Title" became an empty H1 plus an H1 ("#\n\n# Title"), and H3-H6
+#    kept degrading on repeated runs.
+# ---------------------------------------------------------------------------
+
+def test_enhance_preserves_isolated_heading_text():
+    # Before the fix: "# Titl\n\ne"
+    assert MarkdownFormatter.enhance("# Title") == "# Title"
+
+
+def test_enhance_inserts_blank_line_between_heading_and_paragraph():
+    # The pass may insert whitespace, but must never move existing characters.
+    # Before the fix: "# Titl\n\ne\nBody text"
+    assert MarkdownFormatter.enhance("# Title\nBody text") == "# Title\n\nBody text"
+
+
+def test_enhance_heading_spacing_is_idempotent():
+    # State-consistency check: enhancing an already-enhanced document must be
+    # a no-op. Before the fix the tail kept degrading on every pass
+    # ("Title" -> "Titl" + "e" -> "Tit" + "l" + "e" ...).
+    once = MarkdownFormatter.enhance("# Title\nBody text")
+    assert MarkdownFormatter.enhance(once) == once
+
+
+def test_enhance_leaves_existing_blank_line_after_heading_alone():
+    text = "# Title\n\nBody text"
+    assert MarkdownFormatter.enhance(text) == text
+
+
+def test_enhance_leaves_heading_with_trailing_newline_alone():
+    text = "# Title\n"
+    assert MarkdownFormatter.enhance(text) == text
+
+
+def test_render_html_keeps_heading_text_intact():
+    # User-visible symptom: the corrupted heading leaked into rendered HTML.
+    # Before the fix: "<h1>Titl</h1>\n<p>e</p>"
+    html = MarkdownFormatter.render_html("# Title")
+    assert "<h1>Title</h1>" in html
+    assert "<p>e</p>" not in html
+
+
+def test_enhance_does_not_treat_inline_hash_as_heading():
+    # A "#" in the middle of a line is not a heading. The old unanchored
+    # heading pass matched it anyway and split the tail off (data loss):
+    # "a #1 fan\nnext" -> "a #1 fa\n\nn\nnext". The (?m)^ anchor of the
+    # fixed pass leaves this input byte-for-byte untouched.
+    text = "a #1 fan\nnext"
+    assert MarkdownFormatter.enhance(text) == text
+
+
+@pytest.mark.parametrize("marks", ["##", "###", "####", "#####", "######"])
+def test_enhance_preserves_heading_level_and_text_h2_h6(marks):
+    # The "blank line BEFORE heading" pass used to match inside the heading
+    # itself: its first group ate the first "#" as preceding text and the
+    # remaining marks became the heading, so "## Title" degraded to an empty
+    # H1 plus an H1 ("#\n\n# Title"). Level and text must survive; the only
+    # allowed change is inserting one blank line after the heading.
+    text = f"{marks} Title\nBody text"
+    assert MarkdownFormatter.enhance(text) == f"{marks} Title\n\nBody text"
+
+
+@pytest.mark.parametrize("marks", ["##", "###", "####", "#####", "######"])
+def test_enhance_h2_h6_idempotent(marks):
+    # State-consistency: H3-H6 used to keep degrading on repeated runs
+    # (e.g. "### Title" -> "#\n\n## Title" -> "#\n\n#\n\n# Title").
+    once = MarkdownFormatter.enhance(f"{marks} Title\nBody text")
+    assert MarkdownFormatter.enhance(once) == once
+
+
+def test_enhance_inserts_blank_line_between_paragraph_and_heading():
+    # The legitimate job of the "blank line before heading" pass: a physical
+    # line-start heading preceded directly by a text line gets one blank
+    # line inserted, with no character moved or re-interpreted.
+    text = "Intro line\n## Title\nBody text"
+    assert MarkdownFormatter.enhance(text) == (
+        "Intro line\n\n## Title\n\nBody text"
+    )
+
+
+def test_render_html_keeps_h2_heading_level_and_text():
+    # User-visible symptom of the split: an H2 rendered as an empty H1 plus
+    # an H1 ("<h1></h1>\n<h1>Title</h1>").
+    html = MarkdownFormatter.render_html("## Title\nBody text")
+    assert "<h2>Title</h2>" in html
+    assert "<h1></h1>" not in html
