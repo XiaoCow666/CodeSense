@@ -236,6 +236,7 @@ function safeActionError(error) {
 
 export async function claimAction(env, eventId, actionType, actionKey) {
   const timestamp = now();
+  const staleBefore = new Date(Date.now() - 15 * 60 * 1000).toISOString();
   const result = await env.STATE_DB.prepare(
     `INSERT INTO action_log (action_key, event_id, action_type, status, created_at, updated_at)
      VALUES (?, ?, ?, 'running', ?, ?)
@@ -244,8 +245,11 @@ export async function claimAction(env, eventId, actionType, actionKey) {
   if (result.meta?.changes === 1) return true;
   const existing = await env.STATE_DB.prepare("SELECT status, updated_at FROM action_log WHERE action_key = ?").bind(actionKey).first();
   if (existing?.status === "completed") return false;
-  if (existing?.status === "running" && existing.updated_at > new Date(Date.now() - 15 * 60 * 1000).toISOString()) return false;
-  const reclaimed = await env.STATE_DB.prepare("UPDATE action_log SET status = 'running', error = NULL, updated_at = ? WHERE action_key = ? AND status = 'failed'").bind(timestamp, actionKey).run();
+  if (existing?.status === "running" && existing.updated_at > staleBefore) return false;
+  const reclaimed = await env.STATE_DB.prepare(
+    "UPDATE action_log SET status = 'running', error = NULL, updated_at = ? " +
+      "WHERE action_key = ? AND (status = 'failed' OR (status = 'running' AND updated_at <= ?))",
+  ).bind(timestamp, actionKey, staleBefore).run();
   return reclaimed.meta?.changes === 1;
 }
 

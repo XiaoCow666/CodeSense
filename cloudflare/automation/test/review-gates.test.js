@@ -1,7 +1,31 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { evaluateMergeGate, latestCheckRuns, normalizeReviewResult } from "../src/github.js";
-import { callLuoxin, shouldInvokeLuoxin } from "../src/index.js";
+import { callLuoxin, claimAction, shouldInvokeLuoxin } from "../src/index.js";
+
+function actionLogDb(existing, { insertChanges = 0, updateChanges = 1 } = {}) {
+  const statements = [];
+  return {
+    statements,
+    prepare(sql) {
+      statements.push(sql);
+      return {
+        bind(...args) {
+          return {
+            async run() {
+              if (sql.startsWith("INSERT")) return { meta: { changes: insertChanges } };
+              if (sql.startsWith("UPDATE")) return { meta: { changes: updateChanges } };
+              throw new Error(`unexpected run: ${sql}`);
+            },
+            async first() {
+              return existing;
+            },
+          };
+        },
+      };
+    },
+  };
+}
 
 test("an approved clean PR with passing checks can pass the merge gate", () => {
   const result = evaluateMergeGate(
@@ -99,4 +123,71 @@ test("old failed reruns do not keep a newer successful check red", () => {
     { id: 2, name: "build", status: "completed", conclusion: "success", completed_at: "2026-09-17T02:00:00Z" },
   ]);
   assert.deepEqual(current, [{ id: 2, name: "build", status: "completed", conclusion: "success", completed_at: "2026-09-17T02:00:00Z" }]);
+});
+
+test("a stale running action can be reclaimed after a worker interruption", async () => {
+  const db = actionLogDb({
+    status: "running",
+    updated_at: new Date(Date.now() - 16 * 60 * 1000).toISOString(),
+  });
+
+  assert.equal(
+    await claimAction(
+      { STATE_DB: db },
+      "event-stale",
+      "review_engine",
+      "review:repo#1:sha-stale",
+    ),
+    true,
+  );
+  assert.match(db.statements[2], /status = 'running'/);
+  assert.match(db.statements[2], /updated_at <= \?/);
+});
+
+test("a recent running action is still owned by the active worker", async () => {
+  const db = actionLogDb({
+    status: "running",
+    updated_at: new Date(Date.now() - 14 * 60 * 1000).toISOString(),
+  });
+
+  assert.equal(
+    await claimAction(
+      { STATE_DB: db },
+      "event-recent",
+      "review_engine",
+      "review:repo#1:sha-recent",
+    ),
+    false,
+  );
+  assert.equal(db.statements.length, 2);
+});
+
+test("completed actions remain idempotent and are not reclaimed", async () => {
+  const db = actionLogDb({ status: "completed", updated_at: new Date().toISOString() });
+
+  assert.equal(
+    await claimAction(
+      { STATE_DB: db },
+      "event-completed",
+      "review_engine",
+      "review:repo#1:sha-completed",
+    ),
+    false,
+  );
+  assert.equal(db.statements.length, 2);
+});
+
+test("failed actions keep the existing retry path", async () => {
+  const db = actionLogDb({ status: "failed", updated_at: new Date().toISOString() });
+
+  assert.equal(
+    await claimAction(
+      { STATE_DB: db },
+      "event-failed",
+      "review_engine",
+      "review:repo#1:sha-failed",
+    ),
+    true,
+  );
+  assert.match(db.statements[2], /status = 'failed'/);
 });
