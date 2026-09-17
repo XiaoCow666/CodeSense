@@ -21,6 +21,11 @@ from models import (
     ThinkingSession,
 )
 from services.teacher_analytics import build_teacher_dashboard_data
+from services.learning_graph import (
+    LearningGraphAccessError,
+    build_student_learning_graph,
+    build_teacher_knowledge_coverage,
+)
 from services.demo_database import current_demo_run_id
 from services.feedback import (
     FEEDBACK_CATEGORIES,
@@ -88,6 +93,21 @@ def _knowledge_profile_rows(profile):
 
 def _analysis_status_label(status):
     return _ANALYSIS_STATUS_LABELS.get(status, '等待分析')
+
+
+def _learning_graph_fallback(scope):
+    return {
+        'nodes': [],
+        'edges': [],
+        'recommendations': [],
+        'meta': {
+            'scope': scope,
+            'sample_size': 0,
+            'assignment_count': 0,
+            'knowledge_point_count': 0,
+            'virtual_nodes': ['student:mastery'] if scope == 'student' else [],
+        },
+    }
 
 # 添加编辑器测试路由
 @main.route('/test_editor')
@@ -268,6 +288,24 @@ def home():
         # 这样首屏不会只显示“加载中”，网络较慢时也能看到真实的演示数据。
         knowledge_profile = KnowledgePointScore.get_student_profile(student_id)
         knowledge_profile_rows = _knowledge_profile_rows(knowledge_profile)
+        try:
+            learning_graph = build_student_learning_graph(
+                student_id=student_id,
+                limit=8,
+            )
+        except LearningGraphAccessError:
+            current_app.logger.warning(
+                '学生 %s 的知识路径超出访问范围，使用空状态',
+                student_id,
+            )
+            learning_graph = _learning_graph_fallback('student')
+        except Exception:
+            current_app.logger.exception(
+                '加载学生 %s 的知识路径失败 request_id=%s',
+                student_id,
+                getattr(g, 'codesense_request_id', None),
+            )
+            learning_graph = _learning_graph_fallback('student')
         analysis_status = trend_record.status or 'pending'
         # 1. 通过统一的能力引擎获取雷达图数据
         ability_scores = current_user.get_ability_scores()
@@ -352,6 +390,7 @@ def home():
             'submissions': submissions,
             'knowledge_profile': knowledge_profile,
             'knowledge_profile_rows': knowledge_profile_rows,
+            'learning_graph': learning_graph,
             'ability_trend': trend_record,
             'analysis_status': analysis_status,
             'analysis_status_label': _analysis_status_label(analysis_status),
@@ -517,6 +556,24 @@ def teacher_dashboard():
 
     teacher = current_user
     dashboard = build_teacher_dashboard_data(teacher)
+    try:
+        learning_graph = build_teacher_knowledge_coverage(
+            viewer_id=teacher.student_id,
+            limit=10,
+        )
+    except LearningGraphAccessError:
+        current_app.logger.warning(
+            '教师 %s 的班级知识覆盖超出访问范围，使用空状态',
+            teacher.student_id,
+        )
+        learning_graph = _learning_graph_fallback('teacher_class')
+    except Exception:
+        current_app.logger.exception(
+            '加载教师 %s 的班级知识覆盖失败 request_id=%s',
+            teacher.student_id,
+            getattr(g, 'codesense_request_id', None),
+        )
+        learning_graph = _learning_graph_fallback('teacher_class')
     
     from models import TeacherAISuggestion
     ai_suggestions = {sug.class_id: sug for sug in TeacherAISuggestion.query.filter_by(teacher_id=teacher.student_id).all()}
@@ -534,6 +591,7 @@ def teacher_dashboard():
                            class_cards=dashboard['class_cards'],
                            attention=dashboard['attention'],
                            chart_data=dashboard['chart_data'],
+                           learning_graph=learning_graph,
                            ai_suggestions=ai_suggestions,
                            open_review_count=open_review_count)
 

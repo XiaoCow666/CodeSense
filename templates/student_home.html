@@ -488,6 +488,11 @@
     </div>
 </div>
 
+{% set role = 'student' %}
+{% set graph_id = 'student-learning-graph' %}
+{% set graph = learning_graph %}
+{% include 'components/learning_graph_panel.html' with context %}
+
 <!-- 最近作业 -->
 <div class="card mt-4" style="margin-top: 2rem; margin-bottom: 2rem;">
     <div class="card-header" style="padding: 1rem 1.5rem;">

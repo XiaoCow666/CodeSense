@@ -424,6 +424,11 @@
         </div>
     </div>
 
+    {% set role = 'teacher' %}
+    {% set graph_id = 'teacher-knowledge-coverage' %}
+    {% set graph = learning_graph %}
+    {% include 'components/learning_graph_panel.html' with context %}
+
     <!-- 可视化图表区 -->
     <div class="dashboard-section">
         <div class="trend-toolbar">

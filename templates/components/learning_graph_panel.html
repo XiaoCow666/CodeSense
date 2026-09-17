@@ -1,0 +1,142 @@
+{% set meta = graph.get('meta', {}) if graph else {} %}
+{% set graph_nodes = graph.get('nodes', []) if graph else [] %}
+{% set graph_recommendations = graph.get('recommendations', []) if graph else [] %}
+<section class="learning-graph-panel" aria-labelledby="{{ graph_id }}-title">
+    <div class="learning-graph-panel__header">
+        <div>
+            <p class="learning-graph-panel__eyebrow">
+                <i class="bi bi-diagram-3" aria-hidden="true"></i>
+                {% if role == 'student' %}学习路径{% else %}班级知识覆盖{% endif %}
+            </p>
+            <h2 id="{{ graph_id }}-title" class="learning-graph-panel__title">
+                {% if role == 'student' %}我的知识路径{% else %}班级知识覆盖{% endif %}
+            </h2>
+            <p class="learning-graph-panel__description">
+                {% if role == 'student' %}
+                把作业中的知识点和你的掌握度放在同一条路径上，直接找到下一步练习。
+                {% else %}
+                只展示你有权限管理的班级聚合数据，帮助定位需要分层练习的概念。
+                {% endif %}
+            </p>
+        </div>
+        <span class="learning-graph-panel__privacy">
+            <i class="bi bi-shield-check" aria-hidden="true"></i>
+            {% if role == 'student' %}仅本人数据{% else %}仅班级聚合{% endif %}
+        </span>
+    </div>
+
+    <div class="learning-graph-panel__summary" aria-label="知识路径摘要">
+        <span><strong>{{ meta.get('assignment_count', 0) }}</strong> 份作业</span>
+        <span><strong>{{ meta.get('knowledge_point_count', 0) }}</strong> 个知识点</span>
+        {% if role == 'teacher' %}
+        <span><strong>{{ meta.get('sample_size', 0) }}</strong> 名学生样本</span>
+        {% else %}
+        <span><strong>{{ graph_recommendations|length }}</strong> 个下一步建议</span>
+        {% endif %}
+    </div>
+
+    {% if graph_nodes %}
+        {% if role == 'student' %}
+        {% set knowledge_nodes = graph_nodes|selectattr('type', 'equalto', 'knowledge_point')|list %}
+        {% if knowledge_nodes %}
+        <div class="learning-graph-concepts" aria-label="我的知识点掌握度">
+            {% for node in knowledge_nodes[:6] %}
+            {% set mastery = node.get('mastery') %}
+            <article class="learning-graph-concept">
+                <div class="learning-graph-concept__heading">
+                    <span class="fw-semibold">{{ node.get('label', node.get('code')) }}</span>
+                    <span class="learning-graph-score {% if mastery is none %}is-empty{% elif mastery < 60 %}is-low{% elif mastery < 80 %}is-progress{% else %}is-stable{% endif %}">
+                        {% if mastery is none %}待测{% else %}{{ "%.0f"|format(mastery) }}{% endif %}
+                    </span>
+                </div>
+                <div class="learning-graph-progress" role="progressbar" aria-label="{{ node.get('label', node.get('code')) }}掌握度"
+                    aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ mastery if mastery is not none else 0 }}">
+                    <span style="width: {{ mastery if mastery is not none else 0 }}%"></span>
+                </div>
+                <small class="text-muted">
+                    {% if mastery is none %}还没有足够练习记录{% elif mastery < 60 %}建议优先复习{% elif mastery < 80 %}继续练习巩固{% else %}掌握较稳定{% endif %}
+                </small>
+            </article>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="learning-graph-empty" role="status">
+            <i class="bi bi-signpost-2" aria-hidden="true"></i>
+            <div><strong>作业已经接入，知识点还在整理中</strong><br><span>完成一次带知识点的作业后，这里会出现你的学习路径。</span></div>
+        </div>
+        {% endif %}
+
+        {% if graph_recommendations %}
+        <div class="learning-graph-next">
+            <h3>下一步先练什么</h3>
+            <div class="learning-graph-recommendations">
+                {% for item in graph_recommendations[:4] %}
+                <a class="learning-graph-recommendation" href="{{ url_for('assignments.submit_code', assignment_id=item.assignment_id) }}">
+                    <span>
+                        <strong>{{ item.label }}</strong>
+                        <small>{{ item.reason }}</small>
+                    </span>
+                    <i class="bi bi-arrow-up-right" aria-hidden="true"></i>
+                </a>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+        <p class="learning-graph-panel__note"><i class="bi bi-info-circle" aria-hidden="true"></i> “关联”表示知识点出现在同一份作业中，不代表系统已经判定它们存在先后依赖。</p>
+        {% else %}
+        {% set coverage_nodes = graph_nodes|selectattr('type', 'equalto', 'knowledge_point')|list %}
+        {% if coverage_nodes %}
+        <div class="learning-graph-coverage-grid" aria-label="班级知识点覆盖">
+            {% for node in coverage_nodes[:10] %}
+            <article class="learning-graph-coverage-card">
+                <div class="d-flex justify-content-between align-items-start gap-2">
+                    <strong>{{ node.get('label', node.get('code')) }}</strong>
+                    <span class="learning-graph-status {% if node.get('status') == 'needs_attention' %}is-warning{% elif node.get('status') == 'insufficient_sample' %}is-muted{% else %}is-good{% endif %}">
+                        {% if node.get('status') == 'needs_attention' %}需关注{% elif node.get('status') == 'insufficient_sample' %}样本不足{% else %}已覆盖{% endif %}
+                    </span>
+                </div>
+                <div class="learning-graph-coverage-value">
+                    {% if node.get('average_mastery') is none %}暂无{% else %}{{ "%.1f"|format(node.get('average_mastery')) }}{% endif %}<small>/100</small>
+                </div>
+                <div class="d-flex justify-content-between small text-muted">
+                    <span>{{ node.get('student_sample_size', 0) }} 名有记录</span>
+                    <span>{{ node.get('low_mastery_count', 0) }} 名需巩固</span>
+                </div>
+            </article>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="learning-graph-empty" role="status">
+            <i class="bi bi-diagram-3" aria-hidden="true"></i>
+            <div><strong>暂时没有可汇总的知识点</strong><br><span>给班级布置带知识点的作业后，这里会自动形成覆盖概览。</span></div>
+        </div>
+        {% endif %}
+
+        {% if graph_recommendations %}
+        <div class="learning-graph-next">
+            <h3>教学提醒</h3>
+            <div class="learning-graph-recommendations">
+                {% for item in graph_recommendations[:4] %}
+                <div class="learning-graph-recommendation is-static">
+                    <span><strong>{{ item.label }}</strong><small>{{ item.reason }}</small></span>
+                    <i class="bi bi-lightbulb" aria-hidden="true"></i>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+        <p class="learning-graph-panel__note"><i class="bi bi-shield-check" aria-hidden="true"></i> 只有至少 2 名学生有该知识点记录时才生成班级提醒；不会在此处展示个人姓名或个人分数。</p>
+        {% endif %}
+    {% else %}
+    <div class="learning-graph-empty" role="status">
+        <i class="bi bi-signpost-2" aria-hidden="true"></i>
+        <div>
+            {% if role == 'student' %}
+            <strong>先完成一份作业，建立你的知识路径</strong><br><span>你的掌握度只会使用自己的学习记录计算。</span>
+            {% else %}
+            <strong>先布置带知识点的作业</strong><br><span>这里会在班级产生可比较的学习记录后显示覆盖概览。</span>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+</section>
