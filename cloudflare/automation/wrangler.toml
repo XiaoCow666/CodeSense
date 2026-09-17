@@ -1,0 +1,21 @@
+name = "codesense-project-automation"
+main = "src/index.js"
+compatibility_date = "2026-09-17"
+workers_dev = true
+preview_urls = false
+
+[[d1_databases]]
+binding = "STATE_DB"
+database_name = "codesense-automation-state"
+database_id = "7b63dcab-0e51-459a-99e5-d1f2b2890fc3"
+migrations_dir = "migrations"
+
+[[queues.producers]]
+binding = "EVENTS_QUEUE"
+queue = "codesense-automation-events"
+
+[[queues.consumers]]
+queue = "codesense-automation-events"
+max_batch_size = 10
+max_batch_timeout = 5
+max_retries = 3
