@@ -191,7 +191,7 @@ function parseReviewResult(text) {
   const start = cleaned.indexOf("{");
   const end = cleaned.lastIndexOf("}");
   if (start < 0 || end <= start) throw new Error("review engine returned non-JSON output");
-  return normalizeReviewResult(JSON.parse(cleaned.slice(start, end + 1)));
+  return JSON.parse(cleaned.slice(start, end + 1));
 }
 
 export async function callLuoxin(env, event) {
@@ -212,7 +212,8 @@ export async function callLuoxin(env, event) {
     if (!reply) throw new Error("luoxin returned an empty message reply");
     return { kind: "message", provider: "luoxin", model: value.model || env.LUOXIN_MODEL || "gpt-5.6-terra", reply };
   }
-  return { provider: "luoxin", model: value.model || env.LUOXIN_MODEL || "gpt-5.6-terra", diff_available: diff.available, ...parseReviewResult(modelText(value)) };
+  const review = normalizeReviewResult({ ...parseReviewResult(modelText(value)), diff_available: diff.available });
+  return { provider: "luoxin", model: value.model || env.LUOXIN_MODEL || "gpt-5.6-terra", ...review, diff_available: diff.available };
 }
 
 function safeActionError(error) {
