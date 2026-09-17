@@ -37,9 +37,12 @@ from services.action_center import build_action_center
 from services.knowledge_rag import (
     MAX_EVIDENCE,
     build_knowledge_prompt_context,
+    get_knowledge_quality_snapshot,
+    knowledge_rate_limiter,
     render_knowledge_receipt,
     retrieve_assignment_knowledge,
 )
+from services.knowledge_reliability import default_retrieval_timeout_ms
 from services.knowledge_evidence import (
     build_knowledge_evidence_view,
     build_public_knowledge_retrieval,
@@ -119,6 +122,35 @@ def get_action_center():
     ))
     response.headers['Cache-Control'] = 'no-store'
     return response
+
+
+@api.route('/admin/knowledge-quality', methods=['GET'])
+@login_required
+@admin_required
+def get_knowledge_quality():
+    """Return bounded, low-cardinality knowledge retrieval health metrics."""
+
+    snapshot = get_knowledge_quality_snapshot()
+    quality = {
+        "requests": int(snapshot.get("requests", 0)),
+        "status_counts": dict(snapshot.get("status_counts", {})),
+        "mode_counts": dict(snapshot.get("mode_counts", {})),
+        "latency_sample_count": int(snapshot.get("latency_sample_count", 0)),
+        "mean_latency_ms": float(snapshot.get("mean_latency_ms", 0.0)),
+    }
+    limits = {
+        "max_evidence": MAX_EVIDENCE,
+        "rate_limit_requests": int(knowledge_rate_limiter.max_requests),
+        "rate_limit_window_seconds": float(knowledge_rate_limiter.window_seconds),
+        "retrieval_timeout_ms": int(default_retrieval_timeout_ms()),
+    }
+    return _no_store(
+        api_response(
+            success=True,
+            message="获取知识检索质量状态成功",
+            data={"quality": quality, "limits": limits},
+        )
+    )
 
 
 @api.route('/assignments', methods=['GET'])
@@ -394,8 +426,12 @@ def _retrieve_knowledge_context(assignment_id, query="", *, limit=MAX_EVIDENCE):
                 "citation_completeness": 0.0,
                 "no_result_fallback": False,
                 "retrieval_error_fallback": True,
+                "retrieval_timeout_fallback": False,
+                "rate_limit_fallback": False,
                 "retrieval_mode": "unavailable",
                 "indexed_chunk_count": 0,
+                "index_revision": 0,
+                "privacy_filtered_count": 0,
             },
             "fallback": {
                 "code": "KNOWLEDGE_RETRIEVAL_UNAVAILABLE",
@@ -407,8 +443,9 @@ def _retrieve_knowledge_context(assignment_id, query="", *, limit=MAX_EVIDENCE):
     current_app.logger.info(
         "knowledge_rag status=%s candidates=%s hits=%s latency_ms=%.2f "
         "citation_completeness=%.3f no_result_fallback=%s "
-        "retrieval_error_fallback=%s retrieval_mode=%s indexed_chunks=%s "
-        "fallback_code=%s",
+        "retrieval_error_fallback=%s retrieval_timeout_fallback=%s "
+        "rate_limit_fallback=%s retrieval_mode=%s indexed_chunks=%s "
+        "index_revision=%s privacy_filtered_count=%s fallback_code=%s",
         retrieval["status"],
         metrics.get("candidate_count", 0),
         metrics.get("hit_count", 0),
@@ -416,8 +453,12 @@ def _retrieve_knowledge_context(assignment_id, query="", *, limit=MAX_EVIDENCE):
         metrics.get("citation_completeness", 0.0),
         metrics.get("no_result_fallback", False),
         metrics.get("retrieval_error_fallback", False),
+        metrics.get("retrieval_timeout_fallback", False),
+        metrics.get("rate_limit_fallback", False),
         metrics.get("retrieval_mode", "unknown"),
         metrics.get("indexed_chunk_count", 0),
+        metrics.get("index_revision", 0),
+        metrics.get("privacy_filtered_count", 0),
         (retrieval.get("fallback") or {}).get("code"),
     )
     return retrieval

@@ -3,6 +3,7 @@
 {% block title %}管理员仪表盘 - CodeSense 酷森思{% endblock %}
 
 {% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/knowledge-quality.css') }}">
 <style>
     .overview-card {
         margin-bottom: 2rem;
@@ -159,6 +160,58 @@
         </div>
     </div>
 </div>
+
+<section class="knowledge-quality-card card" id="knowledge-quality-card"
+    aria-labelledby="knowledge-quality-title"
+    data-endpoint="{{ url_for('api.get_knowledge_quality') }}">
+    <div class="card-header knowledge-quality-card__header">
+        <div>
+            <div class="card-title" id="knowledge-quality-title">
+                <i class="bi bi-shield-check" aria-hidden="true"></i> 知识检索质量
+            </div>
+            <p class="knowledge-quality-card__subtitle">只展示不含学生内容的运行状态，帮助管理员判断 AI 证据是否可用。</p>
+        </div>
+        <button class="btn btn-outline-primary btn-sm" type="button" id="knowledge-quality-refresh">
+            刷新状态
+        </button>
+    </div>
+    <div class="card-body">
+        <p class="knowledge-quality-card__status" id="knowledge-quality-status"
+            role="status" aria-live="polite" aria-atomic="true">正在加载检索状态…</p>
+        <div class="knowledge-quality-card__metrics" aria-label="知识检索质量指标">
+            <div>
+                <strong data-quality-field="requests">—</strong>
+                <span>检索请求</span>
+            </div>
+            <div>
+                <strong data-quality-field="mean_latency_ms">—</strong>
+                <span>平均延迟（毫秒）</span>
+            </div>
+            <div>
+                <strong data-quality-field="latency_sample_count">—</strong>
+                <span>延迟样本</span>
+            </div>
+            <div>
+                <strong data-quality-field="retrieval_timeout">—</strong>
+                <span>超时回退</span>
+            </div>
+            <div>
+                <strong data-quality-field="rate_limited">—</strong>
+                <span>限流回退</span>
+            </div>
+        </div>
+        <div class="knowledge-quality-card__breakdown">
+            <div>
+                <h3>状态分布</h3>
+                <div id="knowledge-quality-status-counts" class="knowledge-quality-card__chips"></div>
+            </div>
+            <div>
+                <h3>检索模式</h3>
+                <div id="knowledge-quality-mode-counts" class="knowledge-quality-card__chips"></div>
+            </div>
+        </div>
+    </div>
+</section>
 
 <div class="admin-actions card">
     <div class="card-header">
@@ -507,4 +560,5 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="{{ url_for('static', filename='js/knowledge-quality.js') }}"></script>
 {% endblock %}

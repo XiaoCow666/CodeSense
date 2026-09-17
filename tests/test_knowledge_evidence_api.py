@@ -310,3 +310,43 @@ def test_unauthenticated_request_keeps_login_boundary(evidence_api_context):
     response = client.get(f"/api/assignments/{ids['student']}/knowledge-evidence")
 
     assert response.status_code in {302, 401}
+
+
+def test_admin_can_read_bounded_knowledge_quality_snapshot(evidence_api_context):
+    _, client, _ = evidence_api_context
+    _login(client, "evidence-admin")
+
+    response = client.get("/api/admin/knowledge-quality")
+
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "no-store"
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    data = response.json["data"]
+    assert set(data) == {"quality", "limits"}
+    assert set(data["quality"]) == {
+        "requests",
+        "status_counts",
+        "mode_counts",
+        "latency_sample_count",
+        "mean_latency_ms",
+    }
+    assert set(data["limits"]) == {
+        "max_evidence",
+        "rate_limit_requests",
+        "rate_limit_window_seconds",
+        "retrieval_timeout_ms",
+    }
+    assert "student_id" not in json.dumps(response.json, ensure_ascii=False)
+    assert "query" not in json.dumps(response.json, ensure_ascii=False)
+
+
+@pytest.mark.parametrize("username", ["evidence-student", "evidence-teacher"])
+def test_knowledge_quality_snapshot_keeps_admin_boundary(
+    evidence_api_context, username
+):
+    _, client, _ = evidence_api_context
+    _login(client, username)
+
+    response = client.get("/api/admin/knowledge-quality")
+
+    assert response.status_code == 302
