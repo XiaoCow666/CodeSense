@@ -31,7 +31,7 @@ INTERNAL_RECONCILE_SECRET
 LUOXIN_API_KEY
 ```
 
-`LUOXIN_BASE_URL` 和 `LUOXIN_MODEL` 已在 `wrangler.toml` 中配置为非敏感变量；API Key 只能作为 Worker Secret 写入。当前 Worker 会对两个仓库符合条件的 GitHub PR 事件调用 OpenAI 兼容的 `/chat/completions`，读取最新 diff 和 Checks，再按门禁判断是否能合并。只有 GitHub 明确返回合并成功，任务才会进入已完成并创建下一阶段；评审不通过时会把具体的文件/位置、当前问题、目标改法和可交给 AI 的操作提示写进 Review、任务台和知识库。
+`LUOXIN_BASE_URL` 和 `LUOXIN_MODEL` 已在 `wrangler.toml` 中配置为非敏感变量；API Key 只能作为 Worker Secret 写入。当前 Worker 会对两个仓库符合条件的 GitHub PR 事件调用 OpenAI 兼容的 `/chat/completions`，读取最新 diff 和 Checks，再按门禁判断是否能合并。门禁要求 PR 可合并、head SHA 未变化、至少有一项检查且全部通过、评审结果为 approve、diff 可读取并且没有阻塞问题。只有 GitHub 明确返回合并成功，任务才会进入已完成并创建下一阶段；评审不通过时会把具体的文件/位置、当前问题、目标改法和可交给 AI 的操作提示写进 Review、任务台和知识库。
 
 飞书消息默认保持安静：普通群聊不响应；直接 @机器人，或出现冲突、无法提交、重复提交、权限等严重任务问题时才处理。自动跟进通过私聊发送；仅在有人直接 @机器人或出现严重问题时才在群消息线程回复。新成员事件按群 ID 路由到对应项目并创建阶段一任务。
 

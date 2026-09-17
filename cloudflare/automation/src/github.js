@@ -129,6 +129,7 @@ export function evaluateMergeGate(pr, checks, reviewResult, eventHeadSha) {
   if (!["clean", "unstable"].includes(pr?.mergeable_state)) reasons.push("mergeable_state_not_ready");
   if (checks?.pending) reasons.push("checks_pending");
   if (checks?.failed) reasons.push("checks_failed");
+  if (!checks?.has_checks) reasons.push("checks_missing");
   if (!reviewResult || reviewResult.decision !== "approve") reasons.push("review_not_approved");
   if (reviewResult?.diff_available !== true) reasons.push("diff_unavailable");
   if (reviewResult?.blocking_findings?.length > 0) reasons.push("blocking_findings_present");
