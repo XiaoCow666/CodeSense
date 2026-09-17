@@ -446,6 +446,8 @@ def test_teacher_projection_exposes_bounded_reliability_diagnostics_only():
         "indexed_chunk_count": 0,
         "retrieval_latency_ms": 250.0,
         "retrieval_mode": "timeout",
+    }
+    assert teacher_view["quality_diagnostics"] == {
         "citation_completeness": 0.0,
         "index_revision": 2,
         "privacy_filtered_count": 1,

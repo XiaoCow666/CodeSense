@@ -10,6 +10,15 @@ This file records release-level information for users and maintainers. Versions 
 
 Future unreleased changes will be listed here.
 
+## [1.4.0] - 2026-09-17
+
+### Added
+
+- 学生在作业页和 Code Studio 中可以看到知识证据的正常、无匹配、超时和限流状态，并在可恢复状态下重新检索。
+- AI 问答的 JSON/SSE 完成响应统一携带证据回执；教师和管理员可以查看引用完整度、检索延迟、索引版本与隐私过滤等诊断信息。
+- 管理员仪表盘新增知识检索质量卡片，用聚合状态帮助判断服务是否稳定，不展示查询、代码或学生身份。
+- 使用指南补充证据状态、恢复方式和“知识证据不是评分依据”的说明。
+
 ## [1.3.0] - 2026-09-16
 
 ### Added
@@ -52,7 +61,8 @@ CodeSense 标准版首个正式版本。
 
 First formal release of the CodeSense Standard Edition.
 
-[Unreleased]: https://github.com/XiaoCow666/CodeSense/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/XiaoCow666/CodeSense/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/XiaoCow666/CodeSense/releases/tag/v1.4.0
 [1.3.0]: https://github.com/XiaoCow666/CodeSense/releases/tag/v1.3.0
 [1.2.0]: https://github.com/XiaoCow666/CodeSense/releases/tag/v1.2.0
 [1.1.0]: https://github.com/XiaoCow666/CodeSense/releases/tag/v1.1.0

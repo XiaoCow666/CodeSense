@@ -318,7 +318,7 @@ def build_knowledge_evidence_view(
 ) -> dict[str, Any]:
     """Project retrieval output into a bounded view safe for UI consumers.
 
-    Only the three known retrieval states are accepted.  Missing or malformed
+    Only the known retrieval states are accepted.  Missing or malformed
     input becomes ``unknown``; a grounded result without usable evidence is
     represented as ``no_result``.  Teacher and admin views include bounded
     operational diagnostics, while student views do not.
@@ -351,6 +351,15 @@ def build_knowledge_evidence_view(
         retrieval_mode = _safe_retrieval_mode(metrics.get("retrieval_mode"))
 
     copy = _STATUS_COPY[status]
+    fallback = retrieval.get("fallback") if retrieval else None
+    fallback_message = (
+        fallback.get("message")
+        if (
+            isinstance(fallback, Mapping)
+            and _FALLBACK_CODES.get(status) == fallback.get("code")
+        )
+        else None
+    )
     view: dict[str, Any] = {
         "status": status,
         "status_label": copy["status_label"],
@@ -360,7 +369,7 @@ def build_knowledge_evidence_view(
         "fallback_code": _fallback_code(retrieval, status=status),
         "fallback_message": (
             _safe_text(
-                (retrieval.get("fallback") or {}).get("message"),
+                fallback_message,
                 limit=240,
                 default=_FALLBACK_MESSAGES.get(status, ""),
             )
@@ -390,6 +399,8 @@ def build_knowledge_evidence_view(
                 metrics.get("retrieval_latency_ms")
             ),
             "retrieval_mode": retrieval_mode,
+        }
+        view["quality_diagnostics"] = {
             "citation_completeness": _safe_rate(
                 metrics.get("citation_completeness")
             ),

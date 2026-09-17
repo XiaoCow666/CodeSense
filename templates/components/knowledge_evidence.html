@@ -62,6 +62,7 @@
     {% endif %}
 
     {% set diagnostics = evidence_view.get('diagnostics') %}
+    {% set quality_diagnostics = evidence_view.get('quality_diagnostics', {}) %}
     {% if diagnostics and audience in ['teacher', 'admin'] %}
     <div class="knowledge-evidence-diagnostics" aria-label="作业知识诊断">
         <p class="knowledge-evidence-diagnostics__title">作业知识诊断</p>
@@ -70,10 +71,10 @@
             <span>命中证据 {{ diagnostics.get('hit_count', 0) }}</span>
             <span>索引块 {{ diagnostics.get('indexed_chunk_count', 0) }}</span>
             <span>模式 {{ diagnostics.get('retrieval_mode', 'unknown') }}</span>
-            <span>检索耗时 {{ diagnostics.get('retrieval_latency_ms', 0) }} ms</span>
-            <span>引用完整度 {{ (diagnostics.get('citation_completeness', 0) * 100)|round(1) }}%</span>
-            <span>索引版本 {{ diagnostics.get('index_revision', 0) }}</span>
-            <span>隐私过滤 {{ diagnostics.get('privacy_filtered_count', 0) }}</span>
+            <span>检索耗时 {{ quality_diagnostics.get('retrieval_latency_ms', diagnostics.get('retrieval_latency_ms', 0)) }} ms</span>
+            <span>引用完整度 {{ (quality_diagnostics.get('citation_completeness', 0) * 100)|round(1) }}%</span>
+            <span>索引版本 {{ quality_diagnostics.get('index_revision', 0) }}</span>
+            <span>隐私过滤 {{ quality_diagnostics.get('privacy_filtered_count', 0) }}</span>
         </div>
         <p class="knowledge-evidence-diagnostics__note">仅用于检索诊断，不作为评分依据。</p>
     </div>
