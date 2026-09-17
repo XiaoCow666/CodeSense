@@ -892,6 +892,10 @@ def ask_question():
         public_knowledge_retrieval = build_public_knowledge_retrieval(
             knowledge_retrieval
         )
+        knowledge_evidence = build_knowledge_evidence_view(
+            public_knowledge_retrieval,
+            audience="student",
+        )
         knowledge_prompt_context = build_knowledge_prompt_context(
             public_knowledge_retrieval
         )
@@ -980,8 +984,10 @@ def ask_question():
                             'data': {
                                 'answer': formatted_answer,
                                 'knowledge_retrieval': public_knowledge_retrieval,
+                                'knowledge_evidence': knowledge_evidence,
                             },
                             'knowledge_retrieval': public_knowledge_retrieval,
+                            'knowledge_evidence': knowledge_evidence,
                         })
                     except Exception as stream_error:
                         db.session.rollback()
@@ -1056,6 +1062,7 @@ def ask_question():
                 data={
                     'answer': formatted_answer,
                     'knowledge_retrieval': public_knowledge_retrieval,
+                    'knowledge_evidence': knowledge_evidence,
                 }
             )
             
