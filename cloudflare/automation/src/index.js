@@ -390,6 +390,12 @@ async function internalSecretMatches(request, env) {
   return timingSafeEqual(request.headers.get("authorization") || "", `Bearer ${secret}`);
 }
 
+async function replaySecretMatches(request, env) {
+  const secret = env.INTERNAL_REPLAY_SECRET;
+  if (!secret) return false;
+  return timingSafeEqual(request.headers.get("authorization") || "", `Bearer ${secret}`);
+}
+
 async function handleGithubWebhook(request, env) {
   if (!env.GITHUB_WEBHOOK_SECRET) return json({ error: "github webhook secret is not configured" }, 503);
   const { raw, value } = await parseBody(request);
@@ -424,6 +430,47 @@ async function handleReconcile(request, env) {
   return json({ accepted: true, event_id: queuedId });
 }
 
+async function handleReplay(request, env) {
+  if (!(await replaySecretMatches(request, env))) return json({ error: "invalid replay secret" }, 401);
+  const { value } = await parseBody(request);
+  const requestedIds = Array.isArray(value?.event_ids) ? value.event_ids : [value?.event_id];
+  const eventIds = [...new Set(requestedIds.filter((eventId) => typeof eventId === "string" && eventId.length > 0))];
+  if (!eventIds.length) return json({ error: "event_id or event_ids is required" }, 400);
+
+  const replayed = [];
+  const skipped = [];
+  for (const eventId of eventIds) {
+    const row = await env.STATE_DB.prepare(
+      "SELECT event_id, source, event_type, delivery_id, payload_json, status, action_status FROM event_inbox WHERE event_id = ?",
+    ).bind(eventId).first();
+    if (!row) {
+      skipped.push({ event_id: eventId, reason: "event_not_found" });
+      continue;
+    }
+    if (row.status === "processed" && row.action_status === "completed") {
+      skipped.push({ event_id: eventId, reason: "already_processed" });
+      continue;
+    }
+    let payload;
+    try {
+      payload = JSON.parse(row.payload_json);
+    } catch {
+      skipped.push({ event_id: eventId, reason: "invalid_payload" });
+      continue;
+    }
+    await env.EVENTS_QUEUE.send({
+      event_id: row.event_id,
+      source: row.source,
+      event_type: row.event_type,
+      delivery_id: row.delivery_id,
+      payload,
+      queued_at: now(),
+    });
+    replayed.push(eventId);
+  }
+  return json({ accepted: true, replayed, skipped });
+}
+
 export { formatMentionReply, evaluateMergeGate, normalizeReviewResult, reviewMarker, getFeishuTenantToken, feishuApi };
 
 export default {
@@ -440,6 +487,7 @@ export default {
             feishu_events: Boolean(env.FEISHU_VERIFICATION_TOKEN),
             feishu_actions: Boolean(env.FEISHU_APP_ID && env.FEISHU_APP_SECRET),
             reconcile: Boolean(env.INTERNAL_RECONCILE_SECRET),
+            replay: Boolean(env.INTERNAL_REPLAY_SECRET),
             review_engine: Boolean(env.REVIEW_ENGINE_URL || env.LUOXIN_API_KEY),
             luoxin: Boolean(env.LUOXIN_API_KEY),
             task_board: Boolean(env.FEISHU_CODESENSE_BASE_TOKEN && env.FEISHU_CAIFUSI_BASE_TOKEN),
@@ -452,6 +500,7 @@ export default {
       if (url.pathname === "/webhooks/github") return await handleGithubWebhook(request, env);
       if (url.pathname === "/webhooks/feishu") return await handleFeishuEvent(request, env);
       if (url.pathname === "/internal/reconcile") return await handleReconcile(request, env);
+      if (url.pathname === "/internal/replay") return await handleReplay(request, env);
       return json({ error: "not found" }, 404);
     } catch (error) {
       console.error("automation request failed", safeActionError(error));

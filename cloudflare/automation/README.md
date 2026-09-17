@@ -14,6 +14,7 @@
 - GitHub Webhook：`/webhooks/github`
 - 飞书事件入口：`/webhooks/feishu`
 - 内部补偿入口：`/internal/reconcile`
+- 事件重放入口：`/internal/replay`
 
 ## 必须配置的 Worker Secrets
 
@@ -23,6 +24,7 @@ GITHUB_API_TOKEN
 FEISHU_VERIFICATION_TOKEN
 FEISHU_APP_SECRET
 INTERNAL_RECONCILE_SECRET
+INTERNAL_REPLAY_SECRET
 ```
 
 评审引擎配置：
@@ -71,6 +73,12 @@ https://codesense-project-automation.daiyupeng5.workers.dev/webhooks/github
 
 ```json
 {"repository":"XiaoCow666/CodeSense","number":12}
+```
+
+事件重放入口只接受带 `Authorization: Bearer <INTERNAL_REPLAY_SECRET>` 的请求，并且正文需要包含已有失败事件的 ID：
+
+```json
+{"event_id":"event-inbox-id"}
 ```
 
 不要把任何 Secret 写进仓库、任务台、知识库或 PR description。
