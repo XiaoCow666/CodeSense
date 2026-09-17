@@ -109,12 +109,13 @@ export function shouldInvokeLuoxin(env, event) {
   if (event.event_type === "pull_request_review_comment") return action === "created";
   if (event.event_type === "issue_comment") return action === "created" && /(?:^|\s)(?:@codex|@牛顿|\/review)(?:\s|$|[，。！？,.!?：:])/i.test(eventPayload(event).comment?.body || "");
   if (event.event_type === "check_suite") return CHECK_ACTIONS.has(action) && Boolean(eventPayload(event).check_suite?.pull_requests?.length);
+  if (event.event_type === "check_run") return action === "completed" && Boolean(eventPayload(event).check_run?.pull_requests?.length);
   return false;
 }
 
 function pullRequestContext(event) {
   const payload = eventPayload(event);
-  const pr = payload.pull_request || payload.issue || payload.check_suite?.pull_requests?.[0] || {};
+  const pr = payload.pull_request || payload.issue || payload.check_suite?.pull_requests?.[0] || payload.check_run?.pull_requests?.[0] || {};
   const repository = payload.repository || {};
   return {
     repository: repository.full_name || payload.repository || null,
@@ -125,7 +126,7 @@ function pullRequestContext(event) {
     author: pr.user?.login || null,
     base: pr.base?.ref || null,
     head: pr.head?.ref || null,
-    head_sha: pr.head?.sha || payload.check_suite?.head_sha || null,
+    head_sha: pr.head?.sha || payload.check_suite?.head_sha || payload.check_run?.head_sha || null,
     draft: Boolean(pr.draft),
     changed_files: pr.changed_files ?? null,
     additions: pr.additions ?? null,

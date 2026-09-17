@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { evaluateMergeGate, normalizeReviewResult } from "../src/github.js";
+import { shouldInvokeLuoxin } from "../src/index.js";
 
 test("an approved clean PR with passing checks can pass the merge gate", () => {
   const result = evaluateMergeGate(
@@ -42,4 +43,17 @@ test("a PR without any check result cannot be merged automatically", () => {
   );
   assert.equal(result.allowed, false);
   assert.deepEqual(result.reasons, ["checks_missing"]);
+});
+
+test("completed check-run events can trigger a fresh PR review", () => {
+  const event = {
+    source: "github",
+    event_type: "check_run",
+    payload: {
+      action: "completed",
+      repository: { full_name: "XiaoCow666/CodeSense" },
+      check_run: { head_sha: "abc", pull_requests: [{ number: 12 }] },
+    },
+  };
+  assert.equal(shouldInvokeLuoxin({}, event), true);
 });

@@ -20,7 +20,7 @@ export function repositoryName(value) {
 export function pullRequestReference(event) {
   const payload = event?.payload || {};
   const repository = payload.repository?.full_name || payload.repository || null;
-  const pullRequest = payload.pull_request || payload.issue || payload.check_suite?.pull_requests?.[0] || {};
+  const pullRequest = payload.pull_request || payload.issue || payload.check_suite?.pull_requests?.[0] || payload.check_run?.pull_requests?.[0] || {};
   const number = pullRequest.number || payload.number || null;
   if (!repository || !number) return null;
   return { repository: repositoryName(repository), number: Number(number) };

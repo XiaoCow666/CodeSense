@@ -65,7 +65,7 @@ npx wrangler deploy
 https://codesense-project-automation.daiyupeng5.workers.dev/webhooks/github
 ```
 
-事件至少需要包含 `pull_request`、`pull_request_review`、`pull_request_review_comment`、`issue_comment`、`push` 和 `check_suite`。`check_suite` 用于在代码检查从等待变为完成后再次评估合并条件。
+事件至少需要包含 `pull_request`、`pull_request_review`、`pull_request_review_comment`、`issue_comment`、`push`、`check_suite` 和 `check_run`。`check_suite`/`check_run` 用于在代码检查从等待变为完成后再次评估合并条件。
 
 内部补偿入口只接受带 `Authorization: Bearer <INTERNAL_RECONCILE_SECRET>` 的请求，并且正文需要是：
 
