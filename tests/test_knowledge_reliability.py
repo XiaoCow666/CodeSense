@@ -5,6 +5,10 @@ from config import TestingConfig as _TestingConfig
 from routes import api as api_routes
 from services.knowledge_pipeline import KnowledgeDocument, ParagraphChunker
 from services.knowledge_rag import retrieve_assignment_knowledge
+from services.knowledge_evidence import (
+    build_knowledge_evidence_view,
+    build_public_knowledge_retrieval,
+)
 from services.knowledge_reliability import (
     KnowledgePrivacyFilter,
     KnowledgeQualityMonitor,
@@ -363,6 +367,94 @@ def test_ask_question_timeout_returns_answer_only_response(knowledge_context, mo
     assert retrieval["fallback"]["code"] == "KNOWLEDGE_RETRIEVAL_TIMEOUT"
     assert response.json["data"]["answer"].startswith("先检查数组边界。")
     assert "知识证据检索超时" in response.json["data"]["answer"]
+
+
+@pytest.mark.parametrize(
+    ("status", "fallback_code", "retryable"),
+    [
+        ("timeout", "KNOWLEDGE_RETRIEVAL_TIMEOUT", True),
+        ("rate_limited", "KNOWLEDGE_RETRIEVAL_RATE_LIMITED", True),
+        ("unavailable", "KNOWLEDGE_RETRIEVAL_UNAVAILABLE", True),
+        ("no_result", "NO_KNOWLEDGE_EVIDENCE", False),
+    ],
+)
+def test_public_projection_preserves_each_bounded_recovery_state(
+    status, fallback_code, retryable
+):
+    raw = {
+        "status": status,
+        "evidence": [],
+        "metrics": {
+            "candidate_count": 7,
+            "hit_count": 0,
+            "retrieval_latency_ms": 12.5,
+            "citation_completeness": 0.25,
+            "retrieval_mode": status,
+            "retrieval_timeout_fallback": status == "timeout",
+            "rate_limit_fallback": status == "rate_limited",
+            "index_revision": 9,
+            "privacy_filtered_count": 3,
+        },
+        "fallback": {
+            "code": fallback_code,
+            "message": "安全的降级说明",
+        },
+    }
+
+    public = build_public_knowledge_retrieval(raw)
+    view = build_knowledge_evidence_view(public)
+
+    assert public["status"] == status
+    assert public["fallback"]["code"] == fallback_code
+    assert public["metrics"]["index_revision"] == 9
+    assert public["metrics"]["privacy_filtered_count"] == 3
+    assert view["status"] == status
+    assert view["retryable"] is retryable
+    assert view["fallback_code"] == fallback_code
+
+
+def test_teacher_projection_exposes_bounded_reliability_diagnostics_only():
+    public = build_public_knowledge_retrieval(
+        {
+            "status": "timeout",
+            "evidence": [],
+            "metrics": {
+                "candidate_count": 4,
+                "hit_count": 0,
+                "retrieval_latency_ms": 250.0,
+                "citation_completeness": 0.0,
+                "retrieval_mode": "timeout",
+                "retrieval_timeout_fallback": True,
+                "rate_limit_fallback": False,
+                "index_revision": 2,
+                "privacy_filtered_count": 1,
+            },
+            "fallback": {
+                "code": "KNOWLEDGE_RETRIEVAL_TIMEOUT",
+                "message": "知识证据检索超时，回答仅基于题目和代码。",
+            },
+            "query": "private query must not cross boundary",
+        }
+    )
+
+    teacher_view = build_knowledge_evidence_view(public, audience="teacher")
+    student_view = build_knowledge_evidence_view(public, audience="student")
+
+    assert teacher_view["diagnostics"] == {
+        "candidate_count": 4,
+        "hit_count": 0,
+        "indexed_chunk_count": 0,
+        "retrieval_latency_ms": 250.0,
+        "retrieval_mode": "timeout",
+        "citation_completeness": 0.0,
+        "index_revision": 2,
+        "privacy_filtered_count": 1,
+        "retrieval_timeout_fallback": True,
+        "rate_limit_fallback": False,
+        "fallback_code": "KNOWLEDGE_RETRIEVAL_TIMEOUT",
+    }
+    assert "diagnostics" not in student_view
+    assert "private query" not in str(teacher_view)
 
 
 def test_retriever_privacy_filter_is_applied_before_citation(knowledge_context):

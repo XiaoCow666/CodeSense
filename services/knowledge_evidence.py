@@ -17,8 +17,11 @@ MAX_EVIDENCE = 8
 MAX_CANDIDATES = 64
 MAX_INDEXED_CHUNKS = 64
 MAX_LATENCY_MS = 600_000.0
+MAX_INDEX_REVISION = 1_000_000_000
 
-_ALLOWED_STATUSES = frozenset({"grounded", "no_result", "unavailable"})
+_ALLOWED_STATUSES = frozenset(
+    {"grounded", "no_result", "unavailable", "timeout", "rate_limited"}
+)
 _ALLOWED_AUDIENCES = frozenset({"teacher", "admin"})
 _ALLOWED_RETRIEVAL_MODES = frozenset(
     {
@@ -27,6 +30,8 @@ _ALLOWED_RETRIEVAL_MODES = frozenset(
         "priority_fallback",
         "no_result",
         "unavailable",
+        "timeout",
+        "rate_limited",
         "unknown",
     }
 )
@@ -37,10 +42,14 @@ _DEFAULT_SOURCE_LABEL = "作业知识证据"
 _FALLBACK_CODES = {
     "no_result": "NO_KNOWLEDGE_EVIDENCE",
     "unavailable": "KNOWLEDGE_RETRIEVAL_UNAVAILABLE",
+    "timeout": "KNOWLEDGE_RETRIEVAL_TIMEOUT",
+    "rate_limited": "KNOWLEDGE_RETRIEVAL_RATE_LIMITED",
 }
 _FALLBACK_MESSAGES = {
     "no_result": "当前作业没有已标注知识点，回答仅基于题目和代码。",
     "unavailable": "知识证据暂时不可用，回答仅基于题目和代码。",
+    "timeout": "知识证据检索超时，回答仅基于题目和代码。",
+    "rate_limited": "知识证据请求过于频繁，回答仅基于题目和代码。",
 }
 _STATUS_COPY = {
     "grounded": {
@@ -58,12 +67,23 @@ _STATUS_COPY = {
         "summary": "知识证据暂时不可用，但基础指导仍可继续。",
         "next_step": "继续查看基础指导，稍后重试证据检索。",
     },
+    "timeout": {
+        "status_label": "证据检索超时",
+        "summary": "本次知识证据检索没有在时间预算内完成，基础指导仍可继续。",
+        "next_step": "继续查看基础指导，稍后重新检索证据。",
+    },
+    "rate_limited": {
+        "status_label": "证据请求需要稍候",
+        "summary": "知识证据请求过于频繁，基础指导仍可继续。",
+        "next_step": "稍等片刻后重新检索证据，或先继续检查题目和代码。",
+    },
     "unknown": {
         "status_label": "证据状态不可用",
         "summary": "当前无法确认知识证据状态。",
         "next_step": "继续使用基础指导，稍后重试。",
     },
 }
+_RETRYABLE_STATUSES = frozenset({"unavailable", "timeout", "rate_limited"})
 
 
 def _safe_text(value: Any, *, limit: int, default: str = "") -> str:
@@ -252,10 +272,28 @@ def build_public_knowledge_retrieval(
                 if isinstance(metrics.get("retrieval_error_fallback"), bool)
                 else status == "unavailable"
             ),
+            "retrieval_timeout_fallback": (
+                bool(metrics.get("retrieval_timeout_fallback"))
+                if isinstance(metrics.get("retrieval_timeout_fallback"), bool)
+                else status == "timeout"
+            ),
+            "rate_limit_fallback": (
+                bool(metrics.get("rate_limit_fallback"))
+                if isinstance(metrics.get("rate_limit_fallback"), bool)
+                else status == "rate_limited"
+            ),
             "retrieval_mode": retrieval_mode,
             "indexed_chunk_count": _safe_nonnegative_int(
                 metrics.get("indexed_chunk_count"),
                 maximum=MAX_INDEXED_CHUNKS,
+            ),
+            "index_revision": _safe_nonnegative_int(
+                metrics.get("index_revision"),
+                maximum=MAX_INDEX_REVISION,
+            ),
+            "privacy_filtered_count": _safe_nonnegative_int(
+                metrics.get("privacy_filtered_count"),
+                maximum=MAX_CANDIDATES,
             ),
         },
         "fallback": fallback,
@@ -320,6 +358,16 @@ def build_knowledge_evidence_view(
         "next_step": copy["next_step"],
         "has_evidence": bool(evidence),
         "fallback_code": _fallback_code(retrieval, status=status),
+        "fallback_message": (
+            _safe_text(
+                (retrieval.get("fallback") or {}).get("message"),
+                limit=240,
+                default=_FALLBACK_MESSAGES.get(status, ""),
+            )
+            if status != "grounded"
+            else None
+        ),
+        "retryable": status in _RETRYABLE_STATUSES,
         "retrieval_mode": retrieval_mode,
         "evidence": evidence,
     }
@@ -342,6 +390,28 @@ def build_knowledge_evidence_view(
                 metrics.get("retrieval_latency_ms")
             ),
             "retrieval_mode": retrieval_mode,
+            "citation_completeness": _safe_rate(
+                metrics.get("citation_completeness")
+            ),
+            "index_revision": _safe_nonnegative_int(
+                metrics.get("index_revision"),
+                maximum=MAX_INDEX_REVISION,
+            ),
+            "privacy_filtered_count": _safe_nonnegative_int(
+                metrics.get("privacy_filtered_count"),
+                maximum=MAX_CANDIDATES,
+            ),
+            "retrieval_timeout_fallback": (
+                bool(metrics.get("retrieval_timeout_fallback"))
+                if isinstance(metrics.get("retrieval_timeout_fallback"), bool)
+                else status == "timeout"
+            ),
+            "rate_limit_fallback": (
+                bool(metrics.get("rate_limit_fallback"))
+                if isinstance(metrics.get("rate_limit_fallback"), bool)
+                else status == "rate_limited"
+            ),
+            "fallback_code": _fallback_code(retrieval, status=status),
         }
 
     return view

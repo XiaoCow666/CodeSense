@@ -266,6 +266,44 @@ def test_retrieval_failure_returns_safe_fallback_without_sensitive_log(
     assert "SECRET_EVIDENCE" not in caplog.text
 
 
+def test_timeout_response_keeps_timeout_status_in_public_projection(
+    evidence_api_context, monkeypatch
+):
+    _, client, ids = evidence_api_context
+    _login(client, "evidence-student")
+    monkeypatch.setattr(
+        api_routes,
+        "retrieve_assignment_knowledge",
+        lambda *args, **kwargs: {
+            "status": "timeout",
+            "evidence": [],
+            "metrics": {
+                "candidate_count": 1,
+                "hit_count": 0,
+                "retrieval_latency_ms": 250.0,
+                "retrieval_mode": "timeout",
+                "retrieval_timeout_fallback": True,
+                "index_revision": 4,
+            },
+            "fallback": {
+                "code": "KNOWLEDGE_RETRIEVAL_TIMEOUT",
+                "message": "知识证据检索超时，回答仅基于题目和代码。",
+            },
+        },
+    )
+
+    response = client.get(f"/api/assignments/{ids['student']}/knowledge-evidence")
+
+    assert response.status_code == 200
+    data = response.json["data"]
+    assert data["knowledge_retrieval"]["status"] == "timeout"
+    assert data["knowledge_retrieval"]["fallback"]["code"] == (
+        "KNOWLEDGE_RETRIEVAL_TIMEOUT"
+    )
+    assert data["knowledge_evidence"]["status"] == "timeout"
+    assert data["knowledge_evidence"]["retryable"] is True
+
+
 def test_unauthenticated_request_keeps_login_boundary(evidence_api_context):
     _, client, ids = evidence_api_context
 
