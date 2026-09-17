@@ -86,7 +86,7 @@ git diff --check：exit 0
 
 当前候选仍位于隔离工作树 `E:\CodeSense\源代码\.worktrees\knowledge-graph-stage1-20260917`，尚未推送、合并远端 main、执行 `update.sh`、创建 Release 或发送外部消息；因此不能宣称已上线。原因是本轮按“先完成可用阶段供查看”的边界保留候选，且当前环境未提供已确认的 Workbench/ECS 发布会话与 GitHub/飞书发布通道。
 
-候选目标提交将在本报告提交后记录。回滚只需移除本阶段的服务、路由、共享模板、样式、测试和报告提交，不需要生产 schema 回滚；主工作区原有未提交改动不在候选回滚范围内。
+候选目标提交：`5495d9f`（`feat: deliver knowledge graph stage one`）。当前分支相对 `origin/main=52acab2` 多 4 个候选提交，工作树干净。回滚只需移除本阶段的服务、路由、共享模板、样式、测试和报告提交，不需要生产 schema 回滚；主工作区原有未提交改动不在候选回滚范围内。
 
 ## 回滚方式
 
