@@ -35,6 +35,18 @@ function apiError(method, path, status) {
   return new Error(`github api ${method} ${category} returned ${status}`);
 }
 
+export function latestCheckRuns(runs) {
+  const latest = new Map();
+  for (const run of runs) {
+    const key = String(run.name || run.id || "unknown");
+    const previous = latest.get(key);
+    const runTime = String(run.completed_at || run.started_at || "");
+    const previousTime = String(previous?.completed_at || previous?.started_at || "");
+    if (!previous || runTime > previousTime || (runTime === previousTime && Number(run.id || 0) > Number(previous.id || 0))) latest.set(key, run);
+  }
+  return [...latest.values()];
+}
+
 export async function githubApi(env, method, path, body) {
   if (!env.GITHUB_API_TOKEN) throw new Error("github api token is not configured");
   const headers = {
@@ -90,15 +102,16 @@ export async function commitChecks(env, reference, sha) {
   ]);
   const runs = Array.isArray(checkRuns.check_runs) ? checkRuns.check_runs : [];
   const statuses = Array.isArray(status.statuses) ? status.statuses : [];
-  const pendingRuns = runs.filter((run) => run.status !== "completed");
-  const failedRuns = runs.filter((run) => run.status === "completed" && !SAFE_CHECK_CONCLUSIONS.has(run.conclusion));
+  const currentRuns = latestCheckRuns(runs);
+  const pendingRuns = currentRuns.filter((run) => run.status !== "completed");
+  const failedRuns = currentRuns.filter((run) => run.status === "completed" && !SAFE_CHECK_CONCLUSIONS.has(run.conclusion));
   const pendingStatuses = statuses.filter((item) => item.state === "pending");
   const failedStatuses = statuses.filter((item) => item.state !== "success");
   return {
     has_checks: runs.length > 0 || statuses.length > 0,
     pending: pendingRuns.length > 0 || pendingStatuses.length > 0,
     failed: failedRuns.length > 0 || failedStatuses.length > 0,
-    check_runs: runs.length,
+    check_runs: currentRuns.length,
     statuses: statuses.length,
   };
 }

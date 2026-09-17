@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { evaluateMergeGate, normalizeReviewResult } from "../src/github.js";
+import { evaluateMergeGate, latestCheckRuns, normalizeReviewResult } from "../src/github.js";
 import { shouldInvokeLuoxin } from "../src/index.js";
 
 test("an approved clean PR with passing checks can pass the merge gate", () => {
@@ -56,4 +56,12 @@ test("completed check-run events can trigger a fresh PR review", () => {
     },
   };
   assert.equal(shouldInvokeLuoxin({}, event), true);
+});
+
+test("old failed reruns do not keep a newer successful check red", () => {
+  const current = latestCheckRuns([
+    { id: 1, name: "build", status: "completed", conclusion: "failure", completed_at: "2026-09-17T01:00:00Z" },
+    { id: 2, name: "build", status: "completed", conclusion: "success", completed_at: "2026-09-17T02:00:00Z" },
+  ]);
+  assert.deepEqual(current, [{ id: 2, name: "build", status: "completed", conclusion: "success", completed_at: "2026-09-17T02:00:00Z" }]);
 });
