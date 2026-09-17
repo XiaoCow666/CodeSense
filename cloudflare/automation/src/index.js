@@ -157,6 +157,13 @@ function outcomeStateKey(outcome) {
   return `${decision}:${reasons.join(",") || "not_ready"}`;
 }
 
+async function reviewForEvent(env, event) {
+  const reference = pullRequestReference(event);
+  const headSha = pullRequestContext(event).head_sha;
+  if (!reference || !headSha) return callLuoxin(env, event);
+  return runAction(env, event, "review_engine", `review-engine:${reference.repository}#${reference.number}:${headSha}`, () => callLuoxin(env, event));
+}
+
 async function fetchPullRequestDiff(event, env) {
   const diff = await githubDiff(env, event);
   return { available: diff.available, text: truncateUtf8(diff.text, MAX_REVIEW_CONTEXT_BYTES) };
@@ -366,7 +373,7 @@ async function processInternalReconcile(env, event) {
   const reference = { repository, number: Number(event.payload.number) };
   const fresh = await freshPullRequest(env, reference);
   const synthetic = { event_id: event.event_id, source: "github", event_type: "pull_request", payload: { action: "reconcile", repository: { full_name: repository }, pull_request: fresh } };
-  const review = await callLuoxin(env, synthetic);
+  const review = await reviewForEvent(env, synthetic);
   return processGithubEffects(env, synthetic, review);
 }
 
@@ -390,7 +397,7 @@ async function persistEvent(env, message) {
   if (effectiveEvent.source === "internal" && effectiveEvent.event_type === "reconcile") {
     sideEffects = await processInternalReconcile(env, effectiveEvent);
   } else {
-    if (await shouldInvokeLuoxin(env, effectiveEvent)) reviewResult = await callLuoxin(env, effectiveEvent);
+    if (await shouldInvokeLuoxin(env, effectiveEvent)) reviewResult = await reviewForEvent(env, effectiveEvent);
     if (effectiveEvent.source === "github") sideEffects = await processGithubEffects(env, effectiveEvent, reviewResult);
     if (effectiveEvent.source === "feishu") sideEffects = await processFeishuEvent(env, effectiveEvent, reviewResult);
   }
