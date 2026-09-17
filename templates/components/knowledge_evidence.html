@@ -1,4 +1,4 @@
-{% macro knowledge_evidence_panel(view, audience='student', panel_id='knowledge-evidence-panel', compact=false, boundary_note=false, heading=None) %}
+{% macro knowledge_evidence_panel(view, audience='student', panel_id='knowledge-evidence-panel', compact=false, boundary_note=false, heading=None, retry_url=None) %}
 {% set evidence_view = view if view is mapping else {} %}
 {% set evidence_items = evidence_view.get('evidence', []) %}
 <section class="knowledge-evidence-panel{% if compact %} knowledge-evidence-panel--compact{% endif %}"
@@ -47,7 +47,17 @@
     {% else %}
     <div class="knowledge-evidence-panel__recovery">
         <span class="knowledge-evidence-panel__recovery-mark" aria-hidden="true">?</span>
-        <p>{{ evidence_view.get('next_step', '继续使用基础指导，稍后重试。') }}</p>
+        <div>
+            <p>{{ evidence_view.get('next_step', '继续使用基础指导，稍后重试。') }}</p>
+            {% if evidence_view.get('fallback_message') %}
+            <p class="knowledge-evidence-panel__fallback">{{ evidence_view.get('fallback_message') }}</p>
+            {% endif %}
+            {% if evidence_view.get('retryable') and retry_url %}
+            <a class="knowledge-evidence-retry" href="{{ retry_url }}" aria-label="重新检索作业知识证据">
+                重新检索证据
+            </a>
+            {% endif %}
+        </div>
     </div>
     {% endif %}
 
@@ -60,7 +70,12 @@
             <span>命中证据 {{ diagnostics.get('hit_count', 0) }}</span>
             <span>索引块 {{ diagnostics.get('indexed_chunk_count', 0) }}</span>
             <span>模式 {{ diagnostics.get('retrieval_mode', 'unknown') }}</span>
+            <span>检索耗时 {{ diagnostics.get('retrieval_latency_ms', 0) }} ms</span>
+            <span>引用完整度 {{ (diagnostics.get('citation_completeness', 0) * 100)|round(1) }}%</span>
+            <span>索引版本 {{ diagnostics.get('index_revision', 0) }}</span>
+            <span>隐私过滤 {{ diagnostics.get('privacy_filtered_count', 0) }}</span>
         </div>
+        <p class="knowledge-evidence-diagnostics__note">仅用于检索诊断，不作为评分依据。</p>
     </div>
     {% endif %}
 </section>

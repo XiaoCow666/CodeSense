@@ -225,7 +225,7 @@
 
 {% if knowledge_evidence is defined %}
 {% set knowledge_audience = 'admin' if session.get('usertype') == '管理员' else 'teacher' if session.get('usertype') == '教师' else 'student' %}
-{{ knowledge_evidence_panel(knowledge_evidence, audience=knowledge_audience, panel_id='assignment-knowledge-evidence') }}
+{{ knowledge_evidence_panel(knowledge_evidence, audience=knowledge_audience, panel_id='assignment-knowledge-evidence', retry_url=url_for('api.get_assignment_knowledge_evidence', assignment_id=assignment.id)) }}
 {% endif %}
 
 {% if session.get('usertype') in ['管理员', '教师'] %}
