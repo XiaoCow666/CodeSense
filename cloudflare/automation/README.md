@@ -2,11 +2,14 @@
 
 这个 Worker 负责接收 GitHub PR 与飞书事件，把事件先写入 Cloudflare Queue，再由队列消费者以幂等方式写入 D1。它不依赖本机 CodeX 在线，适合作为后续 PR 复审、任务推进和知识库同步的稳定入口。
 
+当前链路如下：GitHub/飞书事件 → Worker 验签 → Queue → D1 事件记录 → Luoxin 评审或消息回复 → GitHub Review/合并、飞书私聊、任务台更新、知识库记录。每个外部动作都有独立的 action key，重复投递不会重复发 Review、重复建任务或重复发私信；连续失败的消息会进入 `codesense-automation-dead-letter`，方便人工排查。
+
 ## 资源
 
 - Worker：`codesense-project-automation`
 - D1：`codesense-automation-state`
 - Queue：`codesense-automation-events`
+- 失败消息队列：`codesense-automation-dead-letter`
 - 健康检查：`/healthz`
 - GitHub Webhook：`/webhooks/github`
 - 飞书事件入口：`/webhooks/feishu`
@@ -16,7 +19,9 @@
 
 ```text
 GITHUB_WEBHOOK_SECRET
+GITHUB_API_TOKEN
 FEISHU_VERIFICATION_TOKEN
+FEISHU_APP_SECRET
 INTERNAL_RECONCILE_SECRET
 ```
 
@@ -26,7 +31,11 @@ INTERNAL_RECONCILE_SECRET
 LUOXIN_API_KEY
 ```
 
-`LUOXIN_BASE_URL` 和 `LUOXIN_MODEL` 已在 `wrangler.toml` 中配置为非敏感变量；API Key 只能作为 Worker Secret 写入。当前 Worker 会对符合条件的 GitHub PR 事件调用 OpenAI 兼容的 `/chat/completions`，并把结构化评审结果写入 D1。它不会把模型返回的文字直接当成“已合并”，也不会在没有 GitHub/飞书执行凭据时伪造后续动作。
+`LUOXIN_BASE_URL` 和 `LUOXIN_MODEL` 已在 `wrangler.toml` 中配置为非敏感变量；API Key 只能作为 Worker Secret 写入。当前 Worker 会对两个仓库符合条件的 GitHub PR 事件调用 OpenAI 兼容的 `/chat/completions`，读取最新 diff 和 Checks，再按门禁判断是否能合并。只有 GitHub 明确返回合并成功，任务才会进入已完成并创建下一阶段；评审不通过时会把具体的文件/位置、当前问题、目标改法和可交给 AI 的操作提示写进 Review、任务台和知识库。
+
+飞书消息默认保持安静：普通群聊不响应；直接 @机器人，或出现冲突、无法提交、重复提交、权限等严重任务问题时才处理。自动跟进通过私聊发送；仅在有人直接 @机器人或出现严重问题时才在群消息线程回复。新成员事件按群 ID 路由到对应项目并创建阶段一任务。
+
+知识库同步会为 GitHub push 和 PR 评审生成文字记录。没有当前事件对应的图片证据时不会复用历史图片，也不会为了凑内容生成图片；需要图示时应把本次事件的具体截图或链接作为独立附件接入。
 
 如果改用独立评审网关，可配置：
 
@@ -47,3 +56,21 @@ npx wrangler deploy
 ```
 
 仓库中的 `.github/workflows/deploy-cloudflare-automation.yml` 会在后续变更时自动部署。GitHub Actions 需要 `CLOUDFLARE_API_TOKEN` 与 `CLOUDFLARE_ACCOUNT_ID` 两个仓库 Secret。
+
+## Webhook 事件
+
+两个仓库的 GitHub Webhook 都指向：
+
+```text
+https://codesense-project-automation.daiyupeng5.workers.dev/webhooks/github
+```
+
+事件至少需要包含 `pull_request`、`pull_request_review`、`pull_request_review_comment`、`issue_comment`、`push` 和 `check_suite`。`check_suite` 用于在代码检查从等待变为完成后再次评估合并条件。
+
+内部补偿入口只接受带 `Authorization: Bearer <INTERNAL_RECONCILE_SECRET>` 的请求，并且正文需要是：
+
+```json
+{"repository":"XiaoCow666/CodeSense","number":12}
+```
+
+不要把任何 Secret 写进仓库、任务台、知识库或 PR description。

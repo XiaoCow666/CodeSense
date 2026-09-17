@@ -26,6 +26,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Test automation worker
+        run: npm test
+
       - name: Apply D1 migrations
         uses: cloudflare/wrangler-action@v3
         with:
