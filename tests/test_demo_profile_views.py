@@ -47,11 +47,11 @@ class DemoProfileViewsTestCase(unittest.TestCase):
             len(re.findall(r'data-knowledge-point="[a-z_]+"', home_html)),
             len(C_LANGUAGE_POINTS),
         )
-        self.assertIn('提交评分 0–5 分', home_html)
+        self.assertIn('提交评分 0–100 分', home_html)
         self.assertIn('多维度贝叶斯权重评估（0–100）', home_html)
         self.assertIn('AI 个性化分析', home_html)
         self.assertIn('data-analysis-status=', home_html)
-        self.assertIn('/5', home_html)
+        self.assertIn('%', home_html)
         self.assertIn('基础语法', home_html)
         self.assertIn('递归', home_html)
 
@@ -63,14 +63,14 @@ class DemoProfileViewsTestCase(unittest.TestCase):
             len(C_LANGUAGE_POINTS),
         )
         self.assertIn('C语言知识点画像', profile_html)
-        self.assertIn('提交分数 0–5 分', profile_html)
+        self.assertIn('提交分数采用 0–100 分', profile_html)
         for _, name in C_LANGUAGE_POINTS:
             self.assertIn(name, profile_html)
 
         assignment_list = self.client.get('/student_assignments')
         self.assertEqual(assignment_list.status_code, 200)
         assignment_html = assignment_list.data.decode('utf-8')
-        self.assertIn('个人最高分（0–5）', assignment_html)
+        self.assertIn('个人最高分（0–100）', assignment_html)
         self.assertIn(DEMO_ASSIGNMENT_TITLE, assignment_html)
         self.assertIn(DEMO_SECOND_ASSIGNMENT_TITLE, assignment_html)
 
@@ -94,7 +94,7 @@ class DemoProfileViewsTestCase(unittest.TestCase):
         dashboard_html = dashboard.data.decode('utf-8')
         self.assertIn('近 14 天提交趋势', dashboard_html)
         self.assertIn('data-trend-points="14"', dashboard_html)
-        self.assertIn('提交评分 0–5 分', dashboard_html)
+        self.assertIn('提交评分与知识点画像统一采用 0–100 分', dashboard_html)
         self.assertIn('AI 建议状态', dashboard_html)
         self.assertIn('孙三（风险）', dashboard_html)
 
@@ -102,7 +102,7 @@ class DemoProfileViewsTestCase(unittest.TestCase):
         self.assertEqual(class_list.status_code, 200)
         class_list_html = class_list.data.decode('utf-8')
         self.assertIn('软件工程24-演示班', class_list_html)
-        self.assertIn('班级平均分（0–5）', class_list_html)
+        self.assertIn('班级平均分（0–100）', class_list_html)
         self.assertIn('data-class-id=', class_list_html)
 
         class_detail = self.client.get(f'/classes/{class_id}')
@@ -111,13 +111,13 @@ class DemoProfileViewsTestCase(unittest.TestCase):
         self.assertIn('assignment-matrix', class_detail_html)
         self.assertIn('周四', class_detail_html)
         self.assertIn('李四（未注册）', class_detail_html)
-        self.assertIn('提交得分（0–5）', class_detail_html)
+        self.assertIn('提交得分（0–100）', class_detail_html)
         self.assertIn(DEMO_SECOND_ASSIGNMENT_TITLE, class_detail_html)
 
         assignments_page = self.client.get('/teacher')
         self.assertEqual(assignments_page.status_code, 200)
         assignments_html = assignments_page.data.decode('utf-8')
-        self.assertIn('提交/平均分（0–5）', assignments_html)
+        self.assertIn('提交/平均分（0–100）', assignments_html)
         self.assertGreaterEqual(assignments_html.count('data-assignment-id='), 6)
         self.assertIn(DEMO_ASSIGNMENT_TITLE, assignments_html)
 

@@ -136,6 +136,81 @@
         font-weight: 700;
     }
 
+    .student-snapshot-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+        margin-bottom: 1rem;
+    }
+
+    .student-snapshot-filters {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        flex: 1 1 28rem;
+    }
+
+    .student-snapshot-search {
+        min-width: 14rem;
+        max-width: 22rem;
+    }
+
+    .student-snapshot-table-wrap {
+        max-height: 30rem;
+        overflow: auto;
+        border: 1px solid #edf0f5;
+        border-radius: 0.4rem;
+    }
+
+    .student-snapshot-table {
+        min-width: 44rem;
+    }
+
+    .student-snapshot-table thead th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: #fff;
+        box-shadow: 0 1px 0 #dee2e6;
+        white-space: nowrap;
+    }
+
+    .student-snapshot-table tbody tr.d-none {
+        display: none !important;
+    }
+
+    .student-snapshot-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        flex-wrap: wrap;
+        margin-top: 0.75rem;
+    }
+
+    .student-snapshot-page-label {
+        min-width: 4.5rem;
+        text-align: center;
+    }
+
+    @media (max-width: 576px) {
+        .student-snapshot-filters {
+            align-items: stretch;
+            flex-direction: column;
+        }
+
+        .student-snapshot-search {
+            max-width: none;
+        }
+
+        .student-snapshot-footer {
+            align-items: stretch;
+            flex-direction: column;
+        }
+    }
+
     @keyframes spin {
         from { transform: rotate(0deg); }
         to { transform: rotate(360deg); }
@@ -258,7 +333,7 @@
             </div>
             <div class="attention-card">
                 <strong class="text-warning">{{ attention.low_score_count }}</strong>
-                <span>平均分或最近得分低于 3 分</span>
+                <span>平均分或最近得分低于 60 分</span>
                 {% if attention.low_score_rows %}
                 <div class="student-chip-list">
                     {% for row in attention.low_score_rows[:4] %}
@@ -291,7 +366,7 @@
         </div>
         <div class="row">
             <div class="col-md-12">
-                <p class="text-muted small">基于各个班级本周的提交率、低分率、活跃趋势及能力分析，AI 自动生成点对点教学对策。提交评分 0–5 分，知识点画像 0–100 分。</p>
+                <p class="text-muted small">基于各个班级本周的提交率、低分率、活跃趋势及能力分析，AI 自动生成点对点教学对策。提交评分与知识点画像统一采用 0–100 分。</p>
                 <div class="row">
                     {% for card in class_cards %}
                         {% set sug = ai_suggestions.get(card['class'].id) %}
@@ -366,18 +441,36 @@
 
     <!-- 学生画像快照 -->
     <div class="dashboard-section">
-        <div class="section-title">
+        <div class="section-title mb-3">
             <span><i class="bi bi-people text-primary me-2"></i>学生画像快照</span>
-            <span class="text-muted small">共 {{ student_rows|length }} 位学生 · 综合分 0–5</span>
+            <span id="studentSnapshotCount" class="text-muted small">共 {{ student_rows|length }} 位学生 · 综合分 0–100</span>
         </div>
         {% if student_rows %}
-        <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0">
+        <div class="student-snapshot-toolbar">
+            <div class="student-snapshot-filters">
+                <label class="visually-hidden" for="studentSnapshotSearch">搜索学生</label>
+                <div class="input-group input-group-sm student-snapshot-search">
+                    <span class="input-group-text"><i class="bi bi-search" aria-hidden="true"></i></span>
+                    <input id="studentSnapshotSearch" type="search" class="form-control" placeholder="搜索姓名或学号" autocomplete="off">
+                </div>
+                <label class="visually-hidden" for="studentSnapshotStatus">筛选学习状态</label>
+                <select id="studentSnapshotStatus" class="form-select form-select-sm" aria-label="筛选学习状态">
+                    <option value="">全部状态</option>
+                    <option value="需关注">需关注</option>
+                    <option value="未开始">未开始</option>
+                    <option value="正常">正常</option>
+                    <option value="优秀">优秀</option>
+                </select>
+            </div>
+            <span id="studentSnapshotResult" class="text-muted small" aria-live="polite"></span>
+        </div>
+        <div class="student-snapshot-table-wrap">
+            <table id="studentSnapshotTable" class="table table-sm table-hover align-middle mb-0 student-snapshot-table">
                 <thead>
                     <tr>
                         <th>学生</th>
-                        <th>综合分（0–5）</th>
-                        <th>最近提交（0–5）</th>
+                        <th>综合分（0–100）</th>
+                        <th>最近提交（0–100）</th>
                         <th>提交次数</th>
                         <th>学习状态</th>
                         <th>风险提示</th>
@@ -385,15 +478,15 @@
                 </thead>
                 <tbody>
                     {% for row in student_rows %}
-                    <tr data-student-id="{{ row.student.student_id }}">
+                    <tr data-student-id="{{ row.student.student_id }}" data-status="{{ row.status }}">
                         <td>
                             <a class="text-decoration-none fw-semibold" href="{{ url_for('users.view_student_details', student_id=row.student.student_id) }}">
                                 {{ row.student.full_name or row.student.username }}
                             </a>
                         </td>
-                        <td><span class="badge bg-light text-primary">{{ "%.1f"|format(row.student.user_ascore|float) }}/5</span></td>
+                        <td><span class="badge bg-light text-primary">{{ "%.1f"|format(row.student.user_ascore|float) }}</span></td>
                         <td>
-                            {% if row.latest_score is not none %}{{ "%.1f"|format(row.latest_score|float) }}/5{% else %}未提交{% endif %}
+                            {% if row.latest_score is not none %}{{ "%.1f"|format(row.latest_score|float) }}{% else %}未提交{% endif %}
                         </td>
                         <td>{{ row.submit_count }}</td>
                         <td>{{ row.status }}</td>
@@ -404,8 +497,19 @@
                         </td>
                     </tr>
                     {% endfor %}
+                    <tr id="studentSnapshotEmptyState" class="d-none">
+                        <td colspan="6" class="text-center text-muted py-4">没有匹配的学生。</td>
+                    </tr>
                 </tbody>
             </table>
+        </div>
+        <div class="student-snapshot-footer">
+            <span id="studentSnapshotPageInfo" class="text-muted small" aria-live="polite"></span>
+            <div class="d-flex align-items-center gap-2">
+                <button id="studentSnapshotPrev" type="button" class="btn btn-sm btn-outline-secondary">上一页</button>
+                <span id="studentSnapshotPageLabel" class="student-snapshot-page-label text-muted small" aria-live="polite"></span>
+                <button id="studentSnapshotNext" type="button" class="btn btn-sm btn-outline-secondary">下一页</button>
+            </div>
         </div>
         {% else %}
         <p class="text-center text-muted mb-0">暂无学生数据。</p>
@@ -426,7 +530,7 @@
         <div class="col-md-6">
             <div class="dashboard-section">
                 <div class="section-title">
-                    <span><i class="bi bi-bar-chart text-primary me-2"></i>各班级平均分对比（0–5）</span>
+                    <span><i class="bi bi-bar-chart text-primary me-2"></i>各班级平均分对比（0–100）</span>
                 </div>
                 <div style="height: 300px;">
                     <canvas id="classScoreChart"></canvas>
@@ -506,7 +610,7 @@
                                 <th>学生</th>
                                 <th>作业</th>
                                 <th>提交时间</th>
-                                <th>分数（0–5）</th>
+                                <th>分数（0–100）</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -521,8 +625,8 @@
                                 <td>{{ sub.submitted_at.strftime('%Y-%m-%d %H:%M') }}</td>
                                 <td>
                                     <span
-                                        class="badge {% if sub.score is not none and sub.score >= 4 %}bg-success{% elif sub.score is not none and sub.score == 3 %}bg-warning{% else %}bg-danger{% endif %}">
-                                        {% if sub.score is not none %}{{ "%.1f"|format(sub.score|float) }}/5{% else %}待评分{% endif %}
+                                        class="badge {% if sub.score is not none and sub.score >= 80 %}bg-success{% elif sub.score is not none and sub.score >= 60 %}bg-warning{% else %}bg-danger{% endif %}">
+                                        {% if sub.score is not none %}{{ "%.1f"|format(sub.score|float) }}{% else %}待评分{% endif %}
                                     </span>
                                 </td>
                             </tr>
@@ -546,6 +650,65 @@
     document.addEventListener('DOMContentLoaded', function () {
         const chartData = {{ chart_data|tojson|safe }};
         const submissionTrend = {{ submission_trend|tojson|safe }};
+
+        const snapshotTable = document.getElementById('studentSnapshotTable');
+        if (snapshotTable) {
+            const snapshotRows = Array.from(snapshotTable.querySelectorAll('tbody tr[data-student-id]'));
+            const searchInput = document.getElementById('studentSnapshotSearch');
+            const statusSelect = document.getElementById('studentSnapshotStatus');
+            const emptyState = document.getElementById('studentSnapshotEmptyState');
+            const resultLabel = document.getElementById('studentSnapshotResult');
+            const pageInfo = document.getElementById('studentSnapshotPageInfo');
+            const pageLabel = document.getElementById('studentSnapshotPageLabel');
+            const previousButton = document.getElementById('studentSnapshotPrev');
+            const nextButton = document.getElementById('studentSnapshotNext');
+            const pageSize = 8;
+            let currentPage = 1;
+
+            const renderStudentSnapshot = () => {
+                const query = (searchInput.value || '').trim().toLocaleLowerCase();
+                const status = statusSelect.value;
+                const filteredRows = snapshotRows.filter(row => {
+                    const searchableText = `${row.textContent} ${row.dataset.studentId || ''}`.toLocaleLowerCase();
+                    return (!query || searchableText.includes(query))
+                        && (!status || row.dataset.status === status);
+                });
+                const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
+                currentPage = Math.min(currentPage, totalPages);
+                const pageStart = (currentPage - 1) * pageSize;
+                const visibleRows = new Set(filteredRows.slice(pageStart, pageStart + pageSize));
+
+                snapshotRows.forEach(row => row.classList.toggle('d-none', !visibleRows.has(row)));
+                emptyState.classList.toggle('d-none', filteredRows.length > 0);
+                resultLabel.textContent = `匹配 ${filteredRows.length} 位学生`;
+                pageInfo.textContent = filteredRows.length > 0
+                    ? `当前显示 ${pageStart + 1}–${Math.min(pageStart + pageSize, filteredRows.length)} 位`
+                    : '当前无匹配结果';
+                pageLabel.textContent = filteredRows.length > 0 ? `${currentPage} / ${totalPages}` : '0 / 0';
+                previousButton.disabled = currentPage <= 1 || filteredRows.length === 0;
+                nextButton.disabled = currentPage >= totalPages || filteredRows.length === 0;
+            };
+
+            searchInput.addEventListener('input', () => {
+                currentPage = 1;
+                renderStudentSnapshot();
+            });
+            statusSelect.addEventListener('change', () => {
+                currentPage = 1;
+                renderStudentSnapshot();
+            });
+            previousButton.addEventListener('click', () => {
+                if (currentPage > 1) {
+                    currentPage -= 1;
+                    renderStudentSnapshot();
+                }
+            });
+            nextButton.addEventListener('click', () => {
+                currentPage += 1;
+                renderStudentSnapshot();
+            });
+            renderStudentSnapshot();
+        }
 
         const trendCtx = document.getElementById('submissionTrendChart');
         if (trendCtx && submissionTrend && submissionTrend.length > 0) {
@@ -645,7 +808,7 @@
             data: {
                 labels: chartData.labels,
                 datasets: [{
-                    label: '平均分（0–5）',
+                    label: '平均分（0–100）',
                     data: chartData.scores,
                     backgroundColor: '#4e73df',
                     hoverBackgroundColor: '#2e59d9',
@@ -658,7 +821,7 @@
                 scales: {
                     y: {
                         beginAtZero: true,
-                        max: 5.0,
+                        max: 100.0,
                         ticks: {
                             stepSize: 1
                         }

@@ -3,13 +3,10 @@ from datetime import datetime as dt, time, timedelta
 from models import Assignment, Class, StudentRoster, Submission, User, db
 from sqlalchemy import or_
 from utils.access import assignment_target_class_filter, class_student_filter
+from utils.scoring import EXCELLENT_SCORE_THRESHOLD, LOW_SCORE_THRESHOLD
 
 
 ACTIVE_WINDOW_DAYS = 7
-LOW_SCORE_THRESHOLD = 3.0
-EXCELLENT_SCORE_THRESHOLD = 4.0
-
-
 def _student_ids(students):
     return [student.student_id for student in students]
 

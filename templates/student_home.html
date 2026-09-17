@@ -403,7 +403,7 @@
                         </div>
                         <h3 style="font-size: 1.8rem; font-weight: 700; margin: 0.75rem 0;">{{ submissions_count }}</h3>
                         <p class="text-muted" style="margin-top: 0.5rem;">已提交的作业</p>
-                        <small class="text-muted">平均提交得分 {{ "%.1f"|format(average_score|float) }}/5</small>
+                        <small class="text-muted">平均提交得分 {{ "%.1f"|format(average_score|float) }}</small>
                     </div>
                 </div>
 
@@ -704,7 +704,7 @@
                 </div>
 
                 <div class="mb-4" style="margin-bottom: 2rem;">
-                        <h5 style="margin-bottom: 1.25rem;">最近提交记录 <small class="text-muted fw-normal">提交评分 0–5 分</small></h5>
+                        <h5 style="margin-bottom: 1.25rem;">最近提交记录 <small class="text-muted fw-normal">提交评分 0–100 分</small></h5>
                     <div class="table-responsive">
                         <table class="table table-hover">
                             <thead>
@@ -721,8 +721,8 @@
                                     <td>{{ submission.submitted_at.strftime('%Y-%m-%d %H:%M') }}</td>
                                     <td>
                                         <span data-submission-score="{{ submission.score }}"
-                                            class="badge {% if submission.score is not none and submission.score >= 4 %}bg-success{% elif submission.score is not none and submission.score >= 3 %}bg-warning text-dark{% else %}bg-danger{% endif %}">
-                                            {{ "%.1f"|format(submission.score|float) }}/5
+                                            class="badge {% if submission.score is not none and submission.score >= 80 %}bg-success{% elif submission.score is not none and submission.score >= 60 %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+                                            {{ "%.1f"|format(submission.score|float) }}
                                         </span>
                                     </td>
                                 </tr>

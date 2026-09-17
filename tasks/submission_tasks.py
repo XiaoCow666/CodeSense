@@ -9,6 +9,7 @@ from models import Assignment, Submission, SystemLog, TestCase as TC, User, db
 from services.demo_database import activate_demo_run, is_active_demo_run
 from utils.code_evaluator import evaluate_cpp_code, llm_evaluator
 from utils.sandbox_runner import run_test_cases
+from utils.scoring import normalize_evaluation_score, normalize_feedback_text
 
 
 def _demo_database_is_available(demo_run_id: str | None) -> bool:
@@ -18,21 +19,9 @@ def _demo_database_is_available(demo_run_id: str | None) -> bool:
 
 
 def _normalise_score(score) -> int:
-    """Keep every persisted submission score inside the product's 0–5 scale."""
+    """Keep every persisted submission score inside the 0–100 scale."""
 
-    try:
-        raw_score = float(score)
-        # The current heuristic evaluator already returns 0–5. The LLM and
-        # legacy evaluator paths return 0–100, while a few older integrations
-        # used 0–10. Normalize those representations before rounding instead
-        # of clipping every value above 5 to a false perfect score.
-        if raw_score > 10:
-            raw_score /= 20.0
-        elif raw_score > 5:
-            raw_score /= 2.0
-        return max(0, min(5, int(round(raw_score))))
-    except (TypeError, ValueError):
-        raise ValueError("评测器未返回有效分数")
+    return normalize_evaluation_score(score)
 
 
 def _refresh_assignment_stats(assignment: Assignment) -> None:
@@ -156,10 +145,27 @@ def evaluate_submission_async(
                         code, assignment_title=assignment_title
                     )
                     score = _normalise_score(score)
+                    feedback = normalize_feedback_text(feedback)
 
                     if hasattr(llm_evaluator, "_last_structured_data"):
                         structured_data = llm_evaluator._last_structured_data
                         if structured_data:
+                            structured_data = dict(structured_data)
+                            for field in (
+                                "overall_score",
+                                "algorithm_score",
+                                "style_score",
+                                "functionality_score",
+                                "efficiency_score",
+                                "readability_score",
+                            ):
+                                if field in structured_data and structured_data[field] is not None:
+                                    structured_data[field] = normalize_evaluation_score(
+                                        structured_data[field]
+                                    )
+                            for field, value in structured_data.items():
+                                if isinstance(value, str):
+                                    structured_data[field] = normalize_feedback_text(value)
                             submission.ai_feedback = json.dumps(
                                 structured_data, ensure_ascii=False
                             )
@@ -176,7 +182,7 @@ def evaluate_submission_async(
                         raise RuntimeError("AI 评测失败，请稍后重试") from ai_error
                     # 正式账户保留历史兼容行为；公开体验永远不会走到这条
                     # 默认分支，避免把失败伪装成成功分数。
-                    submission.score = 1
+                    submission.score = 20
                     submission.feedback = "AI 评估过程中出错，请稍后重试。"
 
                 # 2. 沙箱测试用例评判。
@@ -201,11 +207,11 @@ def evaluate_submission_async(
                             sandbox_score = (
                                 sandbox_result["passed"]
                                 / sandbox_result["total"]
-                                * 5
+                                * 100
                             )
                             final_score = sandbox_score
                             if sandbox_result["status"] == "error":
-                                final_score = min(final_score, 1)
+                                final_score = min(final_score, 20)
                             submission.score = _normalise_score(final_score)
                             print(
                                 "沙箱评判完成: "
@@ -241,7 +247,7 @@ def evaluate_submission_async(
                             KnowledgePointScore.update_score(
                                 student_id=student_id,
                                 knowledge_point=knowledge_point.knowledge_point,
-                                assignment_score=submission.score * 20,
+                                assignment_score=submission.score,
                                 difficulty=knowledge_point.difficulty,
                                 weight=knowledge_point.weight,
                             )
@@ -263,7 +269,7 @@ def evaluate_submission_async(
                                 KnowledgePointScore.update_score(
                                     student_id=student_id,
                                     knowledge_point=kp_data["knowledge_point"],
-                                    assignment_score=submission.score * 20,
+                                    assignment_score=submission.score,
                                     difficulty=kp_data.get("difficulty", 1.0),
                                     weight=kp_data.get("weight", 1.0),
                                 )
@@ -300,7 +306,7 @@ def evaluate_submission_async(
                         log_type="评测完成",
                         content=(
                             f"提交 {submission_id} 评测已完成，"
-                            f"得分：{submission.score}/5"
+                            f"得分：{submission.score}/100"
                         ),
                         user_id=student_id,
                         icon="bi bi-check-circle-fill",

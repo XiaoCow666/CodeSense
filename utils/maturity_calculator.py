@@ -1,6 +1,7 @@
 """成熟度评分计算工具 - 统一处理 φ_avg, φ_freq, φ_std, φ_grad 的计算逻辑"""
 import statistics
 from datetime import datetime
+from utils.scoring import normalize_mixed_score
 
 # 从 code_evaluator 导入权重常量（避免循环导入，直接复制常量定义）
 MATURITY_WEIGHTS = {
@@ -51,7 +52,13 @@ def calculate_maturity_components(all_subs, ability_scores=None, class_averages=
     result['phi_freq'] = min(100, submissions_per_day * 100)
 
     # 3. φ_std (稳定性): 惩罚项，检测稳定性偏离
-    scores = [s.score for s in all_subs if s.score is not None]
+    # 成熟度的历史公式按 0–5 计算，提交分本身统一落库为百分制，
+    # 这里仅在公式内部换算，输出仍然是 0–100。
+    scores = [
+        (normalize_mixed_score(s.score) or 0) / 20
+        for s in all_subs
+        if s.score is not None
+    ]
     if len(scores) > 1:
         std_dev = statistics.stdev(scores)
         result['phi_std'] = max(0, 100 - (std_dev * 20))
@@ -63,8 +70,16 @@ def calculate_maturity_components(all_subs, ability_scores=None, class_averages=
         half_len = len(all_subs) // 2
         first_half = all_subs[:half_len]
         second_half = all_subs[half_len:]
-        avg_init = sum(s.score for s in first_half if s.score) / len(first_half)
-        avg_recent = sum(s.score for s in second_half if s.score) / len(second_half)
+        avg_init = sum(
+            (normalize_mixed_score(s.score) or 0) / 20
+            for s in first_half
+            if s.score is not None
+        ) / len(first_half)
+        avg_recent = sum(
+            (normalize_mixed_score(s.score) or 0) / 20
+            for s in second_half
+            if s.score is not None
+        ) / len(second_half)
         growth = avg_recent - avg_init
         result['phi_grad'] = min(100, max(0, 50 + growth * 10))
 

@@ -264,8 +264,8 @@
             <div class="submission-meta-item">
                 <i class="bi bi-award"></i>
                 <span class="submission-meta-label">得分:</span>
-                <span class="ms-1 badge badge-score-{{ submission.score|round|int }} fs-6">
-                    {{ submission.score }} / 5
+                <span class="ms-1 badge {% if submission.score >= 80 %}bg-success{% elif submission.score >= 60 %}bg-warning text-dark{% else %}bg-danger{% endif %} fs-6">
+                    {{ "%.1f"|format(submission.score|float) }}
                 </span>
                 {% if submission.sandbox_total is not none %}
                 <span
@@ -431,36 +431,36 @@
         <h3><i class="bi bi-chat-square-text me-2"></i>评分反馈</h3>
 
         {% if submission.score is not none %}
-        {% if submission.score >= 4.5 %}
+        {% if submission.score >= 90 %}
         <div class="alert alert-success mt-4">
-            <i class="bi bi-award-fill"></i> <strong>优秀 (4.5-5.0)：</strong>
+            <i class="bi bi-award-fill"></i> <strong>优秀 (90-100 分)：</strong>
             {% if session.get('usertype') == '学生' %}
             您的代码非常出色，逻辑清晰，结构优良。代码不仅实现了所有要求的功能，而且效率高，可读性好，注释充分。这是一个非常专业的解决方案，几乎没有可改进的地方。继续保持这样高质量的编程水平！
             {% else %}
             该代码非常出色，逻辑清晰，结构优良。代码不仅实现了所有要求的功能，而且效率高，可读性好，注释充分。这是一个非常专业的解决方案，几乎没有可改进的地方。
             {% endif %}
         </div>
-        {% elif submission.score >= 3.5 %}
+        {% elif submission.score >= 70 %}
         <div class="alert alert-success mt-4">
-            <i class="bi bi-check-circle-fill"></i> <strong>良好 (3.5-4.4)：</strong>
+            <i class="bi bi-check-circle-fill"></i> <strong>良好 (70-89 分)：</strong>
             {% if session.get('usertype') == '学生' %}
             您的代码质量很好，实现了所有核心功能，代码结构清晰。虽然还有一些小的优化空间，但整体表现出色。代码风格良好，注释适当，可读性强。再稍加努力就能达到专业水准！
             {% else %}
             该代码质量很好，实现了所有核心功能，代码结构清晰。虽然还有一些小的优化空间，但整体表现出色。代码风格良好，注释适当，可读性强。
             {% endif %}
         </div>
-        {% elif submission.score >= 2.5 %}
+        {% elif submission.score >= 50 %}
         <div class="alert alert-warning mt-4">
-            <i class="bi bi-info-circle-fill"></i> <strong>中等 (2.5-3.4)：</strong>
+            <i class="bi bi-info-circle-fill"></i> <strong>中等 (50-69 分)：</strong>
             {% if session.get('usertype') == '学生' %}
             您的代码基本实现了要求的功能，逻辑正确，但存在一些优化空间。代码结构可以更清晰，部分地方缺少必要的注释，某些算法可以进一步优化。继续努力，您有很大的提升潜力！
             {% else %}
             该代码基本实现了要求的功能，逻辑正确，但存在一些优化空间。代码结构可以更清晰，部分地方缺少必要的注释，某些算法可以进一步优化。
             {% endif %}
         </div>
-        {% elif submission.score >= 1.5 %}
+        {% elif submission.score >= 30 %}
         <div class="alert alert-warning mt-4">
-            <i class="bi bi-exclamation-circle-fill"></i> <strong>基础 (1.5-2.4)：</strong>
+            <i class="bi bi-exclamation-circle-fill"></i> <strong>基础 (30-49 分)：</strong>
             {% if session.get('usertype') == '学生' %}
             您的代码部分实现了要求的功能，但存在一些逻辑或结构问题。代码可读性有待提高，注释不足，性能有优化空间。建议复习编程基础知识，尝试重构代码以提高质量。
             {% else %}
@@ -469,7 +469,7 @@
         </div>
         {% else %}
         <div class="alert alert-danger mt-4">
-            <i class="bi bi-x-circle-fill"></i> <strong>需改进 (0-1.4)：</strong>
+            <i class="bi bi-x-circle-fill"></i> <strong>需改进 (0-29 分)：</strong>
             {% if session.get('usertype') == '学生' %}
             您的代码仅实现了少量功能或存在严重的逻辑错误。代码结构混乱，几乎没有注释，可读性差。建议回顾课程基础知识，参考示例代码，从基本的编程规范做起，逐步提高编程能力。
             {% else %}

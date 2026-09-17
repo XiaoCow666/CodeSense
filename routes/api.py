@@ -47,7 +47,8 @@ from services.knowledge_evidence import (
     build_knowledge_evidence_view,
     build_public_knowledge_retrieval,
 )
-from tasks.submission_tasks import evaluate_submission_async
+from tasks.submission_tasks import evaluate_submission_async, _normalise_score, _refresh_user_stats
+from utils.scoring import normalize_feedback_text
 from tasks.submission_queue import (
     SubmissionQueueUnavailable,
     get_submission_job_status,
@@ -630,9 +631,10 @@ def submit_code():
                 model=None, 
                 assignment_title=assignment.title
             )
+            feedback = normalize_feedback_text(feedback)
             
             # 更新提交记录
-            submission.score = score
+            submission.score = _normalise_score(score)
             submission.feedback = feedback
             submission.status = 'evaluated'
             
@@ -650,7 +652,7 @@ def submit_code():
                         try:
                             feedback_data = json.loads(json_str)
                             if 'feedback' in feedback_data:
-                                ai_feedback = feedback_data['feedback']
+                                ai_feedback = normalize_feedback_text(feedback_data['feedback'])
                                 submission.ai_feedback = ai_feedback
                         except Exception as e:
                             current_app.logger.warning('解析 AI 反馈 JSON 失败: %s', type(e).__name__)
@@ -661,6 +663,7 @@ def submit_code():
             assignment.total_score += score
             assignment.count += 1
             assignment.average_score = assignment.total_score / assignment.count
+            _refresh_user_stats(student_id)
             
             db.session.commit()
 

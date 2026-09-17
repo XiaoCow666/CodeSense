@@ -57,7 +57,7 @@ class TeacherAISuggestionsTestCase(unittest.TestCase):
                 class_id=cls.id,
                 class_name=cls.name,
                 full_name='赵一',
-                user_ascore=4.8,
+                user_ascore=96.0,
             )
             s2 = User(
                 student_id='20240002',
@@ -66,7 +66,7 @@ class TeacherAISuggestionsTestCase(unittest.TestCase):
                 class_id=cls.id,
                 class_name=cls.name,
                 full_name='钱二',
-                user_ascore=2.1,
+                user_ascore=42.0,
             )
             for s in (s1, s2):
                 s.password = 'password123'
@@ -124,7 +124,7 @@ class TeacherAISuggestionsTestCase(unittest.TestCase):
                 student_id='20240001',
                 assignment_id=assign1.id,
                 code='int* p;',
-                score=5.0,
+                score=100.0,
                 submitted_at=dt.utcnow() - timedelta(days=1),
                 status='evaluated'
             )
@@ -132,7 +132,7 @@ class TeacherAISuggestionsTestCase(unittest.TestCase):
                 student_id='20240002',
                 assignment_id=assign1.id,
                 code='int p;',
-                score=2.0,
+                score=40.0,
                 submitted_at=dt.utcnow() - timedelta(days=2),
                 status='evaluated'
             )

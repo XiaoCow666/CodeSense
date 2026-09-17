@@ -10,7 +10,9 @@
             <p class="page-subtitle">管理所有编程作业题目，查看提交情况和评分数据</p>
         </div>
         <div class="d-flex gap-2">
-            <!-- 管理员不再需要快捷添加按钮，统一由教师管理 -->
+            <a href="{{ url_for('assignments.export_question_bank', format='xlsx') }}" class="btn btn-outline-success">
+                <i class="bi bi-file-earmark-excel"></i> 导出题库
+            </a>
         </div>
     </div>
 </div>
@@ -134,7 +136,7 @@
                         <th width="100">出题教师</th>
                         <th width="120">发布日期</th>
                         <th width="150">状态/倒计时</th>
-                        <th width="100">提交/平均分</th>
+                        <th width="100">提交/平均分（0–100）</th>
                         <th width="150">操作</th>
                     </tr>
                 </thead>

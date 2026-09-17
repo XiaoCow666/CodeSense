@@ -58,7 +58,7 @@ def test_trial_policy_gives_high_score_for_formal_submission_only():
         {},
     )
 
-    assert result['course_score'] >= 8
+    assert result['course_score'] >= 80
     assert result['formal_assignment_count'] == 1
     assert result['formal_submission_count'] == 1
     assert result['best_formal_score'] == 72
@@ -70,7 +70,7 @@ def test_trial_policy_gives_high_score_for_guided_learning_only_with_log_evidenc
 
     result = trial_usage_friendly_v1(student(), [], [session], {10: 3})
 
-    assert result['course_score'] >= 8
+    assert result['course_score'] >= 80
     assert result['guided_session_count'] == 1
     assert result['guided_log_count'] == 3
     assert '引导式学习' in result['reason']
@@ -93,8 +93,8 @@ def test_trial_policy_rewards_completed_guided_learning_near_full_score():
 
     result = trial_usage_friendly_v1(student(), [], [session], {11: 8})
 
-    assert result['course_score'] >= 9.5
-    assert result['course_score'] <= 10
+    assert result['course_score'] >= 95
+    assert result['course_score'] <= 100
     assert result['guided_minutes'] == 24
     assert '已完成引导式学习' in result['reason']
 
@@ -117,7 +117,7 @@ def test_trial_policy_caps_combined_activity_at_ten():
 
     result = trial_usage_friendly_v1(student(), formal_submissions, [session], {12: 12})
 
-    assert result['course_score'] == 10
+    assert result['course_score'] == 100
     assert '正式作业' in result['reason']
     assert '引导式学习' in result['reason']
 
@@ -138,4 +138,4 @@ def test_build_gradebook_returns_records_and_summary():
     assert summary['student_count'] == 2
     assert summary['used_count'] == 2
     assert summary['unused_count'] == 0
-    assert summary['average_score'] >= 8
+    assert summary['average_score'] >= 80

@@ -49,7 +49,7 @@ class DemoExperienceTestCase(unittest.TestCase):
                 student_id=DEMO_STUDENT_ID,
                 assignment_id=self.demo.assignment_id,
                 code='int main(void) { return 4; }',
-                score=4,
+                score=80,
                 status='evaluated',
             )
             db.session.add_all([first_session, first_submission])

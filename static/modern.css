@@ -471,28 +471,28 @@ a:hover {
   color: var(--danger);
 }
 
-/* 评分专属徽章 (1-5分) */
-.badge-score-1 {
+/* 评分专属徽章（百分制等级） */
+.badge-score-fail {
   background-color: #ef4444;
   color: white;
 }
 
-.badge-score-2 {
+.badge-score-basic {
   background-color: #f97316;
   color: white;
 }
 
-.badge-score-3 {
+.badge-score-pass {
   background-color: #eab308;
   color: white;
 }
 
-.badge-score-4 {
+.badge-score-good {
   background-color: #84cc16;
   color: white;
 }
 
-.badge-score-5 {
+.badge-score-excellent {
   background-color: #22c55e;
   color: white;
 }

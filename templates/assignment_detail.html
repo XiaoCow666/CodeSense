@@ -251,7 +251,7 @@
                 <div class="stat-card success">
                     <i class="bi bi-award-fill stat-icon"></i>
                     <div class="stat-value">{{ average_score|round(2) }}</div>
-                    <div class="stat-label">平均分</div>
+                    <div class="stat-label">平均分（0–100）</div>
                 </div>
             </div>
             <div class="col-md-4">
@@ -268,35 +268,79 @@
             <h4>分数分布</h4>
             <div class="progress" style="height: 25px;">
                 <div class="progress-bar bg-danger" role="progressbar"
-                    style="width: {{ (score_distribution.get(1, 0) / submission_count * 100) if submission_count > 0 else 0 }}%"
-                    aria-valuenow="{{ score_distribution.get(1, 0) }}" aria-valuemin="0"
+                    style="width: {{ (score_distribution.get('0-59', 0) / submission_count * 100) if submission_count > 0 else 0 }}%"
+                    aria-valuenow="{{ score_distribution.get('0-59', 0) }}" aria-valuemin="0"
                     aria-valuemax="{{ submission_count }}">
-                    1分: {{ score_distribution.get(1, 0) }}
+                    0–59分: {{ score_distribution.get('0-59', 0) }}
                 </div>
                 <div class="progress-bar bg-warning" role="progressbar"
-                    style="width: {{ (score_distribution.get(2, 0) / submission_count * 100) if submission_count > 0 else 0 }}%"
-                    aria-valuenow="{{ score_distribution.get(2, 0) }}" aria-valuemin="0"
+                    style="width: {{ (score_distribution.get('60-79', 0) / submission_count * 100) if submission_count > 0 else 0 }}%"
+                    aria-valuenow="{{ score_distribution.get('60-79', 0) }}" aria-valuemin="0"
                     aria-valuemax="{{ submission_count }}">
-                    2分: {{ score_distribution.get(2, 0) }}
-                </div>
-                <div class="progress-bar bg-info" role="progressbar"
-                    style="width: {{ (score_distribution.get(3, 0) / submission_count * 100) if submission_count > 0 else 0 }}%"
-                    aria-valuenow="{{ score_distribution.get(3, 0) }}" aria-valuemin="0"
-                    aria-valuemax="{{ submission_count }}">
-                    3分: {{ score_distribution.get(3, 0) }}
-                </div>
-                <div class="progress-bar bg-primary" role="progressbar"
-                    style="width: {{ (score_distribution.get(4, 0) / submission_count * 100) if submission_count > 0 else 0 }}%"
-                    aria-valuenow="{{ score_distribution.get(4, 0) }}" aria-valuemin="0"
-                    aria-valuemax="{{ submission_count }}">
-                    4分: {{ score_distribution.get(4, 0) }}
+                    60–79分: {{ score_distribution.get('60-79', 0) }}
                 </div>
                 <div class="progress-bar bg-success" role="progressbar"
-                    style="width: {{ (score_distribution.get(5, 0) / submission_count * 100) if submission_count > 0 else 0 }}%"
-                    aria-valuenow="{{ score_distribution.get(5, 0) }}" aria-valuemin="0"
+                    style="width: {{ (score_distribution.get('80-100', 0) / submission_count * 100) if submission_count > 0 else 0 }}%"
+                    aria-valuenow="{{ score_distribution.get('80-100', 0) }}" aria-valuemin="0"
                     aria-valuemax="{{ submission_count }}">
-                    5分: {{ score_distribution.get(5, 0) }}
+                    80–100分: {{ score_distribution.get('80-100', 0) }}
                 </div>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if class_progress is defined and class_progress %}
+        <div class="mt-4">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h4 class="mb-0">按班级查看完成情况</h4>
+                <small class="text-muted">同一学生多次提交只计 1 人</small>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-sm table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>班级</th>
+                            <th>已完成</th>
+                            <th style="min-width: 180px;">完成率</th>
+                            <th class="text-end">详情</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in class_progress %}
+                        <tr>
+                            <td>
+                                {% if item.class_id %}
+                                <a href="{{ url_for('classes.class_assignment_detail', class_id=item.class_id, assignment_id=assignment.id) }}">
+                                    {{ item.class_name }}
+                                </a>
+                                {% else %}
+                                {{ item.class_name }}
+                                {% endif %}
+                            </td>
+                            <td>{{ item.completed }}/{{ item.total }} 人</td>
+                            <td>
+                                <div class="progress" style="height: 10px;">
+                                    <div class="progress-bar {% if item.progress_rate >= 80 %}bg-success{% elif item.progress_rate >= 60 %}bg-warning{% else %}bg-danger{% endif %}"
+                                        role="progressbar" style="width: {{ item.progress_rate }}%;"
+                                        aria-valuenow="{{ item.progress_rate }}" aria-valuemin="0" aria-valuemax="100">
+                                    </div>
+                                </div>
+                                <small class="text-muted">{{ item.progress_rate }}%</small>
+                            </td>
+                            <td class="text-end">
+                                {% if item.class_id %}
+                                <a class="btn btn-sm btn-outline-primary"
+                                    href="{{ url_for('classes.class_assignment_detail', class_id=item.class_id, assignment_id=assignment.id) }}">
+                                    查看学生明细
+                                </a>
+                                {% else %}
+                                <span class="text-muted small">班级记录不存在</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
             </div>
         </div>
         {% endif %}
@@ -331,8 +375,8 @@
                         <td>{{ submission.submitted_at.strftime('%Y-%m-%d %H:%M') }}</td>
                         <td>
                             <span
-                                class="badge {% if submission.score >= 4 %}bg-success{% elif submission.score >= 3 %}bg-primary{% elif submission.score >= 2 %}bg-warning{% else %}bg-danger{% endif %}">
-                                {{ submission.score }}
+                                class="badge {% if submission.score >= 80 %}bg-success{% elif submission.score >= 60 %}bg-primary{% else %}bg-danger{% endif %}">
+                                {{ "%.1f"|format(submission.score|float) }}
                             </span>
                         </td>
                         <td>
@@ -378,7 +422,7 @@
 
         <div>
             <strong>评分结果:</strong>
-            <div class="score-display">{{ latest_submission.score }}/5 分</div>
+            <div class="score-display">{{ "%.1f"|format(latest_submission.score|float) }}（0–100分）</div>
         </div>
 
         <div>

@@ -458,7 +458,7 @@ def admin_dashboard():
             'rgba(255, 159, 64, 0.8)',
             'rgba(255, 99, 132, 0.8)',
         ]
-        score_labels = [f"{row.score}分" for row in score_distribution]
+        score_labels = [f"{row.score}" for row in score_distribution]
         chart_data = {
             'assignments': {
                 'labels': [row.title for row in assignments_data],
@@ -797,7 +797,7 @@ def user_profile(user_username):
         flash('您没有权限查看该用户信息', 'danger')
         return redirect(url_for('main.home'))
         
-    # 获取瓶颈作业：寻找那些最高分未达到 5 分的题目
+    # 获取瓶颈作业：寻找那些最高分未达到 60 分的题目
     # 我们需要按题目分组，找出每道题的最高分
     all_student_subs = Submission.query.filter_by(student_id=user.student_id).all()
     assignment_stats = {}
@@ -808,8 +808,8 @@ def user_profile(user_username):
         if aid not in assignment_stats or sub.score > assignment_stats[aid]['max_score']:
             assignment_stats[aid] = {'max_score': sub.score, 'best_sub': sub}
             
-    # 筛选出未满分的瓶颈题目（最高分 < 5）
-    bottleneck_aids = [aid for aid, stats in assignment_stats.items() if stats['max_score'] < 5]
+    # 筛选出需要关注的瓶颈题目（最高分 < 60）
+    bottleneck_aids = [aid for aid, stats in assignment_stats.items() if stats['max_score'] < 60]
     
     # 获取这些瓶颈题目中最新的提交记录，作为“评审精选”展示
     recent_submissions = []
@@ -845,12 +845,11 @@ def user_profile(user_username):
     }
 
     # 准备真实蜕变轨迹数据 (取最近 10 次提交的分数)
-    # 我们将分数映射到 20-100 的示意高度，或者直接展示原始分 (0-5)
+    # 提交分已经统一为百分制，直接提供给能力进化图表。
     maturity_history = []
     if all_student_subs:
         recent_all = sorted(all_student_subs, key=lambda x: x.submitted_at)[-10:]
-        # 为了让图表好看，我们将 0-5 分映射到 20-100
-        maturity_history = [max(20, (s.score or 0) * 20) for s in recent_all]
+        maturity_history = [max(0, min(100, s.score or 0)) for s in recent_all]
 
     knowledge_profile = KnowledgePointScore.get_student_profile(user.student_id)
     knowledge_profile_rows = _knowledge_profile_rows(knowledge_profile)

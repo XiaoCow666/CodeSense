@@ -43,7 +43,7 @@ def student_home_context(tmp_path, monkeypatch):
             student_id=student.student_id,
             assignment_id=expired.id,
             code="int main() { return 0; }",
-            score=5,
+            score=100,
             status="evaluated",
         ))
         db.session.commit()

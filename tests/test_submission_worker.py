@@ -269,7 +269,7 @@ def test_formal_worker_updates_submission_in_isolated_database(tmp_path, monkeyp
         assert worker.work(burst=True, logging_level="CRITICAL") is True
         updated = db.session.get(Submission, submission_id)
         assert updated.status == "evaluated"
-        assert updated.score == 4
+        assert updated.score == 80
 
     assert submission_queue.get_submission_job_status(app, submission_id) == "completed"
     assert state.operation_id == f"submission-evaluation-{submission_id}"
