@@ -20,14 +20,22 @@ FEISHU_VERIFICATION_TOKEN
 INTERNAL_RECONCILE_SECRET
 ```
 
-可选：
+评审引擎配置：
+
+```text
+LUOXIN_API_KEY
+```
+
+`LUOXIN_BASE_URL` 和 `LUOXIN_MODEL` 已在 `wrangler.toml` 中配置为非敏感变量；API Key 只能作为 Worker Secret 写入。当前 Worker 会对符合条件的 GitHub PR 事件调用 OpenAI 兼容的 `/chat/completions`，并把结构化评审结果写入 D1。它不会把模型返回的文字直接当成“已合并”，也不会在没有 GitHub/飞书执行凭据时伪造后续动作。
+
+如果改用独立评审网关，可配置：
 
 ```text
 REVIEW_ENGINE_URL
 REVIEW_ENGINE_TOKEN
 ```
 
-`REVIEW_ENGINE_URL` 没有配置时，Worker 仍会可靠地接收并记录事件，但不会假装已经完成 PR 评审或飞书跟进。真正接入 CodeX/ChatGPT 评审引擎后，再配置该地址。
+此时网关需要接受 Worker 发送的事件 JSON；它不是 Luoxin 的 Base URL。
 
 ## 部署
 

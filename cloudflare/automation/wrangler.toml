@@ -4,6 +4,10 @@ compatibility_date = "2026-09-17"
 workers_dev = true
 preview_urls = false
 
+[vars]
+LUOXIN_BASE_URL = "https://us.luoxin.me/v1"
+LUOXIN_MODEL = "gpt-5.6-terra"
+
 [[d1_databases]]
 binding = "STATE_DB"
 database_name = "codesense-automation-state"
