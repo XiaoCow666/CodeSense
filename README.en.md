@@ -24,8 +24,8 @@
   <a href="https://github.com/XiaoCow666/CodeSense/network/members"><img src="https://img.shields.io/github/forks/XiaoCow666/CodeSense?style=flat-square&logo=github" alt="GitHub forks"></a>
   <a href="https://github.com/XiaoCow666/CodeSense/blob/main/LICENSE"><img src="https://img.shields.io/github/license/XiaoCow666/CodeSense?style=flat-square" alt="License"></a>
   <img src="https://img.shields.io/badge/version-v1.0.0-2563eb?style=flat-square" alt="v1.0.0">
-  <img src="https://img.shields.io/badge/Python-3.8--3.13-3776ab?style=flat-square&logo=python&logoColor=white" alt="Python 3.8–3.13">
-  <img src="https://img.shields.io/badge/Flask-2.2.3-000000?style=flat-square&logo=flask&logoColor=white" alt="Flask 2.2.3">
+  <img src="https://img.shields.io/badge/Python-3.8--3.14-3776ab?style=flat-square&logo=python&logoColor=white" alt="Python 3.8–3.14">
+  <img src="https://img.shields.io/badge/Flask-2.3.3-000000?style=flat-square&logo=flask&logoColor=white" alt="Flask 2.3.3">
 </p>
 
 > **Release status: formal release** · **Current version: `v1.0.0`**
@@ -223,7 +223,7 @@ flowchart LR
 
 ### Requirements
 
-- Python 3.8–3.13; the currently pinned Flask/Werkzeug 2.2.3 combination has a known route-initialization compatibility error on Python 3.14.
+- Python 3.8–3.14 (Flask/Werkzeug/Flask-Session upgraded to 2.3.x/0.8.0 to support Python 3.14; Python 3.8–3.13 declared support only, not actually verified)
 - An executable `g++` on `PATH` for C++ assessment;
 - SQLite for a simple development setup, or a configured `DATABASE_URL` for production;
 - A Zhipu or OpenAI API key for AI guidance, code advice, and selected learning analytics.
@@ -302,7 +302,11 @@ python -m pip install -r requirements-test.txt
 python -m pytest tests -q
 ```
 
-> Compatibility boundary: with Python 3.14, the currently pinned Flask/Werkzeug 2.2.3 combination fails during route initialization because of the removed `ast.Str` compatibility. This PR records the boundary without upgrading the framework dependencies; supporting Python 3.14 requires a separate Flask/Werkzeug upgrade review and full regression run.
+> Compatibility note: Flask/Werkzeug upgraded from 2.2.3 to 2.3.x, Flask-Session from 0.4.0 to 0.8.0, to support Python 3.12+ (ast.Str deprecated in 3.12, removed in Python 3.14; Flask 2.3 removed the `session_cookie_name` app attribute, which Flask-Session 0.4.0 depended on during initialization). Flask-Session 0.8.0 uses standard session modified detection, no additional hooks required.
+>
+> - **Declared support**: Python 3.8–3.14
+> - **Verified to start**: Python 3.14.7 (`python run.py` starts successfully, `/login` returns 200); Python 3.8–3.13 not actually verified
+> - **Targeted regression passed**: 9 tests in `tests/test_demo_guided_learning.py`, 4 tests in `tests/test_compile_error_scoring.py`, 6 tests in `tests/test_stage3_forum_trace.py`; full test suite pending execution
 
 Tests involving C++ assessment require `g++`. Tests that call a real AI service also require the corresponding environment configuration.
 
