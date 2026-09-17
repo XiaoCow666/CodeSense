@@ -70,18 +70,26 @@ def calculate_maturity_components(all_subs, ability_scores=None, class_averages=
         half_len = len(all_subs) // 2
         first_half = all_subs[:half_len]
         second_half = all_subs[half_len:]
-        avg_init = sum(
-            (normalize_mixed_score(s.score) or 0) / 20
+        # score 可空（已提交但尚未评分），且公式内部按历史 0–5 制计算
+        # （百分制 / 20 换算）。分子与分母必须基于同一批“已评分”提交：
+        # 不能把 None 排除出分子却计入整半长度（那等价于把未评分当 0 分，
+        # 两半缺失率不同时会让梯度方向都反掉）。任一半没有可评分提交时，
+        # 没有可比较的均值，保持中性默认 50。
+        init_scores = [
+            normalize_mixed_score(s.score) / 20
             for s in first_half
             if s.score is not None
-        ) / len(first_half)
-        avg_recent = sum(
-            (normalize_mixed_score(s.score) or 0) / 20
+        ]
+        recent_scores = [
+            normalize_mixed_score(s.score) / 20
             for s in second_half
             if s.score is not None
-        ) / len(second_half)
-        growth = avg_recent - avg_init
-        result['phi_grad'] = min(100, max(0, 50 + growth * 10))
+        ]
+        if init_scores and recent_scores:
+            avg_init = sum(init_scores) / len(init_scores)
+            avg_recent = sum(recent_scores) / len(recent_scores)
+            growth = avg_recent - avg_init
+            result['phi_grad'] = min(100, max(0, 50 + growth * 10))
 
     # 计算总分
     result['maturity_score'] = round(min(100, (
