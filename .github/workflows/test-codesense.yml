@@ -30,5 +30,5 @@ jobs:
       - name: Run tests
         env:
           FLASK_CONFIG: testing
-          TEST_DATABASE_URL: sqlite:///:memory:
+          TEST_DATABASE_URL: "sqlite:///:memory:"
         run: python -m pytest tests -q
