@@ -112,7 +112,7 @@ class DemoDatabaseFixtureTestCase(unittest.TestCase):
         self.assertGreaterEqual(presets, 2)
         self.assertTrue(scores)
         self.assertGreaterEqual(min(scores), 0)
-        self.assertLessEqual(max(scores), 5)
+        self.assertLessEqual(max(scores), 100)
         feedback_data = json.loads(feedback)
         self.assertIn('algorithm_score', feedback_data)
         self.assertIn('readability_score', feedback_data)

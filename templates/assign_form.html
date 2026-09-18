@@ -61,7 +61,7 @@
                     <p class="text-muted">{{ assignment.description|truncate(200) }}</p>
                     <ul class="list-unstyled">
                         <li><strong>总提交数:</strong> {{ assignment.count }}</li>
-                        <li><strong>平均分:</strong> {{ "%.2f"|format(assignment.average_score) }}</li>
+                        <li><strong>平均分（0–100）:</strong> {{ "%.2f"|format(assignment.average_score) }}</li>
                     </ul>
                 </div>
             </div>

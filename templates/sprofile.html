@@ -255,7 +255,7 @@
     <!-- 重点攻坚：近期瓶颈题目精选 -->
     <div class="d-flex align-items-center mb-4">
         <h3 class="mb-0 me-3"><i class="bi bi-shield-exclamation text-danger me-2"></i> 待攻坚：瓶颈题目精选</h3>
-        <span class="text-muted fs-6">提交分数 0–5 分 · 这些题目最高分尚未达到 5 分，通过重构实现蜕变吧</span>
+                <span class="text-muted fs-6">提交分数采用 0–100 分 · 这些题目最高分尚未达到 60 分，通过重构实现蜕变吧</span>
     </div>
 
     <div class="evolution-timeline">
@@ -266,7 +266,7 @@
                 <div class="review-title">
                     <i class="bi bi-file-earmark-code me-2"></i> {{ sub.assignment.title if sub.assignment else '未知作业'
                     }}
-                    <span class="ms-2 badge bg-soft-danger text-danger">目前最高分: {{ "%.1f"|format(sub.score|float) }}/5</span>
+                    <span class="ms-2 badge bg-soft-danger text-danger">目前最高分: {{ "%.1f"|format(sub.score|float) }}</span>
                 </div>
                 <div class="review-meta">
                     <small class="text-muted">最近尝试于: {{ sub.submitted_at.strftime('%Y-%m-%d %H:%M') }}</small>

@@ -598,7 +598,7 @@ def _refresh_assignment_stats(assignment):
     submissions = Submission.query.filter_by(assignment_id=assignment.id).all()
     scores = [submission.score for submission in submissions if submission.score is not None]
     assignment.count = len(submissions)
-    assignment.total_score = 100
+    assignment.total_score = sum(scores) if scores else 0
     assignment.average_score = round(sum(scores) / len(scores), 1) if scores else 0.0
 
 
@@ -626,7 +626,7 @@ def ensure_demo_experience():
         DEMO_STUDENT_PASSWORD,
         class_id=demo_class.id,
         class_name=demo_class.name,
-        user_ascore=4.8,
+        user_ascore=96.0,
         submit_count=12,
     )
     _set_unique_email(student, 'student_demo_good@codesense.edu')
@@ -639,7 +639,7 @@ def ensure_demo_experience():
         DEMO_STUDENT_PASSWORD,
         class_id=demo_class.id,
         class_name=demo_class.name,
-        user_ascore=3.5,
+        user_ascore=70.0,
         submit_count=7,
     )
     risk_student = _ensure_user(
@@ -650,7 +650,7 @@ def ensure_demo_experience():
         DEMO_STUDENT_PASSWORD,
         class_id=demo_class.id,
         class_name=demo_class.name,
-        user_ascore=1.8,
+        user_ascore=36.0,
         submit_count=2,
     )
     db.session.flush()
@@ -807,18 +807,18 @@ C_LANGUAGE_POINTS = (
 
 
 DEMO_STUDENT_SPECS = (
-    ('demo_s_001', 'student_demo_good', '赵一（优秀）', 4.6),
-    ('demo_s_002', 'student_demo_mid', '钱二（中等）', 3.7),
-    ('demo_s_003', 'student_demo_risk', '孙三（风险）', 2.2),
-    ('demo_s_004', 'student_demo_04', '周四', 3.1),
-    ('demo_s_005', 'student_demo_05', '吴五', 4.1),
-    ('demo_s_006', 'student_demo_06', '郑六', 2.8),
-    ('demo_s_007', 'student_demo_07', '王七', 3.5),
-    ('demo_s_008', 'student_demo_08', '冯八', 4.3),
-    ('demo_s_009', 'student_demo_09', '陈九', 2.6),
-    ('demo_s_010', 'student_demo_10', '褚十', 3.9),
-    ('demo_s_011', 'student_demo_11', '卫十一', 4.0),
-    ('demo_s_012', 'student_demo_12', '蒋十二', 3.3),
+    ('demo_s_001', 'student_demo_good', '赵一（优秀）', 92.0),
+    ('demo_s_002', 'student_demo_mid', '钱二（中等）', 74.0),
+    ('demo_s_003', 'student_demo_risk', '孙三（风险）', 44.0),
+    ('demo_s_004', 'student_demo_04', '周四', 62.0),
+    ('demo_s_005', 'student_demo_05', '吴五', 82.0),
+    ('demo_s_006', 'student_demo_06', '郑六', 56.0),
+    ('demo_s_007', 'student_demo_07', '王七', 70.0),
+    ('demo_s_008', 'student_demo_08', '冯八', 86.0),
+    ('demo_s_009', 'student_demo_09', '陈九', 52.0),
+    ('demo_s_010', 'student_demo_10', '褚十', 78.0),
+    ('demo_s_011', 'student_demo_11', '卫十一', 80.0),
+    ('demo_s_012', 'student_demo_12', '蒋十二', 66.0),
 )
 
 
@@ -875,10 +875,10 @@ DEMO_ASSIGNMENT_SPECS = (
 
 
 def _structured_demo_feedback(score, seed):
-    """Return historical evaluator-shaped feedback on the 0–5 scale."""
-    offsets = (0.2, -0.1, 0.1, -0.2, 0.0)
+    """Return evaluator-shaped feedback on the canonical 0–100 scale."""
+    offsets = (4, -2, 2, -4, 0)
     dimensions = {
-        key: round(max(0.0, min(5.0, float(score) + offsets[(seed + index) % len(offsets)])), 1)
+        key: round(max(0.0, min(100.0, float(score) + offsets[(seed + index) % len(offsets)])), 1)
         for index, key in enumerate((
             'algorithm_score',
             'style_score',
@@ -918,14 +918,14 @@ def _ensure_history_submission(
         )
         db.session.add(submission)
 
-    score = max(0, min(5, int(round(score))))
-    passed = 3 if score >= 4 else 2 if score >= 3 else 1 if score > 0 else 0
+    score = max(0, min(100, int(round(score))))
+    passed = 3 if score >= 80 else 2 if score >= 60 else 1 if score > 0 else 0
     submission.code = marker + f'\n/* {assignment_title} 示例历史记录 */\nint main(void) {{ return {score}; }}'
     submission.score = score
     submission.language = 'c'
     submission.status = 'evaluated'
     submission.feedback = (
-        '本次提交已完成基础评测。' if score >= 3
+        '本次提交已完成基础评测。' if score >= 60
         else '核心思路已经出现，建议继续检查边界条件和指针安全。'
     )
     submission.ai_feedback = _structured_demo_feedback(score, attempt_index)
@@ -945,7 +945,7 @@ def _ensure_history_submission(
 
 def _seed_demo_knowledge_scores(student, student_index):
     """Seed all C-language dimensions with meaningful 0–100 profile values."""
-    base = float(student.user_ascore or 3.0) * 20.0
+    base = float(student.user_ascore or 60.0)
     for point_index, (key, _name) in enumerate(C_LANGUAGE_POINTS):
         variation = ((student_index * 7 + point_index * 11) % 19) - 9
         score = round(max(28.0, min(96.0, base + 18.0 + variation)), 1)
@@ -1005,7 +1005,7 @@ def _ensure_pending_teacher_suggestion(demo_class):
 
 
 def _refresh_assignment_stats(assignment):
-    """Keep assignment aggregates on the same 0–5 scale as submissions."""
+    """Keep assignment aggregates on the same 0–100 scale as submissions."""
     submissions = Submission.query.filter_by(assignment_id=assignment.id).all()
     scores = [submission.score for submission in submissions if submission.score is not None]
     assignment.count = len(submissions)
@@ -1043,7 +1043,7 @@ def seed_demo_experience(run: DemoRun) -> DemoExperience:
         '教师',
         '李老师（演示）',
         DEMO_TEACHER_PASSWORD,
-        user_ascore=4.8,
+        user_ascore=96.0,
     )
     _set_unique_email(teacher, 'teacher_demo@codesense.edu')
     demo_class = _ensure_class(teacher)
@@ -1109,9 +1109,9 @@ def seed_demo_experience(run: DemoRun) -> DemoExperience:
                 for offset in range(4)
             ]
         for attempt_index, assignment in selected:
-            score = ((student_index * 2 + attempt_index * 3) % 5) + 1
+            score = (((student_index * 2 + attempt_index * 3) % 5) + 1) * 20
             if student_index == 0:
-                score = min(5, max(2, 3 + ((attempt_index + 1) % 3)))
+                score = min(100, max(40, (3 + ((attempt_index + 1) % 3)) * 20))
             submitted_at = now - timedelta(
                 days=(student_index * 2 + attempt_index) % 14,
                 hours=(attempt_index * 3) % 8,

@@ -1,7 +1,7 @@
 """编译失败评分回归测试。
 
-验证 submission_tasks.py 中 compile_error 状态的分数限制逻辑：
-- 编译错误时最终分数不超过 1
+验证 submission_tasks.py 中 compile_error 状态的百分制分数限制逻辑：
+- 编译错误时最终分数不超过 20
 - 正常通过/部分通过时分数不受此限制
 """
 
@@ -87,7 +87,7 @@ def test_compile_error_caps_score_at_1(app_with_submission):
     """编译错误时，即使沙箱计算分数大于 1，最终分数也不超过 1。"""
     app, submission_id, assignment_title = app_with_submission
 
-    # AI 评估返回 80 分（归一化后为 4 分）
+    # AI 评估返回 80 分，沙箱分数使用百分制。
     with patch.object(
         worker_tasks,
         "evaluate_cpp_code",
@@ -98,7 +98,7 @@ def test_compile_error_caps_score_at_1(app_with_submission):
         return_value={
             "status": "compile_error",
             "passed": 1,  # 模拟异常情况：编译错误但有通过用例
-            "total": 2,   # sandbox_score = 1/2*5 = 2.5
+            "total": 2,   # sandbox_score = 1/2*100 = 50
             "details": [],
         },
     ):
@@ -109,9 +109,8 @@ def test_compile_error_caps_score_at_1(app_with_submission):
             updated = db.session.get(Submission, submission_id)
             assert updated.status == "evaluated"
             assert updated.sandbox_status == "compile_error"
-            # compile_error 时 final_score = min(2.5, 1) = 1
-            assert updated.score <= 1
-            assert updated.score == 1
+            # compile_error 时 final_score = min(50, 20) = 20
+            assert updated.score == 20
 
 
 def test_normal_passing_score_not_capped(app_with_submission):
@@ -128,7 +127,7 @@ def test_normal_passing_score_not_capped(app_with_submission):
         return_value={
             "status": "passed",
             "passed": 2,
-            "total": 2,  # sandbox_score = 2/2*5 = 5
+            "total": 2,  # sandbox_score = 2/2*100 = 100
             "details": [],
         },
     ):
@@ -139,8 +138,8 @@ def test_normal_passing_score_not_capped(app_with_submission):
             updated = db.session.get(Submission, submission_id)
             assert updated.status == "evaluated"
             assert updated.sandbox_status == "passed"
-            # 正常通过时 final_score = 5，不受限
-            assert updated.score == 5
+            # 正常通过时 final_score = 100，不受限
+            assert updated.score == 100
 
 
 def test_partial_passing_score_not_capped(app_with_submission):
@@ -157,7 +156,7 @@ def test_partial_passing_score_not_capped(app_with_submission):
         return_value={
             "status": "partial",
             "passed": 2,
-            "total": 3,  # sandbox_score = 2/3*5 ≈ 3.333，归一化后为 3
+            "total": 3,  # sandbox_score = 2/3*100 ≈ 66.667，归一化后为 67
             "details": [],
         },
     ):
@@ -168,8 +167,8 @@ def test_partial_passing_score_not_capped(app_with_submission):
             updated = db.session.get(Submission, submission_id)
             assert updated.status == "evaluated"
             assert updated.sandbox_status == "partial"
-            # 部分通过时 final_score ≈ 3.333，归一化后为 3，不受 compile_error 限制
-            assert updated.score == 3
+            # 部分通过时 final_score ≈ 66.667，归一化后为 67，不受限制
+            assert updated.score == 67
             assert updated.score > 1
 
 
@@ -187,7 +186,7 @@ def test_compile_error_with_zero_passed_scores_zero(app_with_submission):
         return_value={
             "status": "compile_error",
             "passed": 0,  # 真实编译失败：没有通过的用例
-            "total": 2,   # sandbox_score = 0/2*5 = 0
+            "total": 2,   # sandbox_score = 0/2*100 = 0
             "details": [],
         },
     ):
@@ -198,7 +197,7 @@ def test_compile_error_with_zero_passed_scores_zero(app_with_submission):
             updated = db.session.get(Submission, submission_id)
             assert updated.status == "evaluated"
             assert updated.sandbox_status == "compile_error"
-            # compile_error 且 passed=0 时 final_score = min(0, 1) = 0
+            # compile_error 且 passed=0 时 final_score = min(0, 20) = 0
             # 验证上限是 min() 而非固定赋值 1
             assert updated.score == 0
             assert updated.score <= 1

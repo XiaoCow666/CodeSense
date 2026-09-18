@@ -795,7 +795,7 @@ def _check_and_trigger_stale_preset(preset, assignment_id):
 
 
 def _record_demo_guided_submission(thinking_session):
-    """Create one idempotent 0–5 submission when a demo run is completed."""
+    """Create one idempotent 0–100 submission when a demo run is completed."""
     run_id = current_demo_run_id()
     if (
         not run_id
@@ -823,10 +823,9 @@ def _record_demo_guided_submission(thinking_session):
         )
         db.session.add(submission)
 
-    # 完成三阶段的示范提交使用 0–5 评分；阶段一的百分制只作为
-    # 一个轻微的区分因素，不会直接写入提交分数字段。
+    # 阶段一已经是百分制，示范提交也直接使用同一评分约定。
     stage1_score = float(thinking_session.stage1_score or 80)
-    score = max(3, min(5, int(round(stage1_score / 20))))
+    score = max(0, min(100, int(round(stage1_score))))
     preset = AssignmentThinkingPreset.query.filter_by(
         assignment_id=assignment.id,
     ).first()
@@ -840,7 +839,7 @@ def _record_demo_guided_submission(thinking_session):
         'algorithm_score': score,
         'style_score': score,
         'functionality_score': score,
-        'efficiency_score': max(2, score - 1),
+        'efficiency_score': max(0, score - 20),
         'readability_score': score,
         'source': 'guided_demo_completion',
     }, ensure_ascii=False)
@@ -1198,7 +1197,7 @@ def stage1_submit():
             passed = score >= 50
             if passed:
                 ts.current_stage = 2
-                _log_event(session_id, 1, 'stage_pass', 'system', f'阶段1通过，匹配度: {score}%')
+                _log_event(session_id, 1, 'stage_pass', 'system', f'阶段1通过，匹配度: {score}分')
 
             db.session.commit()
             return {

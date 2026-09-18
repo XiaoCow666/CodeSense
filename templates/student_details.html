@@ -388,27 +388,27 @@
         font-size: 0.875rem;
     }
     
-    .score-5 {
+    .score-excellent {
         background-color: rgba(76, 201, 240, 0.2);
         color: var(--success-color);
     }
     
-    .score-4 {
+    .score-good {
         background-color: rgba(76, 201, 240, 0.2);
         color: var(--success-color);
     }
     
-    .score-3 {
+    .score-pass {
         background-color: rgba(248, 150, 30, 0.2);
         color: var(--warning-color);
     }
     
-    .score-2 {
+    .score-basic {
         background-color: rgba(249, 65, 68, 0.2);
         color: var(--danger-color);
     }
     
-    .score-1 {
+    .score-fail {
         background-color: rgba(249, 65, 68, 0.2);
         color: var(--danger-color);
     }
@@ -596,17 +596,17 @@
         <div class="stat-card success">
             <i class="fas fa-star stat-icon"></i>
             <div class="stat-value">{{ "%.2f"|format(submission_stats.average_score) }}</div>
-            <div class="stat-label">平均分数</div>
+            <div class="stat-label">平均分数（0–100）</div>
         </div>
         <div class="stat-card warning">
             <i class="fas fa-trophy stat-icon"></i>
             <div class="stat-value">{{ submission_stats.max_score }}</div>
-            <div class="stat-label">最高分数</div>
+            <div class="stat-label">最高分数（0–100）</div>
         </div>
         <div class="stat-card danger">
             <i class="fas fa-chart-line stat-icon"></i>
             <div class="stat-value">{{ submission_stats.min_score }}</div>
-            <div class="stat-label">最低分数</div>
+            <div class="stat-label">最低分数（0–100）</div>
         </div>
     </div>
     
@@ -665,8 +665,8 @@
                         </td>
                         <td>{{ submission.submitted_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
                         <td>
-                            <span class="score-badge score-{{ submission.score }}">
-                                {{ submission.score }}
+                            <span class="score-badge {% if submission.score >= 90 %}score-excellent{% elif submission.score >= 70 %}score-good{% elif submission.score >= 60 %}score-pass{% elif submission.score >= 30 %}score-basic{% else %}score-fail{% endif %}">
+                                {{ "%.1f"|format(submission.score|float) }}
                             </span>
                         </td>
                         <td>
@@ -740,7 +740,7 @@ document.addEventListener('DOMContentLoaded', function() {
             scales: {
                 y: {
                     beginAtZero: true,
-                    max: 5
+                            max: 100
                 }
             },
             plugins: {
@@ -756,7 +756,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const scoreDistributionChart = new Chart(scoreDistributionCtx, {
         type: 'pie',
         data: {
-            labels: ['优秀 (5分)', '良好 (4分)', '中等 (3分)', '及格 (2分)', '不及格 (1分)'],
+            labels: ['优秀 (80–100分)', '及格 (60–79分)', '不及格 (0–59分)'],
             datasets: [{
                 data: {{ chart_data.pie_data | tojson | safe }},
                 backgroundColor: ['#4caf50', '#8bc34a', '#ffc107', '#ff9800', '#f44336']

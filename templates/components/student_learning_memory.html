@@ -1,0 +1,68 @@
+{% set memory = student_vector_snapshot or {} %}
+<section class="student-learning-memory-panel" aria-labelledby="student-learning-memory-title">
+    <div class="student-learning-memory-panel__header">
+        <div>
+            <p class="student-learning-memory-panel__eyebrow">
+                <i class="bi bi-person-lines-fill" aria-hidden="true"></i>
+                个性化学习记录
+            </p>
+            <h2 id="student-learning-memory-title" class="student-learning-memory-panel__title">我的学习记忆</h2>
+            <p class="student-learning-memory-panel__description">
+                只使用你的提交反馈和知识点记录，为 AI 辅导提供可追溯的反思线索。
+            </p>
+        </div>
+        <span class="student-learning-memory-panel__privacy">
+            <i class="bi bi-shield-check" aria-hidden="true"></i>
+            仅本人可见
+        </span>
+    </div>
+
+    {% if memory.get('status') == 'not_built' %}
+    <div class="student-learning-memory-panel__state" role="status">
+        <strong>尚未建立</strong>
+        <span>完成一次评测或手动更新后，Code Studio 才会参考你的学习记录。</span>
+    </div>
+    {% elif memory.get('status') == 'failed' %}
+    <div class="student-learning-memory-panel__state is-warning" role="alert">
+        <strong>更新失败</strong>
+        <span>原有学习记录仍然保留，可以再次尝试更新。</span>
+    </div>
+    {% elif memory.get('status') == 'empty' %}
+    <div class="student-learning-memory-panel__state" role="status">
+        <strong>已建立，暂无可用来源</strong>
+        <span>完成带反馈的作业后，这里会出现可用于反思的学习记录。</span>
+    </div>
+    {% else %}
+    <div class="student-learning-memory-panel__state is-ready" role="status">
+        <strong>已建立</strong>
+        <span>当前版本 {{ memory.get('revision', 0) }}，包含 {{ memory.get('active_count', 0) }} 条本人记录。</span>
+    </div>
+    {% endif %}
+
+    <div class="student-learning-memory-panel__meta" aria-label="学习记忆索引信息">
+        <span>版本 <strong>{{ memory.get('revision', 0) }}</strong></span>
+        <span>来源 <strong>{{ memory.get('active_count', 0) }}</strong></span>
+        {% if memory.get('last_built_at') %}
+        <span>更新时间 <strong>{{ memory.get('last_built_at')|replace('T', ' ')|truncate(19, True, '') }}</strong></span>
+        {% endif %}
+    </div>
+
+    {% if memory.get('source_types') %}
+    <div class="student-learning-memory-panel__sources" aria-label="学习记忆来源类型">
+        {% for source_type, count in memory.get('source_types', {}).items() %}
+        <span class="student-learning-memory-panel__source">
+            {% if source_type == 'submission_feedback' %}提交反馈{% elif source_type == 'knowledge_point_score' %}知识点记录{% else %}学习记录{% endif %}
+            {{ count }} 条
+        </span>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <form method="post" action="{{ url_for('main.rebuild_student_learning_memory') }}" class="student-learning-memory-panel__action">
+        <button type="submit" class="btn btn-outline-primary">
+            <i class="bi bi-arrow-repeat" aria-hidden="true"></i>
+            更新我的学习记忆
+        </button>
+        <span>更新只读取本人记录，不会改变作业分数。</span>
+    </form>
+</section>

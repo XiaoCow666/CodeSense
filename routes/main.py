@@ -21,6 +21,11 @@ from models import (
     ThinkingSession,
 )
 from services.teacher_analytics import build_teacher_dashboard_data
+from services.learning_graph import (
+    LearningGraphAccessError,
+    build_student_learning_graph,
+    build_teacher_knowledge_coverage,
+)
 from services.demo_database import current_demo_run_id
 from services.feedback import (
     FEEDBACK_CATEGORIES,
@@ -45,6 +50,11 @@ from services.submission_reviews import count_open_reviews
 from services.session_lifecycle import latest_session_activity, session_lifecycle_payload
 from services.action_center import build_action_center
 from services.profile import get_profile_settings, PROFILE_VISIBILITY_PUBLIC
+from services.student_vector_store import (
+    StudentVectorRebuildError,
+    get_student_vector_snapshot,
+    rebuild_student_vector_index,
+)
 from utils.auth import admin_required
 from utils.access import authoritative_class_name, assignment_target_class_filter, can_access_student
 from utils.export_safety import safe_export_cell
@@ -88,6 +98,21 @@ def _knowledge_profile_rows(profile):
 
 def _analysis_status_label(status):
     return _ANALYSIS_STATUS_LABELS.get(status, '等待分析')
+
+
+def _learning_graph_fallback(scope):
+    return {
+        'nodes': [],
+        'edges': [],
+        'recommendations': [],
+        'meta': {
+            'scope': scope,
+            'sample_size': 0,
+            'assignment_count': 0,
+            'knowledge_point_count': 0,
+            'virtual_nodes': ['student:mastery'] if scope == 'student' else [],
+        },
+    }
 
 # 添加编辑器测试路由
 @main.route('/test_editor')
@@ -268,6 +293,25 @@ def home():
         # 这样首屏不会只显示“加载中”，网络较慢时也能看到真实的演示数据。
         knowledge_profile = KnowledgePointScore.get_student_profile(student_id)
         knowledge_profile_rows = _knowledge_profile_rows(knowledge_profile)
+        student_vector_snapshot = get_student_vector_snapshot(student_id)
+        try:
+            learning_graph = build_student_learning_graph(
+                student_id=student_id,
+                limit=8,
+            )
+        except LearningGraphAccessError:
+            current_app.logger.warning(
+                '学生 %s 的知识路径超出访问范围，使用空状态',
+                student_id,
+            )
+            learning_graph = _learning_graph_fallback('student')
+        except Exception:
+            current_app.logger.exception(
+                '加载学生 %s 的知识路径失败 request_id=%s',
+                student_id,
+                getattr(g, 'codesense_request_id', None),
+            )
+            learning_graph = _learning_graph_fallback('student')
         analysis_status = trend_record.status or 'pending'
         # 1. 通过统一的能力引擎获取雷达图数据
         ability_scores = current_user.get_ability_scores()
@@ -352,6 +396,8 @@ def home():
             'submissions': submissions,
             'knowledge_profile': knowledge_profile,
             'knowledge_profile_rows': knowledge_profile_rows,
+            'student_vector_snapshot': student_vector_snapshot,
+            'learning_graph': learning_graph,
             'ability_trend': trend_record,
             'analysis_status': analysis_status,
             'analysis_status_label': _analysis_status_label(analysis_status),
@@ -458,7 +504,7 @@ def admin_dashboard():
             'rgba(255, 159, 64, 0.8)',
             'rgba(255, 99, 132, 0.8)',
         ]
-        score_labels = [f"{row.score}分" for row in score_distribution]
+        score_labels = [f"{row.score}" for row in score_distribution]
         chart_data = {
             'assignments': {
                 'labels': [row.title for row in assignments_data],
@@ -507,6 +553,27 @@ def admin_dashboard():
         )
 
 
+@main.route('/student/rebuild-learning-memory', methods=['POST'])
+@login_required
+def rebuild_student_learning_memory():
+    """Rebuild the current student's private learning index."""
+
+    if getattr(current_user, 'usertype', None) != '学生':
+        flash('只有学生可以更新自己的学习记忆。', 'warning')
+        return redirect(url_for('main.home'))
+
+    try:
+        snapshot = rebuild_student_vector_index(current_user.student_id)
+    except StudentVectorRebuildError:
+        flash('学习记忆更新失败，原有记录仍然保留，请稍后重试。', 'danger')
+    else:
+        flash(
+            f"学习记忆已更新，共保留 {snapshot['active_count']} 条本人记录。",
+            'success',
+        )
+    return redirect(url_for('main.home'))
+
+
 @main.route('/teacher_dashboard')
 @login_required
 def teacher_dashboard():
@@ -517,6 +584,24 @@ def teacher_dashboard():
 
     teacher = current_user
     dashboard = build_teacher_dashboard_data(teacher)
+    try:
+        learning_graph = build_teacher_knowledge_coverage(
+            viewer_id=teacher.student_id,
+            limit=10,
+        )
+    except LearningGraphAccessError:
+        current_app.logger.warning(
+            '教师 %s 的班级知识覆盖超出访问范围，使用空状态',
+            teacher.student_id,
+        )
+        learning_graph = _learning_graph_fallback('teacher_class')
+    except Exception:
+        current_app.logger.exception(
+            '加载教师 %s 的班级知识覆盖失败 request_id=%s',
+            teacher.student_id,
+            getattr(g, 'codesense_request_id', None),
+        )
+        learning_graph = _learning_graph_fallback('teacher_class')
     
     from models import TeacherAISuggestion
     ai_suggestions = {sug.class_id: sug for sug in TeacherAISuggestion.query.filter_by(teacher_id=teacher.student_id).all()}
@@ -534,6 +619,7 @@ def teacher_dashboard():
                            class_cards=dashboard['class_cards'],
                            attention=dashboard['attention'],
                            chart_data=dashboard['chart_data'],
+                           learning_graph=learning_graph,
                            ai_suggestions=ai_suggestions,
                            open_review_count=open_review_count)
 
@@ -797,7 +883,7 @@ def user_profile(user_username):
         flash('您没有权限查看该用户信息', 'danger')
         return redirect(url_for('main.home'))
         
-    # 获取瓶颈作业：寻找那些最高分未达到 5 分的题目
+    # 获取瓶颈作业：寻找那些最高分未达到 60 分的题目
     # 我们需要按题目分组，找出每道题的最高分
     all_student_subs = Submission.query.filter_by(student_id=user.student_id).all()
     assignment_stats = {}
@@ -808,8 +894,8 @@ def user_profile(user_username):
         if aid not in assignment_stats or sub.score > assignment_stats[aid]['max_score']:
             assignment_stats[aid] = {'max_score': sub.score, 'best_sub': sub}
             
-    # 筛选出未满分的瓶颈题目（最高分 < 5）
-    bottleneck_aids = [aid for aid, stats in assignment_stats.items() if stats['max_score'] < 5]
+    # 筛选出需要关注的瓶颈题目（最高分 < 60）
+    bottleneck_aids = [aid for aid, stats in assignment_stats.items() if stats['max_score'] < 60]
     
     # 获取这些瓶颈题目中最新的提交记录，作为“评审精选”展示
     recent_submissions = []
@@ -845,12 +931,11 @@ def user_profile(user_username):
     }
 
     # 准备真实蜕变轨迹数据 (取最近 10 次提交的分数)
-    # 我们将分数映射到 20-100 的示意高度，或者直接展示原始分 (0-5)
+    # 提交分已经统一为百分制，直接提供给能力进化图表。
     maturity_history = []
     if all_student_subs:
         recent_all = sorted(all_student_subs, key=lambda x: x.submitted_at)[-10:]
-        # 为了让图表好看，我们将 0-5 分映射到 20-100
-        maturity_history = [max(20, (s.score or 0) * 20) for s in recent_all]
+        maturity_history = [max(0, min(100, s.score or 0)) for s in recent_all]
 
     knowledge_profile = KnowledgePointScore.get_student_profile(user.student_id)
     knowledge_profile_rows = _knowledge_profile_rows(knowledge_profile)

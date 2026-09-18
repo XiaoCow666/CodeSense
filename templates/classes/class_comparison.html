@@ -157,7 +157,7 @@
 
             <div class="metric-row">
                 <div class="metric-label">平均分</div>
-                <div class="metric-value">{{ "%.1f"|format(item.stats.avg_score) }}分</div>
+                <div class="metric-value">{{ "%.1f"|format(item.stats.avg_score) }}</div>
             </div>
 
             <div class="metric-row">
@@ -186,11 +186,11 @@
                         > 20 else '' }}</div>
                     <div class="progress">
                         <div class="progress-bar"
-                            style="width: {{ (score_item.avg_score / 5 * 100) if score_item.avg_score > 0 else 0 }}%"
+                            style="width: {{ score_item.avg_score if score_item.avg_score > 0 else 0 }}%"
                             role="progressbar">
                         </div>
                     </div>
-                    <small class="text-muted">平均: {{ score_item.avg_score }}分</small>
+                    <small class="text-muted">平均: {{ score_item.avg_score }}</small>
                 </div>
                 {% endfor %}
             </div>
@@ -208,11 +208,11 @@
                         <th>排名</th>
                         <th>班级</th>
                         <th>学生数</th>
-                        <th>平均分</th>
+                        <th>平均分（0–100）</th>
                         <th>总提交数</th>
                         <th>活跃学生</th>
                         <th>参与率</th>
-                        <th>综合评分</th>
+                        <th>综合评分（0–100）</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -234,8 +234,8 @@
                         </td>
                         <td>{{ item.stats.student_count }}</td>
                         <td>
-                            class="badge badge-score-{{ item.stats.avg_score|round|int }}">
-                            {{ "%.1f"|format(item.stats.avg_score) }}
+                            <span class="badge {% if item.stats.avg_score >= 80 %}bg-success{% elif item.stats.avg_score >= 60 %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+                                {{ "%.1f"|format(item.stats.avg_score) }}
                             </span>
                         </td>
                         <td>{{ item.stats.total_submissions }}</td>

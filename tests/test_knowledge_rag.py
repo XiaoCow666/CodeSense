@@ -4,10 +4,18 @@ import pytest
 
 from app import create_app
 from config import TestingConfig as _TestingConfig
-from models import Assignment, AssignmentKnowledgePoint, KnowledgePointScore, User, db
+from models import (
+    Assignment,
+    AssignmentKnowledgePoint,
+    KnowledgePointScore,
+    Submission,
+    User,
+    db,
+)
 from routes import api as api_routes
 from services import knowledge_rag
 from services.knowledge_rag import retrieve_assignment_knowledge
+from services.student_vector_store import rebuild_student_vector_index
 
 
 @pytest.fixture
@@ -76,6 +84,49 @@ def test_ask_question_exposes_retrieval_evidence_and_fallback_state(
     assert data["knowledge_retrieval"]["fallback"]["code"] == "NO_KNOWLEDGE_EVIDENCE"
     assert data["knowledge_retrieval"]["metrics"]["no_result_fallback"] is True
     assert "没有已标注知识点" in data["answer"]
+
+
+def test_ask_question_uses_current_student_learning_memory_with_receipt(
+    knowledge_context, monkeypatch
+):
+    app, client, assignment_id = knowledge_context
+    captured = {}
+    with app.app_context():
+        db.session.add(
+            Submission(
+                student_id="rag-student",
+                assignment_id=assignment_id,
+                code="int main(){return 0;}",
+                score=68,
+                status="evaluated",
+                feedback="上次提交请继续检查数组边界。",
+            )
+        )
+        db.session.commit()
+        rebuild_student_vector_index("rag-student")
+
+    def fake_answer(**kwargs):
+        captured.update(kwargs)
+        return "请先手动追踪边界输入。"
+
+    monkeypatch.setattr(api_routes, "generate_answer_to_question", fake_answer)
+    response = client.post(
+        "/api/ask_question",
+        json={
+            "assignment_id": assignment_id,
+            "code": "int main(){return 0;}",
+            "question": "我上次的数组边界问题怎么继续检查？",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json["data"]
+    evidence = data["student_learning_evidence"]
+    assert evidence["status"] == "grounded"
+    assert evidence["evidence"][0]["scope"] == "student_private"
+    assert evidence["evidence"][0]["source_version"]
+    assert "上次提交请继续检查数组边界" in captured["knowledge_context"]
+    assert "参考我的学习记录" in data["answer"]
 
 
 def test_ask_question_returns_scoped_citations_and_metrics(knowledge_context, monkeypatch):

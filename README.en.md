@@ -23,14 +23,14 @@
   <a href="https://github.com/XiaoCow666/CodeSense/stargazers"><img src="https://img.shields.io/github/stars/XiaoCow666/CodeSense?style=flat-square&logo=github" alt="GitHub stars"></a>
   <a href="https://github.com/XiaoCow666/CodeSense/network/members"><img src="https://img.shields.io/github/forks/XiaoCow666/CodeSense?style=flat-square&logo=github" alt="GitHub forks"></a>
   <a href="https://github.com/XiaoCow666/CodeSense/blob/main/LICENSE"><img src="https://img.shields.io/github/license/XiaoCow666/CodeSense?style=flat-square" alt="License"></a>
-  <img src="https://img.shields.io/badge/version-v1.0.0-2563eb?style=flat-square" alt="v1.0.0">
+  <img src="https://img.shields.io/badge/version-v1.5.0-2563eb?style=flat-square" alt="v1.5.0">
   <img src="https://img.shields.io/badge/Python-3.8--3.14-3776ab?style=flat-square&logo=python&logoColor=white" alt="Python 3.8–3.14">
   <img src="https://img.shields.io/badge/Flask-2.3.3-000000?style=flat-square&logo=flask&logoColor=white" alt="Flask 2.3.3">
 </p>
 
-> **Release status: formal release** · **Current version: `v1.0.0`**
+> **Release status: formal release** · **Current version: `v1.5.0`**
 >
-> `v1.0.0` is the first formal release of the CodeSense Standard Edition. Future releases use `vMAJOR.MINOR.PATCH` and are tracked in GitHub Releases/Tags and [CHANGELOG.md](CHANGELOG.md).
+> `v1.5.0` adds scoped student learning memory, provenance-aware learning paths, and tutoring receipts. Releases use `vMAJOR.MINOR.PATCH` and are tracked in GitHub Releases/Tags and [CHANGELOG.md](CHANGELOG.md).
 
 ## Contents
 
@@ -69,6 +69,10 @@ These screenshots are from the runnable pages in the repository, not concept moc
     </td>
   </tr>
 </table>
+
+<p align="center">
+  <img src="docs/assets/codesense-v1.5.0-student-learning-memory.png" alt="CodeSense v1.5.0 student learning memory and knowledge paths" width="100%">
+</p>
 
 ## Public demo
 
@@ -127,7 +131,14 @@ Prompt constraints and the `sanitize_response` filter are used in guided-learnin
 - Provides knowledge-point scores, individual trends, and class views for follow-up teaching;
 - Keeps course assignment scores and ability-profile scores separate: assignment scores are currently recorded on a 0–5 scale, while ability scores use a 0–100 scale.
 
-### 4. Teacher management
+### 4. Student learning memory and knowledge paths
+
+- Builds a private, versioned learning index from the current student's evaluated feedback and knowledge-point records;
+- Uses assignment-scoped personal retrieval in student questions and Code Studio tutoring, with source, scope, and index-version receipts;
+- Supports explicit rebuilds, durable source revocation, retry after a failed rebuild, and offline retrieval evaluation;
+- Shows students a permission-aware learning path and teachers an aggregate class knowledge-coverage view with traceable edge provenance.
+
+### 5. Teacher management
 
 - Assignment creation, editing, test-case, and submission management;
 - Class, roster, and teacher invitation workflows;
@@ -135,7 +146,7 @@ Prompt constraints and the `sanitize_response` filter are used in guided-learnin
 - AI-assisted assignment formatting and learning suggestions;
 - Separate permissions for students, teachers, and administrators.
 
-### 5. Interaction and experience
+### 6. Interaction and experience
 
 - Browser-based code editing; pages using Monaco Editor load it on demand;
 - Step selection, code preview, and conversation interactions in guided-learning pages;
@@ -154,7 +165,9 @@ flowchart LR
     F --> G[Correction, explanation, and resubmission]
     G --> C
     E --> H[Ability profile and knowledge records]
-    H --> I[Teacher learning view]
+    H --> I[Private student learning memory]
+    I --> J[Scoped retrieval and AI tutoring]
+    H --> K[Aggregate teacher knowledge view]
 ```
 
 ## Three-stage learning flow
@@ -359,7 +372,7 @@ CodeSense follows semantic versioning:
 - `MINOR`: backward-compatible feature additions;
 - `PATCH`: backward-compatible fixes and small adjustments.
 
-The current version is **`v1.0.0`**, the first formal release of the CodeSense Standard Edition. Every future release should update [CHANGELOG.md](CHANGELOG.md) and use a matching Git tag and GitHub Release. Published release records should not be silently rewritten.
+The current version is **`v1.5.0`**. Students can maintain a private learning memory and see its sources in AI tutoring; students and teachers can use provenance-aware knowledge-path views with role-specific scopes. Every release updates [CHANGELOG.md](CHANGELOG.md) and uses a matching Git tag and GitHub Release.
 
 ## Star History
 

@@ -197,7 +197,7 @@ def test_formal_worker_updates_submission_in_isolated_database(tmp_path, monkeyp
     _require_worker_contract()
     from app import create_app
     from config import TestingConfig as _TestingConfig
-    from models import Assignment, Submission, User, db
+    from models import Assignment, StudentLearningVector, StudentVectorIndexState, Submission, User, db
     import tasks.ability_analysis as ability_analysis
 
     database_path = tmp_path / "formal_submission_worker.db"
@@ -269,7 +269,24 @@ def test_formal_worker_updates_submission_in_isolated_database(tmp_path, monkeyp
         assert worker.work(burst=True, logging_level="CRITICAL") is True
         updated = db.session.get(Submission, submission_id)
         assert updated.status == "evaluated"
-        assert updated.score == 4
+        assert updated.score == 80
+        vector_state = StudentVectorIndexState.query.filter_by(
+            student_id="worker-student"
+        ).one()
+        assert vector_state.status == "ready"
+        active_vectors = StudentLearningVector.query.filter_by(
+            student_id="worker-student",
+            status="active",
+        ).all()
+        assert active_vectors
+        assert any(
+            vector.source_type == "submission_feedback"
+            for vector in active_vectors
+        )
+        assert all(
+            vector.scope_type == "student_private"
+            for vector in active_vectors
+        )
 
     assert submission_queue.get_submission_job_status(app, submission_id) == "completed"
     assert state.operation_id == f"submission-evaluation-{submission_id}"

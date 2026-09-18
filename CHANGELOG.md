@@ -10,6 +10,16 @@ This file records release-level information for users and maintainers. Versions 
 
 Future unreleased changes will be listed here.
 
+## [1.5.0] - 2026-09-18
+
+### Added
+
+- 学生首页新增“我的学习记忆”，从本人评测反馈和知识点记录建立带版本的私有学习索引，并支持显式更新。
+- 学生提问和 Code Studio 代码辅导会在当前学生、当前作业范围内检索学习记忆，回答附带来源、作用域和索引版本收据。
+- 学习记忆支持来源版本、用户撤回、失败后保留上一版索引、检索审计和可复现离线评测；学习记忆只用于引导反思，不参与分数计算。
+- 学生知识路径与教师班级知识覆盖图谱的每条关系增加来源引用和版本指纹，教师视图仅展示班级聚合结果。
+- 部署脚本在应用重启前执行数据库维护，保证新增学习记忆表可以随版本更新创建。
+
 ## [1.4.0] - 2026-09-17
 
 ### Added
@@ -61,7 +71,8 @@ CodeSense 标准版首个正式版本。
 
 First formal release of the CodeSense Standard Edition.
 
-[Unreleased]: https://github.com/XiaoCow666/CodeSense/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/XiaoCow666/CodeSense/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/XiaoCow666/CodeSense/releases/tag/v1.5.0
 [1.4.0]: https://github.com/XiaoCow666/CodeSense/releases/tag/v1.4.0
 [1.3.0]: https://github.com/XiaoCow666/CodeSense/releases/tag/v1.3.0
 [1.2.0]: https://github.com/XiaoCow666/CodeSense/releases/tag/v1.2.0

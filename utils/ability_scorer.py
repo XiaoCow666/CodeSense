@@ -5,6 +5,7 @@ import numpy as np
 from models import db, Class, User, Submission
 from sqlalchemy import and_, or_
 from utils.access import authoritative_class_name
+from utils.scoring import normalize_mixed_score
 from typing import Dict, List
 import logging
 
@@ -29,7 +30,7 @@ class AbilityScorer:
             student_id: 学生ID
             
         返回:
-            float: 综合能力评分 (0-5分)
+            float: 综合能力评分 (0-100分)
         """
         try:
             user = User.query.get(student_id)
@@ -62,8 +63,8 @@ class AbilityScorer:
                 improvement_score * self.weights['improvement']
             )
             
-            # 确保分数在0-5范围内
-            final_score = max(0.0, min(5.0, final_score))
+            # 内部指标仍沿用原来的 0–5 权重模型，统一输出百分制。
+            final_score = max(0.0, min(5.0, final_score)) * 20
             
             logger.info(f"学生 {student_id} 能力评分: {final_score:.2f} (提交频率:{submission_score:.2f}, 平均分:{average_score:.2f}, 稳定性:{consistency_score:.2f}, 进步:{improvement_score:.2f})")
             
@@ -103,7 +104,11 @@ class AbilityScorer:
                 Submission.score.isnot(None),
             ).group_by(Submission.student_id).all()]
             
-            avg_score = sum(all_scores) / len(all_scores) if all_scores else 2.5
+            normalized_scores = [
+                (normalize_mixed_score(score) or 0) / 20
+                for score in all_scores
+            ]
+            avg_score = sum(normalized_scores) / len(normalized_scores) if normalized_scores else 2.5
             
             return {
                 'avg_submissions': max(1, avg_submissions),
@@ -138,12 +143,16 @@ class AbilityScorer:
             return ratio * 3.0                 # 0.0-1.5
     
     def _calculate_average_score(self, submissions: List[Submission], class_data: Dict) -> float:
-        """计算平均分得分 (0-5分)"""
+        """计算平均分得分（内部 0-5 指标）。"""
         if not submissions:
             return 0.0
         
         # 计算学生平均分
-        scores = [s.score for s in submissions if s.score is not None]
+        scores = [
+            (normalize_mixed_score(s.score) or 0) / 20
+            for s in submissions
+            if s.score is not None
+        ]
         if not scores:
             return 0.0
         
@@ -169,7 +178,11 @@ class AbilityScorer:
             return 3.0  # 默认中等分数
         
         # 计算分数的标准差
-        scores = [s.score for s in submissions if s.score is not None]
+        scores = [
+            (normalize_mixed_score(s.score) or 0) / 20
+            for s in submissions
+            if s.score is not None
+        ]
         if len(scores) < 2:
             return 3.0
         
@@ -202,8 +215,12 @@ class AbilityScorer:
         first_third = scored_submissions[:n//3] if n >= 3 else scored_submissions[:1]
         last_third = scored_submissions[-n//3:] if n >= 3 else scored_submissions[-1:]
         
-        first_avg = sum(s.score for s in first_third) / len(first_third)
-        last_avg = sum(s.score for s in last_third) / len(last_third)
+        first_avg = sum(
+            (normalize_mixed_score(s.score) or 0) / 20 for s in first_third
+        ) / len(first_third)
+        last_avg = sum(
+            (normalize_mixed_score(s.score) or 0) / 20 for s in last_third
+        ) / len(last_third)
         
         improvement = last_avg - first_avg
         
@@ -255,8 +272,10 @@ class AbilityScorer:
                         for key in totals:
                             score_key = f"{key}_score"
                             if score_key in data:
-                                totals[key] += float(data[score_key]) * 20
-                                valid_counts[key] += 1
+                                normalized_value = normalize_mixed_score(data[score_key])
+                                if normalized_value is not None:
+                                    totals[key] += normalized_value
+                                    valid_counts[key] += 1
                     except (json.JSONDecodeError, TypeError, ValueError):
                         continue
             
@@ -267,8 +286,16 @@ class AbilityScorer:
             
             # 极速回归补偿：如果所有维度都是 0（可能由于解析失败或旧数据），则采用系统总分
             if sum(avg_scores.values()) == 0:
-                avg_val = sum(s.score for s in all_submissions if s.score) / len(all_submissions) if all_submissions else 0
-                base = min(100, avg_val * 20)
+                normalized_scores = [
+                    normalize_mixed_score(s.score)
+                    for s in all_submissions
+                    if s.score is not None
+                ]
+                normalized_scores = [score for score in normalized_scores if score is not None]
+                base = (
+                    min(100, sum(normalized_scores) / len(normalized_scores))
+                    if normalized_scores else 0
+                )
                 avg_scores = {k: base for k in avg_scores}
                 
             return avg_scores

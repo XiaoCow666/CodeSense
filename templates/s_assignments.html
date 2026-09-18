@@ -228,8 +228,8 @@
                         <th width="100">出题教师</th>
                         <th width="150">发布日期</th>
                         <th width="150">截止倒计时</th>
-                        <th width="100">提交/平均分（0–5）</th>
-                        <th width="100">个人最高分（0–5）</th>
+                        <th width="100">提交/平均分（0–100）</th>
+                        <th width="100">个人最高分（0–100）</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -286,12 +286,12 @@
         </td>
         <td>
             <small class="text-muted">提交: {{ assignment.count }}</small><br>
-            <small class="text-info">平均: {{ "%.1f"|format(assignment.average_score|float) }}/5</small>
+            <small class="text-info">平均: {{ "%.1f"|format(assignment.average_score|float) }}</small>
         </td>
         <td>
             {% if assignment.max_student_score %}
-            <span class="badge badge-score-{{ assignment.max_student_score|round|int }}">
-                {{ "%.1f"|format(assignment.max_student_score|float) }}/5
+            <span class="badge {% if assignment.max_student_score >= 80 %}bg-success{% elif assignment.max_student_score >= 60 %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+                {{ "%.1f"|format(assignment.max_student_score|float) }}
             </span>
             {% else %}
             <span class="text-muted small">未提交</span>
