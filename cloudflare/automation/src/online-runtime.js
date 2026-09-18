@@ -139,13 +139,14 @@ export async function runOnlineReconciliation({ env, enqueueEvent, runAction } =
     }
     members = [...new Map(members.map((member) => [member.openId, member])).values()];
     summary.members += members.length;
-    const onboarding = await onboardMembers({ env, project, members, records, runAction, eventId });
-    summary.stageOneTasks += onboarding.created;
-    summary.messages += onboarding.messages;
     const next = await continueCompletedTasks({ env, project, records, runAction, eventId });
     summary.nextStageTasks += next.created;
     for (const [reason, count] of Object.entries(next.skipped)) summary.nextStageSkipped[reason] = (summary.nextStageSkipped[reason] || 0) + count;
     summary.messages += next.messages;
+    const recordsAfterContinuation = next.created > 0 ? await listProjectRecords(env, project) : records;
+    const onboarding = await onboardMembers({ env, project, members, records: recordsAfterContinuation, runAction, eventId });
+    summary.stageOneTasks += onboarding.created;
+    summary.messages += onboarding.messages;
     const pullRequests = await listOpenPullRequests(env, project.repository);
     summary.openPullRequests += pullRequests.length;
     for (const pullRequest of pullRequests) {

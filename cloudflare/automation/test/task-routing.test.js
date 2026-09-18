@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   nextStageForCompletedRecord,
   nextStageEligibility,
+  memberTaskPlan,
   parseStageNumber,
   projectForChat,
   projectForRepository,
@@ -100,6 +101,27 @@ test("github identity links only one active stage task", () => {
   };
   assert.equal(selectTaskForGithubIdentity([task], "ou_member"), task);
   assert.equal(selectTaskForGithubIdentity([task, { ...task, record_id: "rec_other" }], "ou_member"), null);
+});
+
+test("member reconciliation keeps an active later stage and recovers the missing next stage", () => {
+  const completed = {
+    record_id: "rec_stage_6",
+    fields: {
+      "任务名称": "阶段六：接管演练（张三）",
+      "状态": ["已完成"],
+      "负责人": [{ id: "ou_member", name: "张三" }],
+    },
+  };
+  const active = {
+    record_id: "rec_stage_7",
+    fields: {
+      "任务名称": "阶段七：真实问题改进（张三）",
+      "状态": ["进行中"],
+      "负责人": [{ id: "ou_member", name: "张三" }],
+    },
+  };
+  assert.deepEqual(memberTaskPlan([completed, active], "ou_member"), { action: "keep", record_id: "rec_stage_7" });
+  assert.deepEqual(memberTaskPlan([completed], "ou_member"), { action: "create_next", record: completed, next_stage: 7 });
 });
 
 test("stage tasks use a short STAR story and change the mission by stage", () => {

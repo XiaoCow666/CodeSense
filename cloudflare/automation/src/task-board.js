@@ -178,6 +178,21 @@ export function selectTaskForGithubIdentity(records, assigneeOpenId) {
   return candidates.length === 1 ? candidates[0] : null;
 }
 
+export function memberTaskPlan(records, memberOpenId) {
+  const memberRecords = (Array.isArray(records) ? records : [])
+    .filter((record) => taskRecordSnapshot(record).assigneeOpenId === memberOpenId);
+  const active = memberRecords.find((record) => taskRecordSnapshot(record).status !== "已完成");
+  if (active) return { action: "keep", record_id: taskRecordSnapshot(active).recordId };
+  const completedStages = memberRecords
+    .map((record) => ({ record, snapshot: taskRecordSnapshot(record) }))
+    .filter(({ snapshot }) => snapshot.status === "已完成" && snapshot.stage)
+    .sort((left, right) => right.snapshot.stage - left.snapshot.stage);
+  if (!completedStages.length) return { action: "create_stage_one" };
+  const latest = completedStages[0];
+  if (latest.snapshot.stage >= 14) return { action: "complete", reason: "final_stage" };
+  return { action: "create_next", record: latest.record, next_stage: latest.snapshot.stage + 1 };
+}
+
 export function parseStageNumber(title) {
   const value = String(title || "");
   const arabic = value.match(/阶段\s*(\d+)/);
@@ -397,8 +412,14 @@ function stageOneFields(project, memberOpenId, memberName, reviewerOpenId) {
 
 export async function ensureStageOneTask(env, project, memberOpenId, memberName) {
   const records = await listRecords(env, project);
-  const active = records.find((record) => assigneeId(record) === memberOpenId && parseStageNumber(valueText(record.fields[FIELD_NAMES.title])) === 1 && valueText(record.fields[FIELD_NAMES.status]) !== "已完成");
-  if (active) return { created: false, record_id: active.record_id, task_url: null };
+  const plan = memberTaskPlan(records, memberOpenId);
+  if (plan.action === "keep") return { created: false, record_id: plan.record_id, task_url: null };
+  if (plan.action === "complete") return { created: false, record_id: null, task_url: null, reason: plan.reason };
+  if (plan.action === "create_next") {
+    const latest = taskRecordSnapshot(plan.record);
+    const recordId = await createRecord(env, project, nextTaskFields(project, plan.record, plan.next_stage, memberOpenId, latest.assigneeName || memberName, env.FEISHU_BOT_OPEN_ID));
+    return { created: true, record_id: recordId, next_stage: plan.next_stage, task_url: null };
+  }
   const recordId = await createRecord(env, project, stageOneFields(project, memberOpenId, memberName, env.FEISHU_BOT_OPEN_ID));
   return { created: true, record_id: recordId, task_url: null };
 }
