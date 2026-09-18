@@ -114,6 +114,48 @@ def test_submission_detail_shows_knowledge_focus_and_scoring_boundary(
     assert "不是本次评分依据" in html
 
 
+def test_submission_detail_does_not_present_unavailable_sandbox_as_failed_score(
+    submission_knowledge_context, monkeypatch
+):
+    app, client, ids = submission_knowledge_context
+    _login(client, "submission-evidence-student")
+    monkeypatch.setattr(assignment_routes, "retrieve_assignment_knowledge", _retrieval)
+
+    with app.app_context():
+        submission = db.session.get(Submission, ids["submission"])
+        submission.sandbox_status = "unavailable"
+        submission.sandbox_passed = 0
+        submission.sandbox_total = 2
+        db.session.commit()
+
+    response = client.get(f"/view_submission/{ids['submission']}")
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert "测试环境未就绪" in html
+    assert "通过 0/2" not in html
+
+
+def test_submission_detail_keeps_passed_sandbox_badge(
+    submission_knowledge_context, monkeypatch
+):
+    app, client, ids = submission_knowledge_context
+    _login(client, "submission-evidence-student")
+    monkeypatch.setattr(assignment_routes, "retrieve_assignment_knowledge", _retrieval)
+
+    with app.app_context():
+        submission = db.session.get(Submission, ids["submission"])
+        submission.sandbox_status = "passed"
+        submission.sandbox_passed = 2
+        submission.sandbox_total = 2
+        db.session.commit()
+
+    response = client.get(f"/view_submission/{ids['submission']}")
+
+    assert response.status_code == 200
+    assert "通过 2/2" in response.get_data(as_text=True)
+
+
 def test_submission_access_is_checked_before_knowledge_retrieval(
     submission_knowledge_context, monkeypatch
 ):

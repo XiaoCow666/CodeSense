@@ -267,14 +267,14 @@
                 <span class="ms-1 badge badge-score-{{ submission.score|round|int }} fs-6">
                     {{ submission.score }} / 5
                 </span>
-                {% if submission.sandbox_total is not none %}
+                {% if submission.sandbox_status == 'unavailable' %}
+                <span class="ms-2 badge bg-secondary">
+                    <i class="bi bi-exclamation-triangle me-1"></i> 测试环境未就绪
+                </span>
+                {% elif submission.sandbox_total is not none %}
                 <span
                     class="ms-2 badge {% if submission.sandbox_status == 'passed' %}bg-success{% elif submission.sandbox_status == 'partial' %}bg-warning text-dark{% else %}bg-danger{% endif %}">
                     通过 {{ submission.sandbox_passed or 0 }}/{{ submission.sandbox_total }}
-                </span>
-                {% elif submission.sandbox_status == 'unavailable' %}
-                <span class="ms-2 badge bg-secondary">
-                    <i class="bi bi-exclamation-triangle me-1"></i> 测试环境未就绪
                 </span>
                 {% endif %}
             </div>
