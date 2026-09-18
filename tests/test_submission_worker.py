@@ -274,10 +274,19 @@ def test_formal_worker_updates_submission_in_isolated_database(tmp_path, monkeyp
             student_id="worker-student"
         ).one()
         assert vector_state.status == "ready"
-        assert StudentLearningVector.query.filter_by(
+        active_vectors = StudentLearningVector.query.filter_by(
             student_id="worker-student",
             status="active",
-        ).count() == 1
+        ).all()
+        assert active_vectors
+        assert any(
+            vector.source_type == "submission_feedback"
+            for vector in active_vectors
+        )
+        assert all(
+            vector.scope_type == "student_private"
+            for vector in active_vectors
+        )
 
     assert submission_queue.get_submission_job_status(app, submission_id) == "completed"
     assert state.operation_id == f"submission-evaluation-{submission_id}"
