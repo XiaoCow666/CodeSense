@@ -3,10 +3,17 @@ import assert from "node:assert/strict";
 import { evaluateMergeGate, latestCheckRuns, normalizeReviewResult } from "../src/github.js";
 import { callLuoxin, claimAction, shouldInvokeLuoxin } from "../src/index.js";
 
-function actionLogDb(existing, { insertChanges = 0, updateChanges = 1 } = {}) {
+function actionLogDb(
+  existing,
+  { insertChanges = 0, updateChanges = 1, stateful = false } = {},
+) {
+  let row = existing ? { ...existing } : null;
   const statements = [];
   return {
     statements,
+    getRow() {
+      return row;
+    },
     prepare(sql) {
       statements.push(sql);
       return {
@@ -14,11 +21,21 @@ function actionLogDb(existing, { insertChanges = 0, updateChanges = 1 } = {}) {
           return {
             async run() {
               if (sql.startsWith("INSERT")) return { meta: { changes: insertChanges } };
-              if (sql.startsWith("UPDATE")) return { meta: { changes: updateChanges } };
+              if (sql.startsWith("UPDATE")) {
+                if (!stateful) return { meta: { changes: updateChanges } };
+                const [timestamp, , staleBefore] = args;
+                const reclaimable = row && (
+                  row.status === "failed" ||
+                  (row.status === "running" && row.updated_at <= staleBefore)
+                );
+                if (!reclaimable) return { meta: { changes: 0 } };
+                row = { ...row, status: "running", updated_at: timestamp };
+                return { meta: { changes: 1 } };
+              }
               throw new Error(`unexpected run: ${sql}`);
             },
             async first() {
-              return existing;
+              return row;
             },
           };
         },
@@ -129,7 +146,7 @@ test("a stale running action can be reclaimed after a worker interruption", asyn
   const db = actionLogDb({
     status: "running",
     updated_at: new Date(Date.now() - 16 * 60 * 1000).toISOString(),
-  });
+  }, { stateful: true });
 
   assert.equal(
     await claimAction(
@@ -142,6 +159,30 @@ test("a stale running action can be reclaimed after a worker interruption", asyn
   );
   assert.match(db.statements[2], /status = 'running'/);
   assert.match(db.statements[2], /updated_at <= \?/);
+});
+
+test("only the first retry can reclaim the same stale action", async () => {
+  const db = actionLogDb({
+    status: "running",
+    updated_at: new Date(Date.now() - 16 * 60 * 1000).toISOString(),
+  }, { stateful: true });
+
+  const firstClaim = await claimAction(
+    { STATE_DB: db },
+    "event-race",
+    "review_engine",
+    "review:repo#1:sha-race",
+  );
+  const secondClaim = await claimAction(
+    { STATE_DB: db },
+    "event-race-retry",
+    "review_engine",
+    "review:repo#1:sha-race",
+  );
+
+  assert.equal(firstClaim, true);
+  assert.equal(secondClaim, false);
+  assert.equal(db.getRow().status, "running");
 });
 
 test("a recent running action is still owned by the active worker", async () => {
