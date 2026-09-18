@@ -6,6 +6,7 @@ import {
   isKnowledgeCandidate,
   isReviewRequest,
   formatDailyReport,
+  scheduledActionKey,
   scheduledMode,
 } from "../src/online.js";
 
@@ -13,6 +14,12 @@ test("Cloudflare cron keeps reconciliation and the daily report separate", () =>
   assert.equal(scheduledMode("*/10 * * * *"), "reconcile");
   assert.equal(scheduledMode("0 10 * * *"), "daily-report");
   assert.equal(scheduledMode("unknown"), "reconcile");
+});
+
+test("scheduled jobs use distinct idempotent action keys", () => {
+  const now = new Date("2026-09-19T01:20:00+08:00");
+  assert.equal(scheduledActionKey("*/10 * * * *", now), `scheduler:reconcile:${Math.floor(now.getTime() / 600000)}`);
+  assert.equal(scheduledActionKey("0 10 * * *", now), "scheduler:daily-report:2026-09-19");
 });
 
 test("online message routing extracts only an explicit supported PR", () => {

@@ -2,10 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   nextStageForCompletedRecord,
+  nextStageEligibility,
   parseStageNumber,
   projectForChat,
   projectForRepository,
   stageTaskContent,
+  selectTaskForGithubIdentity,
   ensureNextStageTask,
   taskRecordSnapshot,
 } from "../src/task-board.js";
@@ -70,7 +72,34 @@ test("online task reconciliation does not create a duplicate active next stage",
     created: false,
     record_id: null,
     next_stage: null,
+    reason: "next_stage_exists",
   });
+});
+
+test("completed task recovery reports missing metadata instead of silently skipping", () => {
+  assert.deepEqual(
+    nextStageEligibility([], { taskName: "历史任务", status: "已完成", assigneeOpenId: null, stage: 2 }),
+    { eligible: false, reason: "assignee_missing" },
+  );
+  assert.deepEqual(
+    nextStageEligibility([], { taskName: "历史任务", status: "已完成", assigneeOpenId: "ou_member", stage: null }),
+    { eligible: false, reason: "stage_missing" },
+  );
+});
+
+test("github identity links only one active stage task", () => {
+  const task = {
+    record_id: "rec_stage_7",
+    fields: {
+      "任务名称": "阶段七：验证（张三）",
+      "状态": ["进行中"],
+      "负责人": [{ id: "ou_member", name: "张三" }],
+      "任务模式": ["阶段任务"],
+      "GitHub PR / Issue": null,
+    },
+  };
+  assert.equal(selectTaskForGithubIdentity([task], "ou_member"), task);
+  assert.equal(selectTaskForGithubIdentity([task, { ...task, record_id: "rec_other" }], "ou_member"), null);
 });
 
 test("stage tasks use a short STAR story and change the mission by stage", () => {

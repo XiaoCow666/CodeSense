@@ -92,6 +92,7 @@ async function onboardMembers({ env, project, members, records, runAction, event
 async function continueCompletedTasks({ env, project, records, runAction, eventId }) {
   let created = 0;
   let messages = 0;
+  const skipped = {};
   for (const record of records) {
     const snapshot = taskRecordSnapshot(record);
     if (snapshot.status !== "已完成") continue;
@@ -102,6 +103,7 @@ async function continueCompletedTasks({ env, project, records, runAction, eventI
       `task-next-stage:${project.key}:${snapshot.recordId}:${snapshot.stage || "unknown"}`,
       () => ensureNextStageTask(env, project, record, records),
     );
+    if (result.reason) skipped[result.reason] = (skipped[result.reason] || 0) + 1;
     if (!result.created || result.idempotent_replay === true) continue;
     created += 1;
     await runAction(
@@ -119,13 +121,13 @@ async function continueCompletedTasks({ env, project, records, runAction, eventI
     );
     messages += 1;
   }
-  return { created, messages };
+  return { created, messages, skipped };
 }
 
 export async function runOnlineReconciliation({ env, enqueueEvent, runAction } = {}) {
   if (typeof enqueueEvent !== "function" || typeof runAction !== "function") throw new Error("online reconciliation dependencies are missing");
   const eventId = `cron-reconcile:${reconciliationBucket()}`;
-  const summary = { projects: 0, members: 0, stageOneTasks: 0, nextStageTasks: 0, messages: 0, reviewsQueued: 0, openPullRequests: 0, mergedPullRequests: 0 };
+  const summary = { projects: 0, members: 0, stageOneTasks: 0, nextStageTasks: 0, nextStageSkipped: {}, messages: 0, reviewsQueued: 0, openPullRequests: 0, mergedPullRequests: 0 };
   for (const repository of PROJECT_REPOSITORIES) {
     const project = projectForRepository(env, repository);
     if (!project) throw new Error(`project is not configured: ${repository}`);
@@ -142,6 +144,7 @@ export async function runOnlineReconciliation({ env, enqueueEvent, runAction } =
     summary.messages += onboarding.messages;
     const next = await continueCompletedTasks({ env, project, records, runAction, eventId });
     summary.nextStageTasks += next.created;
+    for (const [reason, count] of Object.entries(next.skipped)) summary.nextStageSkipped[reason] = (summary.nextStageSkipped[reason] || 0) + count;
     summary.messages += next.messages;
     const pullRequests = await listOpenPullRequests(env, project.repository);
     summary.openPullRequests += pullRequests.length;

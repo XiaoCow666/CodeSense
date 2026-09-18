@@ -23,6 +23,7 @@ const FIELD_NAMES = {
 };
 
 const CHINESE_STAGES = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九", "十", "十一", "十二", "十三", "十四"];
+const ACTIVE_TASK_STATUSES = new Set(["待开始", "进行中", "待评审", "阻塞"]);
 const PROJECT_ENV = {
   codesense: { key: "codesense", name: "CodeSense", repository: "XiaoCow666/CodeSense", baseToken: "FEISHU_CODESENSE_BASE_TOKEN", tableId: "FEISHU_CODESENSE_TASK_TABLE_ID", wikiParent: "FEISHU_CODESENSE_WIKI_PARENT_TOKEN", chatIds: "FEISHU_CODESENSE_CHAT_IDS" },
   caifusi: { key: "caifusi", name: "Caifusi", repository: "XiaoCow666/Caifusi", baseToken: "FEISHU_CAIFUSI_BASE_TOKEN", tableId: "FEISHU_CAIFUSI_TASK_TABLE_ID", wikiParent: "FEISHU_CAIFUSI_WIKI_PARENT_TOKEN", chatIds: "FEISHU_CAIFUSI_CHAT_IDS" },
@@ -94,6 +95,25 @@ async function updateRecord(env, project, recordId, fields) {
   return feishuApi(env, "POST", `/open-apis/base/v3/bases/${encodeURIComponent(baseToken)}/tables/${encodeURIComponent(tableId)}/records/batch_update`, { update_records: { [recordId]: fields } });
 }
 
+async function lookupGithubMember(env, repository, githubLogin) {
+  if (!env.STATE_DB || !repository || !githubLogin) return null;
+  return env.STATE_DB.prepare(
+    "SELECT repository, github_login, assignee_open_id, assignee_name FROM github_member_identity WHERE repository = ? AND github_login = ?",
+  ).bind(repository, githubLogin).first();
+}
+
+async function rememberGithubMember(env, repository, githubLogin, assigneeOpenId, assigneeName) {
+  if (!env.STATE_DB || !repository || !githubLogin || !assigneeOpenId) return;
+  await env.STATE_DB.prepare(
+    `INSERT INTO github_member_identity (repository, github_login, assignee_open_id, assignee_name, updated_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(repository, github_login) DO UPDATE SET
+       assignee_open_id = excluded.assignee_open_id,
+       assignee_name = excluded.assignee_name,
+       updated_at = excluded.updated_at`,
+  ).bind(repository, githubLogin, assigneeOpenId, assigneeName || null, new Date().toISOString()).run();
+}
+
 function assigneeId(record) {
   const value = record?.fields?.[FIELD_NAMES.assignee];
   return Array.isArray(value) ? value[0]?.id || null : null;
@@ -115,20 +135,47 @@ export function taskRecordSnapshot(record) {
   };
 }
 
-export function nextStageForCompletedRecord(records, record) {
+export function nextStageEligibility(records, record) {
   const snapshot = record?.taskName ? record : taskRecordSnapshot(record);
-  if (snapshot.status !== "已完成" || !snapshot.assigneeOpenId || !snapshot.stage || snapshot.stage >= 14) return null;
+  if (snapshot.status !== "已完成") return { eligible: false, reason: "status_not_completed" };
+  if (!snapshot.assigneeOpenId) return { eligible: false, reason: "assignee_missing" };
+  if (!snapshot.stage) return { eligible: false, reason: "stage_missing" };
+  if (snapshot.stage >= 14) return { eligible: false, reason: "final_stage" };
   const hasActiveNextStage = (Array.isArray(records) ? records : [])
     .map((item) => item?.taskName ? item : taskRecordSnapshot(item))
     .some((item) => item.assigneeOpenId === snapshot.assigneeOpenId
       && item.stage === snapshot.stage + 1
       && item.status !== "已完成");
-  if (hasActiveNextStage) return null;
+  if (hasActiveNextStage) return { eligible: false, reason: "next_stage_exists" };
   return {
+    eligible: true,
     assigneeOpenId: snapshot.assigneeOpenId,
     assigneeName: snapshot.assigneeName,
     nextStage: snapshot.stage + 1,
   };
+}
+
+export function nextStageForCompletedRecord(records, record) {
+  const eligibility = nextStageEligibility(records, record);
+  if (!eligibility.eligible) return null;
+  return {
+    assigneeOpenId: eligibility.assigneeOpenId,
+    assigneeName: eligibility.assigneeName,
+    nextStage: eligibility.nextStage,
+  };
+}
+
+export function selectTaskForGithubIdentity(records, assigneeOpenId) {
+  const candidates = (Array.isArray(records) ? records : []).filter((record) => {
+    const snapshot = taskRecordSnapshot(record);
+    const mode = valueText(record?.fields?.[FIELD_NAMES.mode]);
+    return snapshot.assigneeOpenId === assigneeOpenId
+      && ACTIVE_TASK_STATUSES.has(snapshot.status)
+      && Boolean(snapshot.stage)
+      && !snapshot.prUrl
+      && (!mode || mode === "阶段任务");
+  });
+  return candidates.length === 1 ? candidates[0] : null;
 }
 
 export function parseStageNumber(title) {
@@ -384,10 +431,10 @@ function nextTaskFields(project, record, nextStage, assignee, assigneeName, revi
 
 export async function ensureNextStageTask(env, project, record, records = []) {
   const snapshot = taskRecordSnapshot(record);
-  const next = nextStageForCompletedRecord(records, snapshot);
-  if (!next) return { created: false, record_id: null, next_stage: null };
-  const recordId = await createRecord(env, project, nextTaskFields(project, record, next.nextStage, next.assigneeOpenId, next.assigneeName, env.FEISHU_BOT_OPEN_ID));
-  return { created: true, record_id: recordId, next_stage: next.nextStage, assignee_open_id: next.assigneeOpenId, assignee_name: next.assigneeName };
+  const eligibility = nextStageEligibility(records, snapshot);
+  if (!eligibility.eligible) return { created: false, record_id: null, next_stage: null, reason: eligibility.reason };
+  const recordId = await createRecord(env, project, nextTaskFields(project, record, eligibility.nextStage, eligibility.assigneeOpenId, eligibility.assigneeName, env.FEISHU_BOT_OPEN_ID));
+  return { created: true, record_id: recordId, next_stage: eligibility.nextStage, assignee_open_id: eligibility.assigneeOpenId, assignee_name: eligibility.assigneeName };
 }
 
 function outcomeText(outcome) {
@@ -407,10 +454,22 @@ export async function applyGithubOutcome(env, outcome) {
   if (!project) return { matched: false, reason: "repository_not_configured" };
   const records = await listRecords(env, project);
   const prUrl = `https://github.com/${project.repository}/pull/${Number(outcome.number)}`;
-  const record = records.find((item) => prMatches(item, prUrl, outcome.number));
+  const githubLogin = String(outcome.author_login || "").trim();
+  let record = records.find((item) => prMatches(item, prUrl, outcome.number));
+  let linkedAutomatically = false;
+  if (!record && githubLogin) {
+    const identity = await lookupGithubMember(env, project.repository, githubLogin);
+    const candidate = identity ? selectTaskForGithubIdentity(records, identity.assignee_open_id) : null;
+    if (candidate) {
+      await updateRecord(env, project, candidate.record_id, { [FIELD_NAMES.pr]: prUrl });
+      record = { ...candidate, fields: { ...candidate.fields, [FIELD_NAMES.pr]: prUrl } };
+      linkedAutomatically = true;
+    }
+  }
   if (!record) return { matched: false, reason: "task_not_linked", project: project.key };
   const assignee = assigneeId(record);
   const assigneeName = valueText(record.fields[FIELD_NAMES.assignee]) || "成员";
+  if (githubLogin && assignee) await rememberGithubMember(env, project.repository, githubLogin, assignee, assigneeName);
   const merged = outcome.merged === true || outcome.merge?.merged === true;
   const updateFields = { [FIELD_NAMES.status]: merged ? ["已完成"] : ["进行中"], [FIELD_NAMES.verification]: outcomeText(outcome), [FIELD_NAMES.blocked]: null };
   if (env.FEISHU_BOT_OPEN_ID) updateFields[FIELD_NAMES.reviewer] = [{ id: env.FEISHU_BOT_OPEN_ID }];
@@ -427,7 +486,7 @@ export async function applyGithubOutcome(env, outcome) {
       }
     }
   }
-  return { matched: true, project: project.key, record_id: record.record_id, assignee_open_id: assignee, assignee_name: assigneeName, next_task: nextTask };
+  return { matched: true, project: project.key, record_id: record.record_id, assignee_open_id: assignee, assignee_name: assigneeName, linked_automatically: linkedAutomatically, next_task: nextTask };
 }
 
 function knowledgeMarkdown(record) {

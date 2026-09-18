@@ -31,7 +31,7 @@ import {
   projectForRepository,
 } from "./task-board.js";
 import { buildMessageContext, runOnlineDailyReport, runOnlineReconciliation } from "./online-runtime.js";
-import { actionCanBeReclaimed, extractPullRequestReference, isKnowledgeCandidate, isReviewRequest, scheduledMode } from "./online.js";
+import { actionCanBeReclaimed, extractPullRequestReference, isKnowledgeCandidate, isReviewRequest, scheduledActionKey, scheduledMode } from "./online.js";
 
 const MAX_BODY_BYTES = 512 * 1024;
 const MAX_REVIEW_CONTEXT_BYTES = 180 * 1024;
@@ -317,14 +317,14 @@ async function processGithubReview(env, event, reviewResult) {
   const gate = evaluateMergeGate(fresh, checks, normalized, pullRequestContext(event).head_sha || headSha);
   let merge = { merged: false, skipped: true, reasons: gate.reasons };
   if (gate.allowed) merge = await runAction(env, event, "github_merge", `github-merge:${reference.repository}#${reference.number}:${headSha}`, () => mergeGithubPullRequest(env, reference, headSha));
-  return { handled: true, repository: reference.repository, number: reference.number, url: `https://github.com/${reference.repository}/pull/${reference.number}`, title: fresh.title || pullRequestContext(event).title, headSha, review: normalized, reviewAction, checks, gate, merge };
+  return { handled: true, repository: reference.repository, number: reference.number, url: `https://github.com/${reference.repository}/pull/${reference.number}`, title: fresh.title || pullRequestContext(event).title, author_login: fresh.user?.login || pullRequestContext(event).author || null, headSha, review: normalized, reviewAction, checks, gate, merge };
 }
 
 async function processGithubClosed(env, event) {
   const reference = pullRequestReference(event);
   const payload = eventPayload(event);
   if (!reference || payload.pull_request?.merged !== true) return { handled: false, reason: "pull_request_not_merged" };
-  return { handled: true, repository: reference.repository, number: reference.number, url: `https://github.com/${reference.repository}/pull/${reference.number}`, title: payload.pull_request.title || `PR #${reference.number}`, headSha: payload.pull_request.merge_commit_sha || payload.pull_request.head?.sha || null, review: { summary: "GitHub 已确认该 PR 合并。", decision: "approve", blocking_findings: [], requested_changes: [], non_blocking_findings: [], test_evidence: [] }, merge: { merged: true, sha: payload.pull_request.merge_commit_sha || null } };
+  return { handled: true, repository: reference.repository, number: reference.number, url: `https://github.com/${reference.repository}/pull/${reference.number}`, title: payload.pull_request.title || `PR #${reference.number}`, author_login: payload.pull_request.user?.login || null, headSha: payload.pull_request.merge_commit_sha || payload.pull_request.head?.sha || null, review: { summary: "GitHub 已确认该 PR 合并。", decision: "approve", blocking_findings: [], requested_changes: [], non_blocking_findings: [], test_evidence: [] }, merge: { merged: true, sha: payload.pull_request.merge_commit_sha || null } };
 }
 
 function pushRecord(event) {
@@ -359,6 +359,24 @@ async function processGithubEffects(env, event, reviewResult) {
 }
 
 async function notifyGithubOutcome(env, event, outcome) {
+  if (outcome?.task?.matched === false && outcome.task.reason === "task_not_linked" && env.FEISHU_OWNER_OPEN_ID) {
+    await runAction(
+      env,
+      event,
+      "feishu_owner_alert",
+      `feishu-owner-task-link:${outcome.repository}#${outcome.number}:${outcome.headSha || "closed"}`,
+      () => sendFeishuText(
+        env,
+        "open_id",
+        env.FEISHU_OWNER_OPEN_ID,
+        formatOwnerAlert(
+          `PR #${outcome.number} 没有对应任务`,
+          `GitHub 已完成评审或合并，但任务台找不到这条 PR 的负责人记录。请补填这条 PR 的任务链接和负责人，线上流程才能继续续派。\n${outcome.url}`,
+        ),
+        `owner_task_link_${outcome.number}_${String(outcome.headSha || "closed").slice(0, 12)}`,
+      ),
+    );
+  }
   const assignee = outcome?.task?.assignee_open_id;
   if (assignee && outcome.review) {
     const message = outcome.merge?.merged
@@ -372,6 +390,21 @@ async function notifyGithubOutcome(env, event, outcome) {
     const owner = env.FEISHU_OWNER_OPEN_ID;
     if (owner) await runAction(env, event, "feishu_owner_alert", `feishu-owner:${outcome.repository}#${outcome.number}:${outcome.headSha}:${outcome.gate.reasons.join(",")}`, () => sendFeishuText(env, "open_id", owner, formatOwnerAlert(`PR #${outcome.number} 暂时不能合并`, `GitHub 返回：${outcome.gate.reasons.join("、")}。请打开 PR 的 Checks 和冲突提示查看具体原因。\n${outcome.url}`), `owner_${outcome.number}_${String(outcome.headSha).slice(0, 12)}`));
   }
+}
+
+async function runScheduledJob(env, cron) {
+  const mode = scheduledMode(cron);
+  const actionKey = scheduledActionKey(cron);
+  const event = { event_id: actionKey, source: "internal", event_type: "cron" };
+  return runAction(
+    env,
+    event,
+    mode === "daily-report" ? "scheduled_daily_report" : "scheduled_reconciliation",
+    actionKey,
+    () => mode === "daily-report"
+      ? runOnlineDailyReport({ env, runAction })
+      : runOnlineReconciliation({ env, enqueueEvent: (envelope) => enqueue(env, envelope), runAction }),
+  );
 }
 
 async function processFeishuEvent(env, event, reviewResult) {
@@ -589,21 +622,14 @@ export { formatMentionReply, evaluateMergeGate, normalizeReviewResult, reviewMar
 export default {
   async scheduled(controller, env, ctx) {
     const mode = scheduledMode(controller.cron);
-    if (mode === "daily-report") {
-      ctx.waitUntil(runOnlineDailyReport({ env, runAction }).then((result) => {
-        console.log("online daily report completed", JSON.stringify({ mode, result: result?.status || "sent" }));
+    ctx.waitUntil(runScheduledJob(env, controller.cron)
+      .then((result) => {
+        console.log("online scheduled job completed", JSON.stringify({ mode, result }));
         return result;
+      })
+      .catch((error) => {
+        console.error("online scheduled job failed", safeActionError(error));
       }));
-      return;
-    }
-    ctx.waitUntil(runOnlineReconciliation({
-      env,
-      enqueueEvent: (envelope) => enqueue(env, envelope),
-      runAction,
-    }).then((result) => {
-      console.log("online reconciliation completed", JSON.stringify(result));
-      return result;
-    }));
   },
 
   async fetch(request, env) {

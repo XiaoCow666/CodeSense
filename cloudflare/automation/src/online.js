@@ -5,6 +5,14 @@ export function scheduledMode(cron) {
   return cron === "0 10 * * *" ? "daily-report" : "reconcile";
 }
 
+export function scheduledActionKey(cron, date = new Date()) {
+  if (scheduledMode(cron) === "daily-report") {
+    const day = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(date);
+    return `scheduler:daily-report:${day}`;
+  }
+  return `scheduler:reconcile:${Math.floor(date.getTime() / (10 * 60 * 1000))}`;
+}
+
 export function actionCanBeReclaimed(existing, now = Date.now()) {
   if (existing?.status === "failed") return true;
   if (existing?.status !== "running") return false;
