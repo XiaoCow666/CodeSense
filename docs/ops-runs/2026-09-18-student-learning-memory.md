@@ -86,7 +86,7 @@
 
 ### 管理员：版本维护与服务恢复
 
-通过部署合同测试检查 database_maintenance.py 在应用重启前执行；通过全量测试检查管理员相关路由与现有管理页面保持兼容。生产 Workbench 只读门禁、update.sh 和线上探针仍需在发布阶段完成。
+通过部署合同测试检查 database_maintenance.py 在应用重启前执行；通过全量测试检查管理员相关路由与现有管理页面保持兼容。生产 Workbench 已核对目标目录和版本基线，update.sh 已成功结束，应用、两个 worker、健康探针和登录入口均已复核。
 
 ## 使用后复盘与融合检查
 
@@ -102,6 +102,7 @@
     融合后相关测试：41 passed, 385141 warnings, 56.90s
     融合后专项评分测试：11 passed, 86559 warnings, 39.38s
     融合后全量测试：798 passed, 3156094 warnings, 444.13s
+    完成前新鲜全量回归：798 passed, 3156094 warnings, 415.57s
     compileall app.py routes services tasks utils：exit 0
     git diff --check：exit 0
     离线评测：recall@1=0.75，recall@k=1.0，跨作用域命中=0，撤回命中=0，状态匹配通过
@@ -112,15 +113,15 @@
 
 ## 发布门禁状态
 
-当前候选仍位于隔离工作树，尚未完成最新远端 main 融合、推送、生产 Workbench 只读门禁、update.sh、线上健康核验、GitHub Release、飞书通知和项目知识库更新。因此当前状态为“候选完成，等待发布门禁”，不能宣称已上线。
+发布状态：已发布。代码提交 `3c58c32ca0193666fe0015c09d5239987092ed06` 已推送到 origin/main，版本标签为 `v1.5.0`，GitHub Release 已创建：https://github.com/XiaoCow666/CodeSense/releases/tag/v1.5.0 。信息图资源为 `docs/assets/codesense-v1.5.0-student-learning-memory.png`，已作为 Release asset 上传。
 
-目标生产目录为 /var/www/codesense，默认实例为 i-f8zbujornnh55dsydozz、region 为 cn-heyuan。发布时必须核对目标、目录、当前 HEAD、origin 基线和工作区状态，再执行维护脚本；脚本完成后检查线上 HEAD、应用与必要 worker、/healthz、/readyz 以及本轮受影响入口。
+生产目标已核对为 region `cn-heyuan`、实例 `i-f8zbujornnh55dsydozz`、目录 `/var/www/codesense`。部署前 HEAD 与 origin 均为 `52acab2bdf99461bbd5f25cfe08e98c118bc03e6`，工作区干净；执行 `/var/www/codesense/update.sh` 退出码为 0。部署后 HEAD 与 origin 均为 `3c58c32ca0193666fe0015c09d5239987092ed06`，`codesense.service`、`codesense-submission-worker.service`、`codesense-ability-worker.service` 均为 active，`/healthz`、`/readyz`、`/login` 均返回 200。
 
-版本目标：v1.5.0。版本信息图资源为 docs/assets/codesense-v1.5.0-student-learning-memory.png，对外介绍只描述学生学习记忆、知识路径和 AI 辅导收据带来的用户收益。
+小牛顿机器人已向 `CodeSense 研发协作` 发送消息 `om_x100b65f83a39b4a4b29b5c88848586a`，向实际外部 `CoDeBuGo 总群` 发送消息 `om_x100b65f83b3b7c80b25fcde18d0da66`；两条消息使用同一版用户说明和信息图。项目知识库 `https://hcnohkzwsogo.feishu.cn/docx/HyhsdpRUgomhknxEgCvcApgungd` 已更新至 revision 18，并复读确认版本、图片、Release 链接和部署证据。
 
 ## 回滚方式与遗留风险
 
-- 应用回滚：重新部署上一份已验证的应用提交；不执行 Git 回滚命令，不覆盖主工作区改动。
+- 应用回滚：将生产代码恢复到已验证的稳定提交 `52acab2bdf99461bbd5f25cfe08e98c118bc03e6`，再按同一 update.sh 重新部署并复核服务和探针；不覆盖主工作区改动。
 - 学习记忆回滚：停用个人检索和刷新入口，保留旧评测、评分和公共知识检索；数据库新增表可继续保留以便后续重建。
-- 遗留风险：生产环境的数据库容量、真实 embedding provider、外部消息通道和线上长时间检索延迟尚未在本轮本地测试中覆盖；个人学习记忆当前使用确定性稀疏向量，只用于学习引导，不参与评分或高风险决策。
-- 下一轮候选：完成 Workbench 发布门禁后，继续评估学生向量索引的性能、过期来源清理、教师可操作的薄弱知识点建议和混合图谱检索；每项需要新的离线样本与权限测试。
+- 遗留风险：生产环境的数据库容量、长时间检索延迟和真实 embedding provider 替换仍需要后续数据观测；个人学习记忆当前使用确定性稀疏向量，只用于学习引导，不参与评分或高风险决策。
+- 下一轮候选：评估学生向量索引性能、过期来源清理、教师可操作的薄弱知识点建议和混合图谱检索；每项需要新的离线样本与权限测试。
