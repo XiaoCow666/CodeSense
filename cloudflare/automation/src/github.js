@@ -185,11 +185,14 @@ export function evaluateMergeGate(pr, checks, reviewResult, eventHeadSha) {
   return { allowed: reasons.length === 0, reasons };
 }
 
-export function reviewMarker(headSha) {
-  return `<!-- codesense-head:${String(headSha)} -->`;
+export function reviewMarker(headSha, attemptId = "") {
+  const attempt = String(attemptId || "").replace(/[^A-Za-z0-9:_-]/g, "_").slice(0, 80);
+  return attempt
+    ? `<!-- codesense-head:${String(headSha)}:attempt:${attempt} -->`
+    : `<!-- codesense-head:${String(headSha)} -->`;
 }
 
-export function formatGithubReview(result, eventId, headSha) {
+export function formatGithubReview(result, eventId, headSha, attemptId = "") {
   const normalized = normalizeReviewResult(result);
   const lines = ["### CodeSense 自动评审", "", normalized.summary || "已完成必要项检查。"];
   if (normalized.blocking_findings.length > 0) {
@@ -204,21 +207,21 @@ export function formatGithubReview(result, eventId, headSha) {
   if (normalized.test_evidence.length > 0) {
     lines.push("", "**已有验证信息**", ...normalized.test_evidence.map((item) => `- ${item}`));
   }
-  lines.push("", `评审事件：${eventId}`, reviewMarker(headSha));
+  lines.push("", `评审事件：${eventId}`, reviewMarker(headSha, attemptId));
   return lines.join("\n").slice(0, 60000);
 }
 
-export async function postGithubReview(env, reference, headSha, result, eventId) {
+export async function postGithubReview(env, reference, headSha, result, eventId, attemptId = "") {
   const repository = repositoryName(reference.repository);
   const [owner, repo] = repository.split("/");
-  const marker = reviewMarker(headSha);
+  const marker = reviewMarker(headSha, attemptId);
   const reviews = await githubApi(env, "GET", `/repos/${encodeSegment(owner)}/${encodeSegment(repo)}/pulls/${Number(reference.number)}/reviews?per_page=100`);
   const existing = (Array.isArray(reviews) ? reviews : []).find((item) => String(item.body || "").includes(marker));
   if (existing) return { posted: false, review_id: existing.id, event: existing.state };
   const normalized = normalizeReviewResult(result);
   const reviewEvent = normalized.decision === "approve" ? "APPROVE" : normalized.decision === "changes_requested" ? "REQUEST_CHANGES" : "COMMENT";
   const response = await githubApi(env, "POST", `/repos/${encodeSegment(owner)}/${encodeSegment(repo)}/pulls/${Number(reference.number)}/reviews`, {
-    body: formatGithubReview(normalized, eventId, headSha),
+    body: formatGithubReview(normalized, eventId, headSha, attemptId),
     event: reviewEvent,
     commit_id: headSha,
   });

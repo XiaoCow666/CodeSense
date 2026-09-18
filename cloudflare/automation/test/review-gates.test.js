@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { evaluateMergeGate, isMergedPullRequest, latestCheckRuns, normalizeOpenPullRequests, normalizeReviewResult } from "../src/github.js";
-import { callLuoxin, shouldInvokeLuoxin } from "../src/index.js";
+import { evaluateMergeGate, formatGithubReview, isMergedPullRequest, latestCheckRuns, normalizeOpenPullRequests, normalizeReviewResult, reviewMarker } from "../src/github.js";
+import { callLuoxin, reviewActionKey, shouldInvokeLuoxin } from "../src/index.js";
 
 test("an approved clean PR with passing checks can pass the merge gate", () => {
   const result = evaluateMergeGate(
@@ -32,6 +32,45 @@ test("blocking findings override an accidental approval", () => {
 test("an unavailable diff cannot produce an automatic approval", () => {
   const result = normalizeReviewResult({ decision: "approve", diff_available: false });
   assert.equal(result.decision, "comment");
+});
+
+test("an explicit review request opens a new review attempt for the same commit", () => {
+  const reference = { repository: "XiaoCow666/CodeSense", number: 12 };
+  const normalEvent = {
+    event_id: "cron-1",
+    payload: { repository: reference.repository, number: reference.number },
+  };
+  const manualEvent = {
+    event_id: "feishu-review-1",
+    payload: { repository: reference.repository, number: reference.number, force_review: true },
+  };
+
+  assert.equal(reviewActionKey(normalEvent, reference, "abc"), "review-engine:XiaoCow666/CodeSense#12:abc");
+  assert.equal(reviewActionKey(manualEvent, reference, "abc"), "review-engine:XiaoCow666/CodeSense#12:abc:manual:feishu-review-1");
+  assert.notEqual(reviewActionKey(normalEvent, reference, "abc"), reviewActionKey(manualEvent, reference, "abc"));
+  assert.equal(reviewMarker("abc"), "<!-- codesense-head:abc -->");
+  assert.equal(reviewMarker("abc", "feishu-review-1"), "<!-- codesense-head:abc:attempt:feishu-review-1 -->");
+});
+
+test("github review output keeps fixes separate from optional improvements", () => {
+  const body = formatGithubReview(
+    {
+      decision: "changes_requested",
+      diff_available: true,
+      summary: "需要先修复一个会影响运行结果的问题。",
+      blocking_findings: ["配置读取失败时程序会继续使用空值。"],
+      requested_changes: ["位置：src/config.js 的 loadConfig；现在：读取失败后继续执行；改成：返回明确错误并停止启动；交给 AI：请执行上述修改并运行 npm test。"],
+      non_blocking_findings: ["合并后可以补充一条边界测试。"],
+      test_evidence: [],
+    },
+    "event-1",
+    "abc",
+  );
+
+  assert.match(body, /需要先处理的问题/);
+  assert.match(body, /请按下面的步骤修改/);
+  assert.match(body, /合并后可以继续改进的地方/);
+  assert.match(body, /codesense-head:abc/);
 });
 
 test("a PR without any check result cannot be merged automatically", () => {

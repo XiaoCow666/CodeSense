@@ -148,6 +148,180 @@ function stageLabel(number) {
   return CHINESE_STAGES[number] || String(number);
 }
 
+const STAGE_STORIES = {
+  1: {
+    title: "先认识项目现场",
+    situation: (project) => `你刚接手 ${project}，先把“它做什么、从哪里启动”说清楚。`,
+    target: "跑通一条真实入口，形成自己的项目地图。",
+    action: (repositoryUrl) => `阅读 README、入口文件和一条调用链，亲自运行一次安装、启动或测试命令（仓库：${repositoryUrl}）。`,
+    result: "提交一份带文件路径和命令输出的项目理解文档 PR。",
+    area: "README、入口文件、主要模块和测试命令",
+    plan: "先阅读，再运行，最后记录实际看到的结果",
+    acceptance: "PR 指向 main；包含项目定位、目录、调用链和实际命令结果。",
+    type: "文档",
+  },
+  2: {
+    title: "找到一个真实问题",
+    situation: (project) => `${project} 已经能运行，现在从使用者视角找一个小问题。`,
+    target: "把一个真实问题复现出来，并说明它影响谁。",
+    action: (repositoryUrl) => `记录输入、实际输出和复现步骤，再在 ${repositoryUrl} 中提交一个小范围修复。`,
+    result: "PR 同时包含复现证据、改动和验证结果。",
+    area: "真实运行链路和相关模块",
+    plan: "先复现，再确认影响范围，最后修改一处行为",
+    acceptance: "PR 能按步骤复现问题，并证明修复后的结果。",
+    type: "研发",
+  },
+  3: {
+    title: "追到问题根因",
+    situation: "问题已经出现，表面现象还不等于原因。",
+    target: "沿调用链找到一个可以验证的根因。",
+    action: "用日志、断点或最小实验排除两个假设，只保留有证据的结论。",
+    result: "PR 让别人能从证据走到根因。",
+    area: "调用链、状态变化和错误来源",
+    plan: "记录观察，再验证假设，最后保留一条根因证据",
+    acceptance: "PR 写明观察、两个假设、验证过程和根因。",
+    type: "研发",
+  },
+  4: {
+    title: "把修复变成回归验证",
+    situation: "修复已经有效，下一次改动仍可能把它带回来。",
+    target: "把这次故障变成自动回归验证。",
+    action: "先写一个能复现旧问题的测试，再让修复后的测试通过。",
+    result: "PR 展示修复前失败、修复后通过。",
+    area: "测试目录、失败路径和回归命令",
+    plan: "先让测试复现旧问题，再提交修复并重新运行",
+    acceptance: "PR 包含一个回归测试，并提供前后两次结果。",
+    type: "研发",
+  },
+  5: {
+    title: "把边界情况试出来",
+    situation: "正常输入已经通过，边界输入还没有经过检查。",
+    target: "确认边界行为符合项目预期。",
+    action: "选择两种真实边界输入，记录结果；只有发现错误时才修改代码。",
+    result: "PR 给出边界证据和处理决定。",
+    area: "输入校验、异常路径和边界测试",
+    plan: "选边界输入，记录输出，再决定是否改动",
+    acceptance: "PR 写清两种边界输入、实际输出和处理理由。",
+    type: "研发",
+  },
+  6: {
+    title: "让别人能跑通关键路径",
+    situation: "新成员接手时，最容易卡在环境和入口。",
+    target: "让另一个人能按你的说明跑通关键路径。",
+    action: "从干净环境按文档执行一次，删掉无效步骤，补上真实报错处理。",
+    result: "PR 附可复现命令和关键输出。",
+    area: "安装、启动、测试和常见报错",
+    plan: "按新手视角走一遍，再只改真正卡住的步骤",
+    acceptance: "PR 的命令可以在干净环境执行，并记录关键结果。",
+    type: "研发",
+  },
+  7: {
+    title: "让失败信息能帮上忙",
+    situation: "失败时用户只看到一个结果，定位成本很高。",
+    target: "让一条失败路径给出可行动的信息。",
+    action: "追踪一次失败请求，补充必要日志或错误提示，不泄露凭据。",
+    result: "PR 让维护者能根据提示定位位置。",
+    area: "失败路径、日志和错误提示",
+    plan: "复现一次失败，确认缺失信息，再补最小提示",
+    acceptance: "PR 展示失败前后的提示，并说明没有记录敏感内容。",
+    type: "研发",
+  },
+  8: {
+    title: "改善一处真实使用卡点",
+    situation: "核心流程已经能运行，学习体验还有一个明显阻力。",
+    target: "改善一处小范围的学习或使用路径。",
+    action: "用一次真实操作找到卡点，改动一个提示、页面或调用环节，并做前后验证。",
+    result: "PR 展示改动前后的操作路径和验证结果。",
+    area: "学习路径、用户提示和相关调用环节",
+    plan: "亲自走一遍流程，记录卡点，再验证改动效果",
+    acceptance: "PR 说明卡点、改动位置和前后操作结果。",
+    type: "研发",
+  },
+  9: {
+    title: "补上一盏运行中的灯",
+    situation: "功能能完成，不代表运行过程容易观察。",
+    target: "为一条关键路径补上可验证的运行信号。",
+    action: "选择一个状态、耗时或失败点，补充最小观测信息并确认输出。",
+    result: "PR 说明信号何时出现、如何读取。",
+    area: "状态、耗时、日志和运行检查",
+    plan: "选一个看不见的状态，补信号，再实际读取一次",
+    acceptance: "PR 包含触发条件、输出样例和读取方法。",
+    type: "研发",
+  },
+  10: {
+    title: "用一次测量验证优化",
+    situation: "优化需要证据，凭感觉容易把问题改复杂。",
+    target: "用一次测量确认一个小优化是否有效。",
+    action: "先记录基线，再做一处低风险优化，重复同一测量。",
+    result: "PR 给出前后数据和没有优化的部分。",
+    area: "关键路径、测量方法和前后结果",
+    plan: "先测量，再改动，最后用同一方法复测",
+    acceptance: "PR 有基线、改动后数据和测量命令。",
+    type: "研发",
+  },
+  11: {
+    title: "整理一处真实维护难点",
+    situation: "连续改动后，代码里可能留下重复路径或隐含假设。",
+    target: "整理一处确实影响维护的复杂点。",
+    action: "从调用者角度删掉一层重复或补上一个明确校验，并运行相关测试。",
+    result: "PR 说明删改理由和行为保持情况。",
+    area: "重复逻辑、输入校验和相关测试",
+    plan: "找到实际维护痛点，小范围整理，再验证行为没有变化",
+    acceptance: "PR 说明维护痛点、改动边界和测试结果。",
+    type: "研发",
+  },
+  12: {
+    title: "把一次经验变成方法",
+    situation: "项目已经积累了几次真实改动，需要把经验变成规则。",
+    target: "从历史问题中提炼一条可复用的检查方法。",
+    action: "选择一次已合并改动，复盘触发、处理和验证过程，补到文档或工具中。",
+    result: "PR 让下一位成员能按这条方法工作。",
+    area: "历史 PR、项目文档和工作检查",
+    plan: "选一次真实记录，提炼步骤，再让一个新例子验证",
+    acceptance: "PR 引用历史记录，并用一个新例子验证方法。",
+    type: "文档",
+  },
+  13: {
+    title: "带别人走一遍流程",
+    situation: "你已经熟悉一条链路，现在换成带别人走一遍。",
+    target: "找出新手最可能卡住的一步并修好。",
+    action: "让一名成员或 AI 按你的说明执行，记录卡点，修改说明或代码并验证。",
+    result: "PR 附执行记录和改动前后差异。",
+    area: "新手入口、说明文档和关键流程",
+    plan: "先让别人照做，再根据实际卡点修改",
+    acceptance: "PR 有执行记录、卡点和改动后的复现结果。",
+    type: "研发",
+  },
+  14: {
+    title: "独立完成一个小闭环",
+    situation: "你已经能处理局部问题，现在负责一次完整交付。",
+    target: "从发现问题到合并交付完成一次自主管理。",
+    action: "自己选题、复现、改动、验证、写 PR，并回应评审意见。",
+    result: "PR 合并后留下可复用的方案或文档。",
+    area: "问题发现、实现、验证、评审和知识沉淀",
+    plan: "独立完成选题、实现、验证和评审跟进",
+    acceptance: "PR 完成复现、改动、验证、评审回复和合并后的记录。",
+    type: "研发",
+  },
+};
+
+export function stageTaskContent(projectName, stage, assigneeName, repositoryUrl = "") {
+  const project = String(projectName || "项目");
+  const member = String(assigneeName || "成员");
+  const stageNumber = Number(stage);
+  const story = STAGE_STORIES[stageNumber] || STAGE_STORIES[14];
+  const action = typeof story.action === "function" ? story.action(repositoryUrl || `https://github.com/${project}`) : story.action;
+  return {
+    title: `阶段${stageLabel(stageNumber)}：${story.title}（${member}）`,
+    description: [`S：${typeof story.situation === "function" ? story.situation(project) : story.situation}`, `T：${story.target}`, `A：${action}`, `R：${story.result}`].join("\n"),
+    area: `${project}：${story.area}`,
+    target: story.target,
+    plan: story.plan,
+    acceptance: story.acceptance,
+    type: story.type,
+  };
+}
+
 function tomorrowDeadline() {
   const deadline = new Date(Date.now() + 24 * 60 * 60 * 1000);
   deadline.setUTCHours(10, 0, 0, 0);
@@ -156,18 +330,20 @@ function tomorrowDeadline() {
 
 function stageOneFields(project, memberOpenId, memberName, reviewerOpenId) {
   const repositoryUrl = `https://github.com/${project.repository}`;
+  const content = stageTaskContent(project.name, 1, memberName, repositoryUrl);
   return {
-    [FIELD_NAMES.title]: `阶段一：${project.name} 项目理解与架构分析（${memberName}）`,
-    [FIELD_NAMES.description]: `请在 ${repositoryUrl} 中阅读 README、主要目录和关键调用链，尝试安装、启动和运行测试。写出项目定位、模块职责、一次完整运行流程、实际验证结果、风险疑问和你自己的理解。允许 AI 辅助检索和解释，提交前必须亲自核对文件、命令和结果。最后提交正式文档型 PR，PR description 要写明查阅文件、AI 使用方式、验证命令和未解决问题。`,
+    [FIELD_NAMES.title]: content.title,
+    [FIELD_NAMES.description]: content.description,
     [FIELD_NAMES.status]: ["待开始"],
     [FIELD_NAMES.assignee]: [{ id: memberOpenId }],
     [FIELD_NAMES.reviewer]: reviewerOpenId ? [{ id: reviewerOpenId }] : [],
     [FIELD_NAMES.priority]: ["中"],
-    [FIELD_NAMES.type]: ["文档"],
+    [FIELD_NAMES.type]: [content.type],
     [FIELD_NAMES.mode]: ["阶段任务"],
-    [FIELD_NAMES.area]: `${project.name} README、入口文件、主要模块和测试命令`,
-    [FIELD_NAMES.target]: "形成一份有实际阅读和运行证据的项目理解文档",
-    [FIELD_NAMES.acceptance]: "正式 PR 指向 main；说明项目定位、目录与模块、核心调用链、安装运行测试结果、风险疑问和个人理解；没有业务代码、生产配置或凭据变更。",
+    [FIELD_NAMES.area]: content.area,
+    [FIELD_NAMES.target]: content.target,
+    [FIELD_NAMES.plan]: content.plan,
+    [FIELD_NAMES.acceptance]: content.acceptance,
     [FIELD_NAMES.due]: tomorrowDeadline(),
   };
 }
@@ -187,19 +363,20 @@ function prMatches(record, prUrl, number) {
 
 function nextTaskFields(project, record, nextStage, assignee, assigneeName, reviewerOpenId) {
   const repositoryUrl = `https://github.com/${project.repository}`;
+  const content = stageTaskContent(project.name, nextStage, assigneeName, repositoryUrl);
   return {
-    [FIELD_NAMES.title]: `阶段${stageLabel(nextStage)}：${project.name} 真实问题改进与验证（${assigneeName}）`,
-    [FIELD_NAMES.description]: `请在 ${repositoryUrl} 中自己选择一个真实问题，先写观察、复现步骤和两个根因假设，再使用 AI 辅助检索与解释。完成一个小范围、可回退的真实行为改进，保留正常路径，补一条修复前失败、修复后通过的回归验证和一条边界验证。PR description 要写清复现输入、根因、改动文件与函数、验证命令和未验证范围；评审时用自己的话解释技术取舍。`,
+    [FIELD_NAMES.title]: content.title,
+    [FIELD_NAMES.description]: content.description,
     [FIELD_NAMES.status]: ["待开始"],
     [FIELD_NAMES.assignee]: [{ id: assignee }],
     [FIELD_NAMES.reviewer]: reviewerOpenId ? [{ id: reviewerOpenId }] : [],
     [FIELD_NAMES.priority]: ["中"],
-    [FIELD_NAMES.type]: ["研发"],
+    [FIELD_NAMES.type]: [content.type],
     [FIELD_NAMES.mode]: ["阶段任务"],
-    [FIELD_NAMES.area]: `${project.name} 的真实运行链路、相关模块和回归测试`,
-    [FIELD_NAMES.target]: `通过真实问题定位、修复和验证继续熟悉 ${project.name}`,
-    [FIELD_NAMES.plan]: "先记录观察和假设，再确定一个小范围改动与验证矩阵",
-    [FIELD_NAMES.acceptance]: "正式 PR 指向 main；有真实行为改动、回归验证、边界验证、复现与根因证据；能够解释调用链和 AI 建议的采纳或拒绝。",
+    [FIELD_NAMES.area]: content.area,
+    [FIELD_NAMES.target]: content.target,
+    [FIELD_NAMES.plan]: content.plan,
+    [FIELD_NAMES.acceptance]: content.acceptance,
     [FIELD_NAMES.due]: tomorrowDeadline(),
     [FIELD_NAMES.relatedDoc]: valueText(record.fields[FIELD_NAMES.relatedDoc]) || null,
   };

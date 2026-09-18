@@ -5,6 +5,7 @@ import {
   parseStageNumber,
   projectForChat,
   projectForRepository,
+  stageTaskContent,
   ensureNextStageTask,
   taskRecordSnapshot,
 } from "../src/task-board.js";
@@ -70,4 +71,15 @@ test("online task reconciliation does not create a duplicate active next stage",
     record_id: null,
     next_stage: null,
   });
+});
+
+test("stage tasks use a short STAR story and change the mission by stage", () => {
+  const stageTwo = stageTaskContent("CodeSense", 2, "张三");
+  const stageThree = stageTaskContent("CodeSense", 3, "张三");
+
+  for (const label of ["S：", "T：", "A：", "R："]) assert.match(stageTwo.description, new RegExp(label));
+  assert.ok(stageTwo.description.length < 600);
+  assert.notEqual(stageTwo.description, stageThree.description);
+  assert.match(stageTwo.target, /真实问题/);
+  assert.match(stageTwo.acceptance, /PR/);
 });
