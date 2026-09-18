@@ -50,6 +50,11 @@ from services.submission_reviews import count_open_reviews
 from services.session_lifecycle import latest_session_activity, session_lifecycle_payload
 from services.action_center import build_action_center
 from services.profile import get_profile_settings, PROFILE_VISIBILITY_PUBLIC
+from services.student_vector_store import (
+    StudentVectorRebuildError,
+    get_student_vector_snapshot,
+    rebuild_student_vector_index,
+)
 from utils.auth import admin_required
 from utils.access import authoritative_class_name, assignment_target_class_filter, can_access_student
 from utils.export_safety import safe_export_cell
@@ -288,6 +293,7 @@ def home():
         # 这样首屏不会只显示“加载中”，网络较慢时也能看到真实的演示数据。
         knowledge_profile = KnowledgePointScore.get_student_profile(student_id)
         knowledge_profile_rows = _knowledge_profile_rows(knowledge_profile)
+        student_vector_snapshot = get_student_vector_snapshot(student_id)
         try:
             learning_graph = build_student_learning_graph(
                 student_id=student_id,
@@ -390,6 +396,7 @@ def home():
             'submissions': submissions,
             'knowledge_profile': knowledge_profile,
             'knowledge_profile_rows': knowledge_profile_rows,
+            'student_vector_snapshot': student_vector_snapshot,
             'learning_graph': learning_graph,
             'ability_trend': trend_record,
             'analysis_status': analysis_status,
@@ -544,6 +551,27 @@ def admin_dashboard():
             chart_data=empty_chart_data,
             chart_data_error=True,
         )
+
+
+@main.route('/student/rebuild-learning-memory', methods=['POST'])
+@login_required
+def rebuild_student_learning_memory():
+    """Rebuild the current student's private learning index."""
+
+    if getattr(current_user, 'usertype', None) != '学生':
+        flash('只有学生可以更新自己的学习记忆。', 'warning')
+        return redirect(url_for('main.home'))
+
+    try:
+        snapshot = rebuild_student_vector_index(current_user.student_id)
+    except StudentVectorRebuildError:
+        flash('学习记忆更新失败，原有记录仍然保留，请稍后重试。', 'danger')
+    else:
+        flash(
+            f"学习记忆已更新，共保留 {snapshot['active_count']} 条本人记录。",
+            'success',
+        )
+    return redirect(url_for('main.home'))
 
 
 @main.route('/teacher_dashboard')

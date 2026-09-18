@@ -1126,6 +1126,112 @@ a:hover {
     line-height: 1.55;
 }
 
+.student-learning-memory-panel {
+    margin: 1.5rem 0;
+    padding: 1.25rem;
+    border: 1px solid #dbe5f2;
+    border-radius: 1rem;
+    background: linear-gradient(135deg, #f8fbff 0%, #ffffff 78%);
+    box-shadow: 0 0.5rem 1.5rem rgba(37, 99, 235, 0.06);
+}
+
+.student-learning-memory-panel__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.student-learning-memory-panel__eyebrow,
+.student-learning-memory-panel__description {
+    margin: 0;
+    color: #53657a;
+}
+
+.student-learning-memory-panel__eyebrow {
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.student-learning-memory-panel__title {
+    margin: 0.35rem 0;
+    color: #16263d;
+    font-size: 1.35rem;
+}
+
+.student-learning-memory-panel__description {
+    max-width: 44rem;
+    line-height: 1.6;
+}
+
+.student-learning-memory-panel__privacy,
+.student-learning-memory-panel__source {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    border-radius: 999px;
+    padding: 0.35rem 0.65rem;
+    color: #1f4f8f;
+    background: #eaf2ff;
+    font-size: 0.8rem;
+    white-space: nowrap;
+}
+
+.student-learning-memory-panel__state {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin-top: 1rem;
+    padding: 0.9rem 1rem;
+    border-left: 0.25rem solid #8aa8c9;
+    color: #40546c;
+    background: #f5f8fc;
+}
+
+.student-learning-memory-panel__state.is-ready {
+    border-left-color: #2f8f67;
+    background: #eefaf4;
+}
+
+.student-learning-memory-panel__state.is-warning {
+    border-left-color: #c88719;
+    background: #fff8e8;
+}
+
+.student-learning-memory-panel__meta,
+.student-learning-memory-panel__sources,
+.student-learning-memory-panel__action {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.65rem;
+    margin-top: 1rem;
+}
+
+.student-learning-memory-panel__meta {
+    color: #53657a;
+    font-size: 0.9rem;
+}
+
+.student-learning-memory-panel__action span {
+    color: #64748b;
+    font-size: 0.85rem;
+}
+
+@media (max-width: 640px) {
+    .student-learning-memory-panel__header,
+    .student-learning-memory-panel__action {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .student-learning-memory-panel__action .btn {
+        width: 100%;
+    }
+}
+
 .learning-graph-panel__privacy {
     flex: 0 0 auto;
     padding: 0.35rem 0.65rem;

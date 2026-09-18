@@ -311,3 +311,30 @@ def test_submission_refresh_entrypoint_builds_the_same_student_index(
 
         assert result["status"] == "ready"
         assert result["active_count"] == result["source_count"]
+
+
+def test_student_home_shows_vector_state_and_rebuilds_only_for_the_student(
+    seeded_student_vector_context,
+):
+    app, ids = seeded_student_vector_context
+    client = app.test_client()
+
+    login = client.post(
+        "/login",
+        data={"username": ids["student_one"], "password": "password"},
+        follow_redirects=True,
+    )
+    assert login.status_code == 200
+    assert "我的学习记忆" in login.get_data(as_text=True)
+    assert "尚未建立" in login.get_data(as_text=True)
+
+    rebuilt = client.post(
+        "/student/rebuild-learning-memory",
+        follow_redirects=True,
+    )
+
+    assert rebuilt.status_code == 200
+    body = rebuilt.get_data(as_text=True)
+    assert "我的学习记忆" in body
+    assert "已建立" in body
+    assert ids["student_two"] not in body
