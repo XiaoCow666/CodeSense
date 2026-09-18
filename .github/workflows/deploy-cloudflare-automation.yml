@@ -45,6 +45,14 @@ jobs:
           workingDirectory: cloudflare/automation
           command: deploy
 
+      - name: Deploy Worker triggers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: cloudflare/automation
+          command: triggers deploy --name codesense-project-automation --triggers "*/10 * * * *" --triggers "0 10 * * *"
+
       - name: Verify Worker health
         shell: bash
         run: curl --fail --silent --show-error https://codesense-project-automation.daiyupeng5.workers.dev/healthz
