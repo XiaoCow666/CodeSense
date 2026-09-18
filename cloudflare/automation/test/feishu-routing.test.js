@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { feishuDetails, shouldHandleMessage } from "../src/feishu.js";
+import { feishuDetails, normalizeChatMembers, shouldHandleMessage } from "../src/feishu.js";
 
 test("only a direct bot mention or a severe task issue is handled", () => {
   const ordinary = { event: { message: { content: JSON.stringify({ text: "今天辛苦了" }), mentions: [] } } };
@@ -29,4 +29,21 @@ test("Feishu event details preserve message and sender identifiers", () => {
     memberOpenId: null,
     memberName: "新成员",
   });
+});
+
+test("chat member responses preserve open ids and names for online onboarding", () => {
+  assert.deepEqual(
+    normalizeChatMembers({
+      data: {
+        items: [
+          { member_id: "ou_one", name: "张三" },
+          { member_id: "ou_two", name: "李四" },
+        ],
+      },
+    }),
+    [
+      { openId: "ou_one", name: "张三" },
+      { openId: "ou_two", name: "李四" },
+    ],
+  );
 });

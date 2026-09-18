@@ -77,6 +77,10 @@ async function listRecords(env, project) {
   return records.filter((record) => record.record_id);
 }
 
+export async function listProjectRecords(env, project) {
+  return listRecords(env, project);
+}
+
 async function createRecord(env, project, fields) {
   const { baseToken, tableId } = fieldsForProject(env, project);
   const response = await feishuApi(env, "POST", `/open-apis/base/v3/bases/${encodeURIComponent(baseToken)}/tables/${encodeURIComponent(tableId)}/records/batch_create`, { create_records: [fields] });
@@ -93,6 +97,38 @@ async function updateRecord(env, project, recordId, fields) {
 function assigneeId(record) {
   const value = record?.fields?.[FIELD_NAMES.assignee];
   return Array.isArray(value) ? value[0]?.id || null : null;
+}
+
+function assigneeName(record) {
+  return valueText(record?.fields?.[FIELD_NAMES.assignee]) || "成员";
+}
+
+export function taskRecordSnapshot(record) {
+  return {
+    recordId: record?.record_id || record?.recordId || null,
+    taskName: valueText(record?.fields?.[FIELD_NAMES.title]) || valueText(record?.taskName),
+    status: valueText(record?.fields?.[FIELD_NAMES.status]) || valueText(record?.status),
+    assigneeOpenId: assigneeId(record) || record?.assigneeOpenId || null,
+    assigneeName: assigneeName(record) || record?.assigneeName || "成员",
+    prUrl: valueText(record?.fields?.[FIELD_NAMES.pr]) || valueText(record?.prUrl),
+    stage: parseStageNumber(valueText(record?.fields?.[FIELD_NAMES.title]) || valueText(record?.taskName)),
+  };
+}
+
+export function nextStageForCompletedRecord(records, record) {
+  const snapshot = record?.taskName ? record : taskRecordSnapshot(record);
+  if (snapshot.status !== "已完成" || !snapshot.assigneeOpenId || !snapshot.stage || snapshot.stage >= 14) return null;
+  const hasActiveNextStage = (Array.isArray(records) ? records : [])
+    .map((item) => item?.taskName ? item : taskRecordSnapshot(item))
+    .some((item) => item.assigneeOpenId === snapshot.assigneeOpenId
+      && item.stage === snapshot.stage + 1
+      && item.status !== "已完成");
+  if (hasActiveNextStage) return null;
+  return {
+    assigneeOpenId: snapshot.assigneeOpenId,
+    assigneeName: snapshot.assigneeName,
+    nextStage: snapshot.stage + 1,
+  };
 }
 
 export function parseStageNumber(title) {
@@ -167,6 +203,14 @@ function nextTaskFields(project, record, nextStage, assignee, assigneeName, revi
     [FIELD_NAMES.due]: tomorrowDeadline(),
     [FIELD_NAMES.relatedDoc]: valueText(record.fields[FIELD_NAMES.relatedDoc]) || null,
   };
+}
+
+export async function ensureNextStageTask(env, project, record, records = []) {
+  const snapshot = taskRecordSnapshot(record);
+  const next = nextStageForCompletedRecord(records, snapshot);
+  if (!next) return { created: false, record_id: null, next_stage: null };
+  const recordId = await createRecord(env, project, nextTaskFields(project, record, next.nextStage, next.assigneeOpenId, next.assigneeName, env.FEISHU_BOT_OPEN_ID));
+  return { created: true, record_id: recordId, next_stage: next.nextStage, assignee_open_id: next.assigneeOpenId, assignee_name: next.assigneeName };
 }
 
 function outcomeText(outcome) {

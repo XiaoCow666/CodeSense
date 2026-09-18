@@ -101,6 +101,34 @@ export async function pullRequestsForHeadSha(env, repository, sha) {
   return value.filter((pullRequest) => pullRequest?.head?.sha === sha);
 }
 
+export function normalizeOpenPullRequests(value) {
+  return (Array.isArray(value) ? value : []).filter((pullRequest) => pullRequest?.state === "open"
+    && pullRequest.number != null
+    && Number.isInteger(Number(pullRequest.number))
+    && typeof pullRequest.head?.sha === "string"
+    && pullRequest.head.sha.length > 0);
+}
+
+export async function listOpenPullRequests(env, repository) {
+  const normalizedRepository = repositoryName(repository);
+  const [owner, repo] = normalizedRepository.split("/");
+  const value = await githubApi(env, "GET", `/repos/${encodeSegment(owner)}/${encodeSegment(repo)}/pulls?state=open&per_page=100&sort=updated&direction=desc`);
+  return normalizeOpenPullRequests(value);
+}
+
+export function isMergedPullRequest(pullRequest) {
+  return pullRequest?.merged === true || Boolean(pullRequest?.merged_at);
+}
+
+export async function listRecentlyMergedPullRequests(env, repository, since) {
+  const normalizedRepository = repositoryName(repository);
+  const [owner, repo] = normalizedRepository.split("/");
+  const value = await githubApi(env, "GET", `/repos/${encodeSegment(owner)}/${encodeSegment(repo)}/pulls?state=closed&per_page=100&sort=updated&direction=desc`);
+  const sinceTime = Date.parse(String(since || ""));
+  return (Array.isArray(value) ? value : []).filter((pullRequest) => isMergedPullRequest(pullRequest)
+    && (!Number.isFinite(sinceTime) || Date.parse(String(pullRequest.merged_at || "")) >= sinceTime));
+}
+
 export async function commitChecks(env, reference, sha) {
   const repository = repositoryName(reference.repository);
   const [owner, repo] = repository.split("/");

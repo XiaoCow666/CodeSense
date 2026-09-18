@@ -26,9 +26,12 @@ import {
   appendKnowledgeRecord,
   applyGithubOutcome,
   ensureStageOneTask,
+  listProjectRecords,
   projectForChat,
   projectForRepository,
 } from "./task-board.js";
+import { buildMessageContext, runOnlineDailyReport, runOnlineReconciliation } from "./online-runtime.js";
+import { actionCanBeReclaimed, extractPullRequestReference, isKnowledgeCandidate, isReviewRequest, scheduledMode } from "./online.js";
 
 const MAX_BODY_BYTES = 512 * 1024;
 const MAX_REVIEW_CONTEXT_BYTES = 180 * 1024;
@@ -187,10 +190,10 @@ function messageTextForEvent(event) {
   return feishuDetails(event.payload).text;
 }
 
-function messageRequest(event) {
+function messageRequest(event, context) {
   return [
-    { role: "system", content: "你是 CodeSense 与 Caifusi 项目的协作助手。回答要具体、有人情味、带一点轻松感。先确认对方问的是任务、PR 还是项目流程；能直接给操作步骤就直接给，缺少编号或链接时只追问一个最关键的信息。不要凭空声称已经执行了外部操作。" },
-    { role: "user", content: `请回复这条飞书消息：\n\n${truncateUtf8(messageTextForEvent(event), 12000)}` },
+    { role: "system", content: "你是 CodeSense 与 Caifusi 项目的协作助手。回答要具体、有人情味、带一点轻松感。先确认对方问的是任务、PR 还是项目流程；能直接给操作步骤就直接给，缺少编号或链接时只追问一个最关键的信息。不要凭空声称已经执行了外部操作。下面的项目、任务台和 GitHub 数据来自线上查询，优先依据这些数据回答；无法确认时明确说还没有查到。" },
+    { role: "user", content: `请回复这条飞书消息。\n\n消息：\n${truncateUtf8(messageTextForEvent(event), 12000)}\n\n线上状态：\n${JSON.stringify(context || {})}` },
   ];
 }
 
@@ -214,10 +217,19 @@ export async function callLuoxin(env, event) {
   const endpoint = env.LUOXIN_CHAT_COMPLETIONS_URL || `${baseUrl}/chat/completions`;
   const isMessage = event.source === "feishu";
   const diff = isMessage ? null : await fetchPullRequestDiff(event, env);
+  let messageContext = null;
+  if (isMessage) {
+    const details = feishuDetails(event.payload);
+    const project = projectForChat(env, details.chatId);
+    const reference = extractPullRequestReference(details.text, project?.repository);
+    const records = project ? await listProjectRecords(env, project) : [];
+    const pullRequest = reference ? await freshPullRequest(env, reference) : null;
+    messageContext = await buildMessageContext(env, event, project, records, pullRequest);
+  }
   const response = await fetch(endpoint, {
     method: "POST",
     headers: { authorization: `Bearer ${env.LUOXIN_API_KEY}`, "content-type": "application/json" },
-    body: JSON.stringify({ model: env.LUOXIN_MODEL || "gpt-5.6-terra", messages: isMessage ? messageRequest(event) : reviewMessages(event, diff), max_tokens: isMessage ? 1200 : 2400 }),
+    body: JSON.stringify({ model: env.LUOXIN_MODEL || "gpt-5.6-terra", messages: isMessage ? messageRequest(event, messageContext) : reviewMessages(event, diff), max_tokens: isMessage ? 1200 : 2400 }),
   });
   if (!response.ok) throw new Error(`luoxin returned ${response.status}`);
   const value = await response.json();
@@ -244,8 +256,8 @@ export async function claimAction(env, eventId, actionType, actionKey) {
   if (result.meta?.changes === 1) return true;
   const existing = await env.STATE_DB.prepare("SELECT status, updated_at FROM action_log WHERE action_key = ?").bind(actionKey).first();
   if (existing?.status === "completed") return false;
-  if (existing?.status === "running" && existing.updated_at > new Date(Date.now() - 15 * 60 * 1000).toISOString()) return false;
-  const reclaimed = await env.STATE_DB.prepare("UPDATE action_log SET status = 'running', error = NULL, updated_at = ? WHERE action_key = ? AND status = 'failed'").bind(timestamp, actionKey).run();
+  if (!actionCanBeReclaimed(existing)) return false;
+  const reclaimed = await env.STATE_DB.prepare("UPDATE action_log SET status = 'running', error = NULL, updated_at = ? WHERE action_key = ? AND (status = 'failed' OR (status = 'running' AND updated_at <= ?))").bind(timestamp, actionKey, new Date(Date.now() - 15 * 60 * 1000).toISOString()).run();
   return reclaimed.meta?.changes === 1;
 }
 
@@ -262,7 +274,8 @@ async function runAction(env, event, actionType, actionKey, callback) {
   if (!claimed) {
     const existing = await env.STATE_DB.prepare("SELECT status, response_json FROM action_log WHERE action_key = ?").bind(actionKey).first();
     if (existing?.status === "completed" && existing.response_json) {
-      try { return JSON.parse(existing.response_json); } catch { return { skipped: true, stored_result_invalid: true }; }
+      const stored = JSON.parse(existing.response_json);
+      return stored && typeof stored === "object" ? { ...stored, idempotent_replay: true } : { result: stored, idempotent_replay: true };
     }
     return { skipped: true };
   }
@@ -350,8 +363,49 @@ async function notifyGithubOutcome(env, event, outcome) {
 async function processFeishuEvent(env, event, reviewResult) {
   const details = feishuDetails(event.payload);
   if (event.event_type === "im.message.receive_v1") {
+    const project = projectForChat(env, details.chatId);
+    if (project && details.messageId && isKnowledgeCandidate(details.text)) {
+      await runAction(
+        env,
+        event,
+        "knowledge_message",
+        `wiki-message:${details.messageId}`,
+        () => appendKnowledgeRecord(env, {
+          repository: project.repository,
+          number: 0,
+          title: `${project.name} 群消息整理：${details.text.slice(0, 80)}`,
+          url: `https://open.feishu.cn/open-apis/im/v1/messages/${details.messageId}`,
+          headSha: details.messageId,
+          review: {
+            summary: details.text,
+            blocking_findings: [],
+            requested_changes: [],
+            non_blocking_findings: [],
+            test_evidence: [],
+          },
+          merge: { merged: false },
+        }),
+      );
+    }
     if (!shouldHandleMessage(event.payload, env.FEISHU_BOT_OPEN_ID)) return { handled: false, reason: "ordinary_message" };
-    const reply = reviewResult?.kind === "message" ? formatMentionReply(reviewResult.reply) : "我收到消息了，但还缺少任务名称、PR 编号或链接。把其中一个发来，我就能继续查。";
+    const reference = extractPullRequestReference(details.text, project?.repository);
+    let reply = reviewResult?.kind === "message" ? formatMentionReply(reviewResult.reply) : "我收到消息了，但还缺少任务名称、PR 编号或链接。把其中一个发来，我就能继续查。";
+    if (reference && isReviewRequest(details.text)) {
+      await runAction(
+        env,
+        event,
+        "feishu_review_request",
+        `feishu-review-request:${reference.repository}#${reference.number}:${details.messageId || event.event_id}`,
+        () => enqueue(env, {
+          event_id: `feishu-review:${details.messageId || event.event_id}`,
+          source: "internal",
+          event_type: "reconcile",
+          delivery_id: details.messageId || event.event_id,
+          payload: { repository: reference.repository, number: reference.number },
+        }).then((eventId) => ({ queued: true, event_id: eventId, repository: reference.repository, number: reference.number })),
+      );
+      reply = `收到，我已经把 ${reference.repository} PR #${reference.number} 的当前提交送进线上复审队列。完成后会把 GitHub 评审、任务台和下一阶段结果一起更新。`;
+    }
     if (details.messageId) return runAction(env, event, "feishu_reply", `feishu-reply:${details.messageId}`, () => replyFeishuText(env, details.messageId, reply, `reply_${details.messageId}`));
     if (details.chatId) return runAction(env, event, "feishu_group_message", `feishu-group:${event.event_id}`, () => sendFeishuText(env, "chat_id", details.chatId, reply, `group_${event.event_id}`));
     return { handled: false, reason: "message_recipient_missing" };
@@ -372,7 +426,18 @@ async function processInternalReconcile(env, event) {
   const repository = repositoryName(event.payload.repository);
   const reference = { repository, number: Number(event.payload.number) };
   const fresh = await freshPullRequest(env, reference);
-  const synthetic = { event_id: event.event_id, source: "github", event_type: "pull_request", payload: { action: "reconcile", repository: { full_name: repository }, pull_request: fresh } };
+  const merged = Boolean(fresh.merged_at || fresh.merged === true);
+  const synthetic = {
+    event_id: event.event_id,
+    source: "github",
+    event_type: "pull_request",
+    payload: {
+      action: merged ? "closed" : "reconcile",
+      repository: { full_name: repository },
+      pull_request: merged ? { ...fresh, merged: true } : fresh,
+    },
+  };
+  if (merged) return processGithubEffects(env, synthetic, null);
   const review = await reviewForEvent(env, synthetic);
   return processGithubEffects(env, synthetic, review);
 }
@@ -507,6 +572,25 @@ async function handleReplay(request, env) {
 export { formatMentionReply, evaluateMergeGate, normalizeReviewResult, reviewMarker, getFeishuTenantToken, feishuApi };
 
 export default {
+  async scheduled(controller, env, ctx) {
+    const mode = scheduledMode(controller.cron);
+    if (mode === "daily-report") {
+      ctx.waitUntil(runOnlineDailyReport({ env, runAction }).then((result) => {
+        console.log("online daily report completed", JSON.stringify({ mode, result: result?.status || "sent" }));
+        return result;
+      }));
+      return;
+    }
+    ctx.waitUntil(runOnlineReconciliation({
+      env,
+      enqueueEvent: (envelope) => enqueue(env, envelope),
+      runAction,
+    }).then((result) => {
+      console.log("online reconciliation completed", JSON.stringify(result));
+      return result;
+    }));
+  },
+
   async fetch(request, env) {
     const url = new URL(request.url);
     try {
@@ -525,6 +609,8 @@ export default {
             luoxin: Boolean(env.LUOXIN_API_KEY),
             task_board: Boolean(env.FEISHU_CODESENSE_BASE_TOKEN && env.FEISHU_CAIFUSI_BASE_TOKEN),
             knowledge_base: Boolean(env.FEISHU_CODESENSE_WIKI_PARENT_TOKEN && env.FEISHU_CAIFUSI_WIKI_PARENT_TOKEN),
+            online_reconciliation: true,
+            daily_report: Boolean(env.FEISHU_OWNER_OPEN_ID),
           },
           now: now(),
         });

@@ -4,6 +4,9 @@ compatibility_date = "2026-09-17"
 workers_dev = true
 preview_urls = false
 
+[triggers]
+crons = ["*/10 * * * *", "0 10 * * *"]
+
 [vars]
 FEISHU_APP_ID = "cli_aa1d72abbe38dd27"
 FEISHU_BOT_OPEN_ID = "ou_cf1fce50c14532a2256434a7a791e515"

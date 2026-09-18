@@ -2,7 +2,7 @@
 
 这个 Worker 负责接收 GitHub PR 与飞书事件，把事件先写入 Cloudflare Queue，再由队列消费者以幂等方式写入 D1。它不依赖本机 CodeX 在线，适合作为后续 PR 复审、任务推进和知识库同步的稳定入口。
 
-当前链路如下：GitHub/飞书事件 → Worker 验签 → Queue → D1 事件记录 → Luoxin 评审或消息回复 → GitHub Review/合并、飞书私聊、任务台更新、知识库记录。每个外部动作都有独立的 action key，重复投递不会重复发 Review、重复建任务或重复发私信；连续失败的消息会进入 `codesense-automation-dead-letter`，方便人工排查。
+当前链路如下：GitHub/飞书事件 → Worker 验签 → Queue → D1 事件记录 → Luoxin 评审或消息回复 → GitHub Review/合并、飞书私聊、任务台更新、知识库记录。Cloudflare Cron 每十分钟执行成员、任务和 PR 对账，每天中国时间 18:00 发送线上日报。每个外部动作都有独立的 action key，重复投递不会重复发 Review、重复建任务或重复发私信；连续失败的消息会进入 `codesense-automation-dead-letter`，方便人工排查。
 
 ## 资源
 
@@ -15,6 +15,12 @@
 - 飞书事件入口：`/webhooks/feishu`
 - 内部补偿入口：`/internal/reconcile`
 - 事件重放入口：`/internal/replay`
+
+## 线上定时流程
+
+- `*/10 * * * *`：读取两个项目群成员，补齐阶段一任务；检查已完成阶段是否缺少下一阶段任务；读取开放 PR 并把当前提交送入幂等复审队列；读取最近一天已经合并的 PR，补写任务完成状态。
+- `0 10 * * *`：按照中国时间 18:00 读取 D1、两个任务台和两个仓库，向负责人私聊当天 PR 评审、合并、完成任务、续派任务和失败重试数量。
+- 自动跟进属于线上动作记录，不创建成员任务台行；成员任务行只表示成员需要完成的阶段任务。
 
 ## 必须配置的 Worker Secrets
 
@@ -68,6 +74,14 @@ https://codesense-project-automation.daiyupeng5.workers.dev/webhooks/github
 ```
 
 事件至少需要包含 `pull_request`、`pull_request_review`、`pull_request_review_comment`、`issue_comment`、`push`、`check_suite` 和 `check_run`。`check_suite`/`check_run` 用于在代码检查从等待变为完成后再次评估合并条件。
+
+飞书应用的事件订阅地址为：
+
+```text
+https://codesense-project-automation.daiyupeng5.workers.dev/webhooks/feishu
+```
+
+需要订阅 `im.message.receive_v1` 和 `im.chat.member.user.added_v1`。Worker 会保留飞书事件到 D1；普通群消息不回复，直接 @机器人、私聊消息和严重任务问题才触发回复。消息中包含明确的 PR 复审请求时，Worker 会把该 PR 当前提交送入 GitHub 复审队列。
 
 内部补偿入口只接受带 `Authorization: Bearer <INTERNAL_RECONCILE_SECRET>` 的请求，并且正文需要是：
 

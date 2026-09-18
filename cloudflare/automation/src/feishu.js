@@ -62,6 +62,18 @@ export function shouldHandleMessage(payload, botOpenId) {
   return isDirectMention(payload, botOpenId) || isSevereTaskIssue(payload);
 }
 
+export function normalizeChatMembers(value) {
+  const items = Array.isArray(value?.data?.items)
+    ? value.data.items
+    : Array.isArray(value?.data?.members)
+      ? value.data.members
+      : [];
+  return items.map((item) => ({
+    openId: openId(item.member_id || item.user_id || item.id || item.user),
+    name: textValue(item.name || item.display_name || item.en_name || item.user_name || "成员"),
+  })).filter((item) => item.openId);
+}
+
 function apiError(method, path, status, code) {
   return new Error(`feishu api ${method} ${path.split("?")[0]} returned ${status}/${code}`);
 }
@@ -89,6 +101,21 @@ export async function feishuApi(env, method, path, body) {
   const value = await response.json().catch(() => ({}));
   if (!response.ok || (value.code !== undefined && value.code !== 0)) throw apiError(method, path, response.status, value.code ?? "unknown");
   return value;
+}
+
+export async function listChatMembers(env, chatId) {
+  if (!chatId) throw new Error("feishu chat id is missing");
+  const members = [];
+  let pageToken = "";
+  for (let page = 0; page < 20; page += 1) {
+    const query = new URLSearchParams({ member_id_type: "open_id", page_size: "100" });
+    if (pageToken) query.set("page_token", pageToken);
+    const value = await feishuApi(env, "GET", `/open-apis/im/v1/chats/${encodeURIComponent(chatId)}/members?${query.toString()}`);
+    members.push(...normalizeChatMembers(value));
+    if (!value.data?.has_more || !value.data?.page_token) break;
+    pageToken = value.data.page_token;
+  }
+  return [...new Map(members.map((member) => [member.openId, member])).values()];
 }
 
 function messageContent(text) {

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { evaluateMergeGate, latestCheckRuns, normalizeReviewResult } from "../src/github.js";
+import { evaluateMergeGate, isMergedPullRequest, latestCheckRuns, normalizeOpenPullRequests, normalizeReviewResult } from "../src/github.js";
 import { callLuoxin, shouldInvokeLuoxin } from "../src/index.js";
 
 test("an approved clean PR with passing checks can pass the merge gate", () => {
@@ -99,4 +99,20 @@ test("old failed reruns do not keep a newer successful check red", () => {
     { id: 2, name: "build", status: "completed", conclusion: "success", completed_at: "2026-09-17T02:00:00Z" },
   ]);
   assert.deepEqual(current, [{ id: 2, name: "build", status: "completed", conclusion: "success", completed_at: "2026-09-17T02:00:00Z" }]);
+});
+
+test("online recovery keeps only usable open pull requests", () => {
+  assert.deepEqual(
+    normalizeOpenPullRequests([
+      { number: 12, state: "open", head: { sha: "abc" } },
+      { number: null, state: "open", head: { sha: "missing-number" } },
+      { number: 13, state: "closed", head: { sha: "closed" } },
+    ]),
+    [{ number: 12, state: "open", head: { sha: "abc" } }],
+  );
+});
+
+test("online recovery recognizes a recently merged pull request", () => {
+  assert.equal(isMergedPullRequest({ merged_at: "2026-09-18T03:00:00Z" }), true);
+  assert.equal(isMergedPullRequest({ merged_at: null, state: "closed" }), false);
 });
