@@ -1,0 +1,58 @@
+{
+  "sources": [
+    {
+      "source_id": "a-submission-1",
+      "student_id": "student-a",
+      "assignment_id": 101,
+      "status": "active",
+      "content": "递归函数需要检查终止条件和空输入。"
+    },
+    {
+      "source_id": "a-score-1",
+      "student_id": "student-a",
+      "assignment_id": 101,
+      "status": "active",
+      "content": "知识点递归当前掌握度55，仍需练习终止条件。"
+    },
+    {
+      "source_id": "a-revoked-1",
+      "student_id": "student-a",
+      "assignment_id": 101,
+      "status": "revoked",
+      "content": "指针生命周期需要检查释放顺序。"
+    },
+    {
+      "source_id": "b-submission-1",
+      "student_id": "student-b",
+      "assignment_id": 202,
+      "status": "active",
+      "content": "指针生命周期需要检查释放顺序。"
+    }
+  ],
+  "queries": [
+    {
+      "student_id": "student-a",
+      "assignment_id": 101,
+      "query": "递归终止条件",
+      "top_k": 2,
+      "relevant_source_ids": ["a-submission-1", "a-score-1"],
+      "expected_status": "grounded"
+    },
+    {
+      "student_id": "student-a",
+      "assignment_id": 101,
+      "query": "指针生命周期释放顺序",
+      "top_k": 2,
+      "relevant_source_ids": [],
+      "expected_status": "no_result"
+    },
+    {
+      "student_id": "student-b",
+      "assignment_id": 202,
+      "query": "指针生命周期",
+      "top_k": 1,
+      "relevant_source_ids": ["b-submission-1"],
+      "expected_status": "grounded"
+    }
+  ]
+}

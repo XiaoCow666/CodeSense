@@ -4,8 +4,9 @@ import pytest
 
 from app import create_app
 from config import TestingConfig as _TestingConfig
-from models import Assignment, AssignmentKnowledgePoint, User, db
+from models import Assignment, AssignmentKnowledgePoint, Submission, User, db
 from routes import api as api_routes
+from services.student_vector_store import rebuild_student_vector_index
 
 
 @pytest.fixture
@@ -138,6 +139,50 @@ def test_chat_advice_is_grounded_and_emits_evidence_only_on_done(
     prompt = _FakeSharedClient.captured_messages[-1]["content"]
     assert "[K1]" in prompt
     assert "只能使用这些证据" in prompt
+
+
+def test_chat_advice_includes_current_student_learning_memory(
+    code_advice_knowledge_context, monkeypatch
+):
+    app, client, assignment_id = code_advice_knowledge_context
+    with app.app_context():
+        db.session.add(
+            Submission(
+                student_id="code-advice-knowledge-student",
+                assignment_id=assignment_id,
+                code="int main(){return 0;}",
+                score=72,
+                status="evaluated",
+                feedback="上次提交仍然需要检查数组边界。",
+            )
+        )
+        db.session.commit()
+        rebuild_student_vector_index("code-advice-knowledge-student")
+
+    monkeypatch.setattr(api_routes, "retrieve_assignment_knowledge", _grounded_retrieval)
+    monkeypatch.setattr(
+        "services.llm_client.SharedLLMClient",
+        lambda: _FakeSharedClient(),
+    )
+
+    response = client.post(
+        "/api/code_advice",
+        json={
+            "code": "int main(){return 0;}",
+            "assignment_id": assignment_id,
+            "question": "上次提交的数组边界问题怎么继续检查？",
+        },
+        headers={"Accept": "text/event-stream"},
+    )
+
+    assert response.status_code == 200
+    done = _events(response)[-1]
+    evidence = done["student_learning_evidence"]
+    assert evidence["status"] == "grounded"
+    assert evidence["evidence"][0]["scope"] == "student_private"
+    assert evidence["evidence"][0]["source_version"]
+    assert "上次提交仍然需要检查数组边界" in _FakeSharedClient.captured_messages[-1]["content"]
+    assert "参考我的学习记录" in done["answer"]
 
 
 def test_code_advice_without_assignment_does_not_create_cross_assignment_retrieval(

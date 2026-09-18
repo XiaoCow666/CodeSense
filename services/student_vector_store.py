@@ -52,7 +52,7 @@ class _StudentSource:
 
 def _student_id(value) -> str:
     normalized = str(value or "").strip()
-    if not normalized or len(normalized) > 20:
+    if not normalized:
         raise StudentVectorAccessError("student scope is invalid")
     student = db.session.get(User, normalized)
     if student is None or student.usertype != "学生":
@@ -215,6 +215,11 @@ def rebuild_student_vector_index(student_id, *, embedder=None):
             _source_key(row.source_type, row.source_id, row.source_version): row
             for row in existing_rows
         }
+        revoked_source_keys = {
+            (row.source_type, row.source_id)
+            for row in existing_rows
+            if row.status == REVOKED and row.revoke_reason == "user_revoked"
+        }
         current_keys = set()
 
         for source in sources:
@@ -224,9 +229,9 @@ def rebuild_student_vector_index(student_id, *, embedder=None):
                 source.source_version,
             )
             current_keys.add(key)
-            row = existing_by_key.get(key)
-            if row is not None and row.status == REVOKED and row.revoke_reason == "user_revoked":
+            if (source.source_type, source.source_id) in revoked_source_keys:
                 continue
+            row = existing_by_key.get(key)
             payload = _embedding_payload(embedder, source.content)
             if row is None:
                 row = StudentLearningVector(
@@ -266,7 +271,10 @@ def rebuild_student_vector_index(student_id, *, embedder=None):
             db.session.add(state)
         state.revision = next_revision
         state.status = "ready" if sources else "empty"
-        state.source_count = len(sources)
+        state.source_count = StudentLearningVector.query.filter_by(
+            student_id=normalized_student_id,
+            status=ACTIVE,
+        ).count()
         state.last_built_at = dt.utcnow()
         state.failure_code = None
         state.updated_at = dt.utcnow()
@@ -509,7 +517,25 @@ def project_student_learning_evidence(retrieval):
                 "content": item.get("content"),
                 "assignment_id": item.get("assignment_id"),
                 "scope": item.get("scope"),
+                "source_type": item.get("source_type"),
+                "source_version": item.get("source_version"),
             }
             for item in retrieval.get("evidence", [])
         ],
     }
+
+
+def render_student_learning_receipt(retrieval):
+    """Render a bounded receipt for the current student's learning sources."""
+
+    if retrieval.get("status") != "grounded":
+        return ""
+    lines = ["\n\n### 参考我的学习记录"]
+    for item in retrieval.get("evidence", []):
+        version = str(item.get("source_version") or "")[:12]
+        lines.append(
+            f"- {item.get('citation')} {item.get('title')}"
+            f"（来源：{item.get('source_type')}；作用域：仅当前学生；"
+            f"版本：{version}；索引版本：{item.get('index_revision', 0)}）"
+        )
+    return "\n".join(lines)

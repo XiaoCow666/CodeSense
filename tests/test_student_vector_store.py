@@ -270,6 +270,50 @@ def test_rebuild_revokes_changed_source_and_search_logs_have_no_query_text(
         )
 
 
+def test_user_revoked_source_is_excluded_from_rebuild_source_count(
+    seeded_student_vector_context,
+):
+    app, ids = seeded_student_vector_context
+    with app.app_context():
+        rebuild_student_vector_index(ids["student_one"])
+        revoke_student_vector_source(
+            ids["student_one"],
+            "submission_feedback",
+            f"submission:{ids['submission_one']}",
+        )
+
+        rebuilt = rebuild_student_vector_index(ids["student_one"])
+
+        assert rebuilt["source_count"] == rebuilt["active_count"]
+        assert rebuilt["source_count"] == 1
+
+
+def test_user_revocation_survives_source_version_change(
+    seeded_student_vector_context,
+):
+    app, ids = seeded_student_vector_context
+    with app.app_context():
+        rebuild_student_vector_index(ids["student_one"])
+        revoke_student_vector_source(
+            ids["student_one"],
+            "submission_feedback",
+            f"submission:{ids['submission_one']}",
+        )
+        submission = db.session.get(Submission, ids["submission_one"])
+        submission.feedback = "更新后的反馈仍然包含递归边界。"
+        db.session.commit()
+
+        rebuilt = rebuild_student_vector_index(ids["student_one"])
+        result = search_student_learning_vectors(
+            ids["student_one"],
+            "更新后的递归边界",
+            assignment_id=ids["assignment_one"],
+        )
+
+        assert rebuilt["source_count"] == rebuilt["active_count"] == 1
+        assert result["status"] == "no_result"
+
+
 def test_failed_rebuild_keeps_previous_active_revision_and_can_retry(
     seeded_student_vector_context,
 ):

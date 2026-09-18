@@ -47,6 +47,12 @@ from services.knowledge_evidence import (
     build_knowledge_evidence_view,
     build_public_knowledge_retrieval,
 )
+from services.student_vector_store import (
+    build_student_learning_prompt_context,
+    project_student_learning_evidence,
+    render_student_learning_receipt,
+    search_student_learning_vectors,
+)
 from tasks.submission_tasks import evaluate_submission_async, _normalise_score, _refresh_user_stats
 from utils.scoring import normalize_feedback_text
 from tasks.submission_queue import (
@@ -955,6 +961,25 @@ def ask_question():
             public_knowledge_retrieval
         )
         knowledge_receipt = render_knowledge_receipt(public_knowledge_retrieval)
+        student_learning_retrieval = search_student_learning_vectors(
+            student_id,
+            question,
+            assignment_id=assignment_id,
+        )
+        student_learning_evidence = project_student_learning_evidence(
+            student_learning_retrieval
+        )
+        student_learning_context = build_student_learning_prompt_context(
+            student_learning_retrieval
+        )
+        student_learning_receipt = render_student_learning_receipt(
+            student_learning_retrieval
+        )
+        knowledge_prompt_context = "\n\n".join(
+            part
+            for part in (knowledge_prompt_context, student_learning_context)
+            if part
+        )
 
         # 仅对合法且有权限的请求计入冷却时间；同时容忍旧版或损坏的
         # session 值，避免 fromisoformat 异常把一个普通请求变成 500。
@@ -1014,6 +1039,7 @@ def ask_question():
                         else:
                             formatted_answer = '很抱歉，我无法理解您的问题或无法基于当前代码生成回答。请尝试重新表述您的问题或提供更多代码上下文。'
                         formatted_answer += knowledge_receipt
+                        formatted_answer += student_learning_receipt
 
                         if student_id:
                             try:
@@ -1040,9 +1066,11 @@ def ask_question():
                                 'answer': formatted_answer,
                                 'knowledge_retrieval': public_knowledge_retrieval,
                                 'knowledge_evidence': knowledge_evidence,
+                                'student_learning_evidence': student_learning_evidence,
                             },
                             'knowledge_retrieval': public_knowledge_retrieval,
                             'knowledge_evidence': knowledge_evidence,
+                            'student_learning_evidence': student_learning_evidence,
                         })
                     except Exception as stream_error:
                         db.session.rollback()
@@ -1091,6 +1119,7 @@ def ask_question():
                 formatted_answer = "很抱歉，我无法理解您的问题或无法基于当前代码生成回答。请尝试重新表述您的问题或提供更多代码上下文。"
 
             formatted_answer += knowledge_receipt
+            formatted_answer += student_learning_receipt
             
             # 记录学生提问日志
             if student_id:
@@ -1118,6 +1147,7 @@ def ask_question():
                     'answer': formatted_answer,
                     'knowledge_retrieval': public_knowledge_retrieval,
                     'knowledge_evidence': knowledge_evidence,
+                    'student_learning_evidence': student_learning_evidence,
                 }
             )
             
@@ -1203,6 +1233,9 @@ def get_code_advice():
         knowledge_retrieval = None
         knowledge_evidence = None
         knowledge_prompt_context = ""
+        student_learning_retrieval = None
+        student_learning_evidence = None
+        student_learning_receipt = ""
         if assignment_id:
             assignment = Assignment.query.get(assignment_id)
             if not assignment:
@@ -1226,12 +1259,40 @@ def get_code_advice():
                 public_knowledge_retrieval,
             )
 
+        student_learning_query = user_question.strip()
+        if not student_learning_query and assignment_title:
+            student_learning_query = " ".join(
+                part for part in (assignment_title, assignment_description) if part
+            )[:2000]
+        if student_learning_query:
+            student_learning_retrieval = search_student_learning_vectors(
+                student_id,
+                student_learning_query,
+                assignment_id=assignment_id,
+            )
+            student_learning_evidence = project_student_learning_evidence(
+                student_learning_retrieval
+            )
+            student_learning_context = build_student_learning_prompt_context(
+                student_learning_retrieval
+            )
+            student_learning_receipt = render_student_learning_receipt(
+                student_learning_retrieval
+            )
+            knowledge_prompt_context = "\n\n".join(
+                part
+                for part in (knowledge_prompt_context, student_learning_context)
+                if part
+            )
+
         knowledge_fields = {}
         if knowledge_retrieval is not None:
             knowledge_fields = {
                 "knowledge_retrieval": public_knowledge_retrieval,
                 "knowledge_evidence": knowledge_evidence,
             }
+        if student_learning_evidence is not None:
+            knowledge_fields["student_learning_evidence"] = student_learning_evidence
 
         # 判断是否为聊天式交互（有用户问题）还是代码分析
         if user_question:
@@ -1337,6 +1398,7 @@ def get_code_advice():
                                 'message': 'AI服务未返回有效内容，请稍后重试',
                             })
                             return
+                        full_content += student_learning_receipt
                         yield sse_event({
                             'type': 'done',
                             'done': True,
@@ -1387,6 +1449,7 @@ def get_code_advice():
                         if not analysis_result:
                             raise RuntimeError('无法生成代码建议，请稍后再试')
                         advice = _code_advice_report(analysis_result)
+                        advice += student_learning_receipt
                         metrics = {
                             'algorithm_score': analysis_result.get('algorithm_score', 60),
                             'style_score': analysis_result.get('style_score', 60),
@@ -1440,6 +1503,7 @@ def get_code_advice():
                 current_app.logger.debug('代码建议生成成功')
 
                 advice = _code_advice_report(analysis_result)
+                advice += student_learning_receipt
                 metrics = {
                     'algorithm_score': analysis_result.get('algorithm_score', 60),
                     'style_score': analysis_result.get('style_score', 60),
