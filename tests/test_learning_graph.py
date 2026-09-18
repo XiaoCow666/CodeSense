@@ -236,6 +236,25 @@ def test_student_graph_returns_scoped_edges_and_next_actions(learning_graph_cont
     assert any(item["assignment_id"] == ids["assignment_one"] for item in graph["recommendations"])
 
 
+def test_graph_edges_expose_source_references_and_versions(learning_graph_context):
+    app, ids = learning_graph_context
+    with app.app_context():
+        student_graph = build_student_learning_graph(
+            student_id=ids["student_one"],
+            limit=8,
+        )
+        teacher_graph = build_teacher_knowledge_coverage(
+            viewer_id=ids["teacher"],
+            class_id=ids["class_a"],
+            limit=8,
+        )
+
+    assert all(edge["source_refs"] and edge["source_version"] for edge in student_graph["edges"])
+    assert all(edge["source_refs"] and edge["source_version"] for edge in teacher_graph["edges"])
+    assert any(edge["scope"] == "student_private" for edge in student_graph["edges"])
+    assert all("graph-student" not in repr(edge) for edge in teacher_graph["edges"])
+
+
 def test_student_graph_rejects_assignment_outside_student_scope(learning_graph_context):
     app, ids = learning_graph_context
     with app.app_context():

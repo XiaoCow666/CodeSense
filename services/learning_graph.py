@@ -13,6 +13,7 @@ objects or private identifiers into a shared teacher projection.
 
 from __future__ import annotations
 
+import hashlib
 from itertools import combinations
 
 from models import (
@@ -62,6 +63,11 @@ def _assignment_id(assignment_id):
     return f"assignment:{assignment_id}"
 
 
+def _source_version(*parts):
+    payload = "|".join(str(part or "") for part in parts)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def _empty_graph(scope, **meta):
     return {
         "nodes": [],
@@ -108,30 +114,68 @@ def _group_assignment_knowledge(rows):
                 "weight": round(weight, 2),
                 "difficulty": round(float(row.difficulty or 1.0), 2),
                 "auto_detected": bool(row.auto_detected),
+                "source_refs": [f"assignment-knowledge:{row.id}"],
+                "source_versions": [
+                    _source_version(
+                        "assignment-knowledge",
+                        row.id,
+                        row.assignment_id,
+                        row.knowledge_point,
+                        row.weight,
+                        row.difficulty,
+                        row.auto_detected,
+                    )
+                ],
             }
     return grouped
 
 
 def _co_occurrence_edges(grouped, *, scope):
     counts = {}
+    pair_sources = {}
     for knowledge in grouped.values():
         codes = sorted(knowledge)
         for left, right in combinations(codes, 2):
             key = (left, right)
             counts[key] = counts.get(key, 0) + 1
+            pair_sources.setdefault(key, []).append(
+                (
+                    knowledge[left]["source_refs"],
+                    knowledge[left]["source_versions"],
+                    knowledge[right]["source_refs"],
+                    knowledge[right]["source_versions"],
+                )
+            )
 
-    return [
-        {
-            "source": _knowledge_id(left),
-            "target": _knowledge_id(right),
-            "relation_type": "co_occurs",
-            "provenance": "same_assignment",
-            "scope": scope,
-            "is_inferred": True,
-            "weight": count,
-        }
-        for (left, right), count in sorted(counts.items())
-    ]
+    edges = []
+    for (left, right), count in sorted(counts.items()):
+        source_refs = set()
+        source_versions = set()
+        for refs_left, versions_left, refs_right, versions_right in pair_sources[(left, right)]:
+            source_refs.update(refs_left)
+            source_refs.update(refs_right)
+            source_versions.update(versions_left)
+            source_versions.update(versions_right)
+        edges.append(
+            {
+                "source": _knowledge_id(left),
+                "target": _knowledge_id(right),
+                "relation_type": "co_occurs",
+                "provenance": "same_assignment",
+                "scope": scope,
+                "is_inferred": True,
+                "weight": count,
+                "source_refs": sorted(source_refs),
+                "source_version": _source_version(
+                    "co_occurs",
+                    scope,
+                    left,
+                    right,
+                    *sorted(source_versions),
+                ),
+            }
+        )
+    return edges
 
 
 def _student_assignments(student, assignment_id=None, limit=DEFAULT_LIMIT):
@@ -228,6 +272,8 @@ def build_student_learning_graph(*, student_id, assignment_id=None, limit=DEFAUL
                     "is_inferred": False,
                     "weight": detail["weight"],
                     "difficulty": detail["difficulty"],
+                    "source_refs": detail["source_refs"],
+                    "source_version": detail["source_versions"][0],
                 }
             )
             score = score_by_code.get(code)
@@ -255,6 +301,20 @@ def build_student_learning_graph(*, student_id, assignment_id=None, limit=DEFAUL
                     "scope": "student_private",
                     "is_inferred": False,
                     "weight": _normalise_score(score_by_code[code].score),
+                    "source_refs": [
+                        f"knowledge-score:{score_by_code[code].id}"
+                    ],
+                    "source_version": _source_version(
+                        "knowledge-score",
+                        score_by_code[code].id,
+                        score_by_code[code].student_id,
+                        score_by_code[code].knowledge_point,
+                        score_by_code[code].score,
+                        score_by_code[code].total_attempts,
+                        score_by_code[code].correct_attempts,
+                        score_by_code[code].average_difficulty,
+                        score_by_code[code].last_updated,
+                    ),
                 }
             )
 
