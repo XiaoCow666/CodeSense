@@ -64,6 +64,14 @@ def _refresh_user_stats(student_id: str) -> None:
     user.user_ascore = sum(scores) / len(scores) if scores else 0.0
 
 
+def refresh_student_learning_index(student_id):
+    """Refresh the persisted learning index after a submission is evaluated."""
+
+    from services.student_vector_store import rebuild_student_vector_index
+
+    return rebuild_student_vector_index(student_id)
+
+
 def _mark_submission_failed(submission_id: int, message: str) -> None:
     """Mark one submission failed in the already-bound database."""
 
@@ -298,6 +306,22 @@ def evaluate_submission_async(
                 if not _demo_database_is_available(demo_run_id):
                     return
                 db.session.commit()
+
+                from services.student_vector_store import StudentVectorRebuildError
+
+                try:
+                    vector_snapshot = refresh_student_learning_index(student_id)
+                    print(
+                        f"学生 {student_id} 学习索引已更新 revision="
+                        f"{vector_snapshot['revision']}"
+                    )
+                except StudentVectorRebuildError as vector_error:
+                    print(
+                        f"学生 {student_id} 学习索引更新失败: "
+                        f"{type(vector_error).__name__}"
+                    )
+                    if demo_run_id:
+                        raise RuntimeError("学习记录索引更新失败") from vector_error
 
                 # 公开体验不写正式系统日志，也不把临时访客动作混入
                 # 管理端审计数据。

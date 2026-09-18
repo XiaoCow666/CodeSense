@@ -667,6 +667,17 @@ def submit_code():
             
             db.session.commit()
 
+            from services.student_vector_store import StudentVectorRebuildError
+            from tasks.submission_tasks import refresh_student_learning_index
+
+            try:
+                refresh_student_learning_index(student_id)
+            except StudentVectorRebuildError as vector_error:
+                current_app.logger.warning(
+                    "提交完成后学生学习索引更新失败: %s",
+                    type(vector_error).__name__,
+                )
+
             # 与网页提交保持一致：每次成功提交都刷新学生能力分析。
             # demo 请求携带 run id，后台任务因此只会写入当前临时库。
             try:

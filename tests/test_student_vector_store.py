@@ -298,3 +298,16 @@ def test_failed_rebuild_keeps_previous_active_revision_and_can_retry(
         assert active_after_failure == first["source_count"]
         assert retried["status"] == "ready"
         assert retried["revision"] == 2
+
+
+def test_submission_refresh_entrypoint_builds_the_same_student_index(
+    seeded_student_vector_context,
+):
+    app, ids = seeded_student_vector_context
+    from tasks.submission_tasks import refresh_student_learning_index
+
+    with app.app_context():
+        result = refresh_student_learning_index(ids["student_one"])
+
+        assert result["status"] == "ready"
+        assert result["active_count"] == result["source_count"]
