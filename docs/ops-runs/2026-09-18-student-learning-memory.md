@@ -26,6 +26,8 @@
 
 本轮没有执行 reset --hard、checkout、clean 或未经授权的 stash，也没有删除主工作区文件。
 
+发布前重新获取远端后，origin/main 更新为 e0bd66f。候选在隔离工作树中通过 3f4c7ea 完成融合；README 徽章保留 v1.5.0 并纳入 Python 3.14、Flask 2.3.3，评分冲突保留百分制业务规则与编译错误处理。
+
 ## 研究与设计约束
 
 本轮查阅以下公开资料，并把资料中的可用原则转换为项目约束：
@@ -96,12 +98,17 @@
 
 ## 测试与质量证据
 
-    全量测试：775 passed, 3113292 warnings, 345.95s
+    融合前全量测试：775 passed, 3113292 warnings, 345.95s
+    融合后相关测试：41 passed, 385141 warnings, 56.90s
+    融合后专项评分测试：11 passed, 86559 warnings, 39.38s
+    融合后全量测试：798 passed, 3156094 warnings, 444.13s
     compileall app.py routes services tasks utils：exit 0
     git diff --check：exit 0
     离线评测：recall@1=0.75，recall@k=1.0，跨作用域命中=0，撤回命中=0，状态匹配通过
 
 告警主要来自现有 datetime.utcnow() 弃用提示、SQLAlchemy Query.get() 弃用提示和第三方库行为；本轮没有把告警改写为成功，也没有发现学生学习记忆相关失败。
+
+融合后的首次全量回归出现 3 个评分量纲断言失败，原因是远端新增测试仍按 0–5 量纲验证，而当前产品已统一保存 0–100。调整回归合同并把编译错误上限明确为百分制 20 后，专项测试和完整回归均通过。
 
 ## 发布门禁状态
 
