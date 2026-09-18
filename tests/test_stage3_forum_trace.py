@@ -219,6 +219,9 @@ def test_stage3_forum_trace_allows_local_peer_even_with_non_loopback_host(stage3
     app, client, session_id = stage3_trace_context
     app.debug = False
 
+    # Re-login on example.com host so the session cookie domain matches the request host
+    client.post("/login", data={"username": "student-1", "password": "password"}, base_url="http://example.com")
+
     response = client.post(
         "/thinking/api/stage3/forum/trace",
         json={"session_id": session_id},

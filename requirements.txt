@@ -1,12 +1,12 @@
-Flask==2.2.3
+Flask==2.3.3
 Flask-SQLAlchemy==3.0.3
-Flask-Session==0.4.0
+Flask-Session==0.8.0
 Flask-WTF==1.1.1
 Flask-Login==0.6.2
 Flask-Migrate==4.0.4
 PyMySQL==1.0.3
 cryptography==41.0.3
-Werkzeug==2.2.3
+Werkzeug==2.3.7
 numpy>=1.24.0
 pandas>=1.5.0
 openpyxl>=3.0.10

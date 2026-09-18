@@ -1,0 +1,41 @@
+name = "codesense-project-automation"
+main = "src/index.js"
+compatibility_date = "2026-09-17"
+workers_dev = true
+preview_urls = false
+
+[triggers]
+crons = ["*/10 * * * *", "0 10 * * *"]
+
+[vars]
+FEISHU_APP_ID = "cli_aa1d72abbe38dd27"
+FEISHU_BOT_OPEN_ID = "ou_cf1fce50c14532a2256434a7a791e515"
+FEISHU_OWNER_OPEN_ID = "ou_ddf4c2e5067ed16683bddff569e4edf6"
+FEISHU_CODESENSE_BASE_TOKEN = "ARTtbYleOap3CXsSdyKco9HHnsh"
+FEISHU_CODESENSE_TASK_TABLE_ID = "tblMmpJjnOj0Xy5l"
+FEISHU_CODESENSE_WIKI_PARENT_TOKEN = "WEZzwZ9rei65DJkWZrwcWogLnPe"
+FEISHU_CODESENSE_CHAT_IDS = "oc_026d32fb633c6747fee586888f5d2394,oc_558742eb9e1686d2676cae7b3531de06"
+FEISHU_CAIFUSI_BASE_TOKEN = "DGSCbcIexaKt5ssnBsWcED5AnLb"
+FEISHU_CAIFUSI_TASK_TABLE_ID = "tblWM81TdUJ2CFwY"
+FEISHU_CAIFUSI_WIKI_PARENT_TOKEN = "IdyNwAGeSiFuICkCTNbcjdDXnfe"
+FEISHU_CAIFUSI_CHAT_IDS = "oc_c72f3d0ca4aab4fbdfb1ad022b853af1"
+LUOXIN_BASE_URL = "https://us.luoxin.me/v1"
+LUOXIN_MODEL = "gpt-5.6-terra"
+
+[[d1_databases]]
+binding = "STATE_DB"
+database_name = "codesense-automation-state"
+database_id = "7b63dcab-0e51-459a-99e5-d1f2b2890fc3"
+migrations_dir = "migrations"
+
+[[queues.producers]]
+binding = "EVENTS_QUEUE"
+queue = "codesense-automation-events"
+
+[[queues.consumers]]
+queue = "codesense-automation-events"
+max_batch_size = 1
+max_batch_timeout = 5
+max_retries = 3
+max_concurrency = 1
+dead_letter_queue = "codesense-automation-dead-letter"

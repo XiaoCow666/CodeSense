@@ -1,0 +1,50 @@
+name: Deploy Cloudflare automation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "cloudflare/automation/**"
+      - ".github/workflows/deploy-cloudflare-automation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-automation-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: cloudflare/automation
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Test automation worker
+        run: npm test
+
+      - name: Apply D1 migrations
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: cloudflare/automation
+          command: d1 migrations apply codesense-automation-state --remote
+
+      - name: Deploy Worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: cloudflare/automation
+          command: deploy
+
+      - name: Verify Worker health
+        shell: bash
+        run: curl --fail --silent --show-error https://codesense-project-automation.daiyupeng5.workers.dev/healthz

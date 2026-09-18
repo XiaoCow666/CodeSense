@@ -218,7 +218,9 @@ def evaluate_submission_async(
                                 * 100
                             )
                             final_score = sandbox_score
-                            if sandbox_result["status"] == "error":
+                            if sandbox_result["status"] == "compile_error":
+                                final_score = min(final_score, 1)
+                            elif sandbox_result["status"] == "error":
                                 final_score = min(final_score, 20)
                             submission.score = _normalise_score(final_score)
                             print(
