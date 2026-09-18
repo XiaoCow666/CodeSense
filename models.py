@@ -1326,6 +1326,98 @@ class AssignmentKnowledgePoint(db.Model):
         ).delete()
         db.session.commit() 
 
+
+class StudentLearningVector(db.Model):
+    """学生私有学习来源及其版本化稀疏向量。"""
+    __tablename__ = 'student_learning_vectors'
+
+    id = db.Column(db.Integer, primary_key=True)
+    student_id = db.Column(
+        db.String(20),
+        db.ForeignKey('users.student_id', ondelete='CASCADE'),
+        nullable=False,
+        index=True,
+    )
+    scope_type = db.Column(db.String(32), nullable=False, default='student_private')
+    source_type = db.Column(db.String(50), nullable=False)
+    source_id = db.Column(db.String(128), nullable=False)
+    source_version = db.Column(db.String(64), nullable=False)
+    assignment_id = db.Column(
+        db.Integer,
+        db.ForeignKey('assignments.id', ondelete='SET NULL'),
+        nullable=True,
+        index=True,
+    )
+    source_title = db.Column(db.String(255), nullable=False, default='')
+    content = db.Column(db.Text, nullable=False)
+    embedding = db.Column(db.Text, nullable=False)
+    index_revision = db.Column(db.Integer, nullable=False, default=0)
+    status = db.Column(db.String(20), nullable=False, default='active', index=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=dt.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=dt.utcnow, onupdate=dt.utcnow)
+    revoked_at = db.Column(db.DateTime, nullable=True)
+    revoke_reason = db.Column(db.String(64), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint(
+            'student_id',
+            'source_type',
+            'source_id',
+            'source_version',
+            name='uq_student_learning_vector_source_version',
+        ),
+        Index(
+            'ix_student_learning_vector_scope_status',
+            'student_id',
+            'scope_type',
+            'status',
+        ),
+    )
+
+
+class StudentVectorIndexState(db.Model):
+    """记录每名学生当前向量索引的版本与构建状态。"""
+    __tablename__ = 'student_vector_index_states'
+
+    id = db.Column(db.Integer, primary_key=True)
+    student_id = db.Column(
+        db.String(20),
+        db.ForeignKey('users.student_id', ondelete='CASCADE'),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    revision = db.Column(db.Integer, nullable=False, default=0)
+    status = db.Column(db.String(20), nullable=False, default='not_built')
+    source_count = db.Column(db.Integer, nullable=False, default=0)
+    last_built_at = db.Column(db.DateTime, nullable=True)
+    failure_code = db.Column(db.String(64), nullable=True)
+    updated_at = db.Column(db.DateTime, nullable=False, default=dt.utcnow, onupdate=dt.utcnow)
+
+
+class StudentVectorRetrievalLog(db.Model):
+    """保存不含原文的学生向量检索审计信息。"""
+    __tablename__ = 'student_vector_retrieval_logs'
+
+    id = db.Column(db.Integer, primary_key=True)
+    student_id = db.Column(
+        db.String(20),
+        db.ForeignKey('users.student_id', ondelete='CASCADE'),
+        nullable=False,
+        index=True,
+    )
+    assignment_id = db.Column(
+        db.Integer,
+        db.ForeignKey('assignments.id', ondelete='SET NULL'),
+        nullable=True,
+    )
+    query_hash = db.Column(db.String(64), nullable=False)
+    result_count = db.Column(db.Integer, nullable=False, default=0)
+    index_revision = db.Column(db.Integer, nullable=False, default=0)
+    retrieval_mode = db.Column(db.String(32), nullable=False, default='no_result')
+    status = db.Column(db.String(20), nullable=False, default='no_result')
+    created_at = db.Column(db.DateTime, nullable=False, default=dt.utcnow, index=True)
+
 class InviteToken(db.Model):
     """教师邀请Token，支持24小时过期和单次使用"""
     __tablename__ = 'invite_tokens'
