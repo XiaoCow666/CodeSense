@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import hashlib
 import json
 import math
-from datetime import datetime as dt
+from datetime import datetime as dt, timedelta
 
 from models import (
     Assignment,
@@ -27,6 +27,9 @@ MAX_SUBMISSION_SOURCES = 24
 MAX_CONTENT_LENGTH = 1200
 MAX_RESULTS = 5
 MIN_SIMILARITY = 0.2
+MAX_SOURCE_PROJECTION = 100
+SOURCE_VERSION_DISPLAY_LENGTH = 12
+INDEX_STALE_AFTER_DAYS = 30
 ACTIVE = "active"
 REVOKED = "revoked"
 STUDENT_SCOPE = "student_private"
@@ -209,7 +212,8 @@ def rebuild_student_vector_index(student_id, *, embedder=None):
         ).first()
         next_revision = (state.revision if state else 0) + 1
         existing_rows = StudentLearningVector.query.filter_by(
-            student_id=normalized_student_id
+            student_id=normalized_student_id,
+            scope_type=STUDENT_SCOPE,
         ).all()
         existing_by_key = {
             _source_key(row.source_type, row.source_id, row.source_version): row
@@ -273,6 +277,7 @@ def rebuild_student_vector_index(student_id, *, embedder=None):
         state.status = "ready" if sources else "empty"
         state.source_count = StudentLearningVector.query.filter_by(
             student_id=normalized_student_id,
+            scope_type=STUDENT_SCOPE,
             status=ACTIVE,
         ).count()
         state.last_built_at = dt.utcnow()
@@ -298,7 +303,25 @@ def _cosine_similarity(left, right) -> float:
     return dot / (left_norm * right_norm)
 
 
-def _retrieval_log(student_id, assignment_id, query, result, revision):
+def _index_is_stale(state, *, now=None):
+    if state is None or state.status not in {"ready", "failed"}:
+        return False
+    if not state.last_built_at:
+        return False
+    now = now or dt.utcnow()
+    return now - state.last_built_at > timedelta(days=INDEX_STALE_AFTER_DAYS)
+
+
+def _retrieval_log(
+    student_id,
+    assignment_id,
+    query,
+    result,
+    revision,
+    *,
+    retrieval_mode=None,
+    status=None,
+):
     digest = hashlib.sha256(str(query or "").encode("utf-8")).hexdigest()
     db.session.add(
         StudentVectorRetrievalLog(
@@ -307,8 +330,8 @@ def _retrieval_log(student_id, assignment_id, query, result, revision):
             query_hash=digest,
             result_count=len(result),
             index_revision=revision,
-            retrieval_mode="vector" if result else "no_result",
-            status="grounded" if result else "no_result",
+            retrieval_mode=retrieval_mode or ("vector" if result else "no_result"),
+            status=status or ("grounded" if result else "no_result"),
         )
     )
     db.session.commit()
@@ -329,7 +352,10 @@ def search_student_learning_vectors(
         student_id=normalized_student_id
     ).first()
     revision = state.revision if state else 0
-    if state is None or state.status not in {"ready", "empty"}:
+    if state is None or (
+        state.status not in {"ready", "empty"}
+        and not (state.status == "failed" and revision > 0)
+    ):
         _retrieval_log(normalized_student_id, assignment_id, query, (), revision)
         return {
             "status": "not_built" if state is None else "unavailable",
@@ -339,6 +365,8 @@ def search_student_learning_vectors(
                 "hit_count": 0,
                 "retrieval_mode": "not_built" if state is None else "unavailable",
                 "index_revision": revision,
+                "freshness_status": "unknown",
+                "revoked_count": 0,
             },
             "fallback": {
                 "code": "STUDENT_VECTOR_INDEX_NOT_READY"
@@ -348,11 +376,46 @@ def search_student_learning_vectors(
             },
         }
 
+    revoked_count = StudentLearningVector.query.filter_by(
+        student_id=normalized_student_id,
+        scope_type=STUDENT_SCOPE,
+        status=REVOKED,
+    ).count()
+    if _index_is_stale(state):
+        _retrieval_log(
+            normalized_student_id,
+            assignment_id,
+            query,
+            (),
+            revision,
+            retrieval_mode="stale",
+            status="stale",
+        )
+        return {
+            "status": "stale",
+            "evidence": [],
+            "metrics": {
+                "candidate_count": 0,
+                "scope_candidate_count": 0,
+                "hit_count": 0,
+                "retrieval_mode": "stale",
+                "index_revision": revision,
+                "freshness_status": "stale",
+                "revoked_count": revoked_count,
+                "index_status": state.status,
+            },
+            "fallback": {
+                "code": "STUDENT_VECTOR_INDEX_STALE",
+                "message": "你的学习记录索引需要更新，请更新后再使用个人学习记录。",
+            },
+        }
+
     rows = StudentLearningVector.query.filter_by(
         student_id=normalized_student_id,
         scope_type=STUDENT_SCOPE,
         status=ACTIVE,
     ).all()
+    scope_candidate_count = len(rows)
     if assignment_id is not None:
         assignment_codes = {
             row.knowledge_point
@@ -405,9 +468,13 @@ def search_student_learning_vectors(
         "evidence": evidence,
         "metrics": {
             "candidate_count": len(rows),
+            "scope_candidate_count": scope_candidate_count,
             "hit_count": len(evidence),
             "retrieval_mode": "vector" if evidence else "no_result",
             "index_revision": revision,
+            "freshness_status": "fresh",
+            "revoked_count": revoked_count,
+            "index_status": state.status,
         },
         "fallback": None
         if evidence
@@ -424,6 +491,7 @@ def revoke_student_vector_source(student_id, source_type, source_id):
     normalized_student_id = _student_id(student_id)
     rows = StudentLearningVector.query.filter_by(
         student_id=normalized_student_id,
+        scope_type=STUDENT_SCOPE,
         source_type=str(source_type),
         source_id=str(source_id),
         status=ACTIVE,
@@ -443,11 +511,49 @@ def revoke_student_vector_source(student_id, source_type, source_id):
         state.revision += 1
         state.source_count = StudentLearningVector.query.filter_by(
             student_id=normalized_student_id,
+            scope_type=STUDENT_SCOPE,
             status=ACTIVE,
         ).count()
         state.updated_at = now
     db.session.commit()
     return get_student_vector_snapshot(normalized_student_id)
+
+
+def list_student_learning_sources(student_id):
+    """返回当前学生可管理的学习来源摘要，不暴露正文或向量。"""
+
+    normalized_student_id = _student_id(student_id)
+    rows = (
+        StudentLearningVector.query.filter_by(
+            student_id=normalized_student_id,
+            scope_type=STUDENT_SCOPE,
+        )
+        .order_by(
+            StudentLearningVector.status.asc(),
+            StudentLearningVector.source_type.asc(),
+            StudentLearningVector.source_id.asc(),
+            StudentLearningVector.source_version.asc(),
+            StudentLearningVector.id.asc(),
+        )
+        .limit(MAX_SOURCE_PROJECTION)
+        .all()
+    )
+    return [
+        {
+            "source_type": row.source_type,
+            "source_id": row.source_id,
+            "assignment_id": row.assignment_id,
+            "title": row.source_title,
+            "scope": row.scope_type,
+            "status": row.status,
+            "source_version": row.source_version[:SOURCE_VERSION_DISPLAY_LENGTH],
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+            "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+            "revoked_at": row.revoked_at.isoformat() if row.revoked_at else None,
+            "revoke_reason": row.revoke_reason,
+        }
+        for row in rows
+    ]
 
 
 def get_student_vector_snapshot(student_id):
@@ -463,22 +569,33 @@ def get_student_vector_snapshot(student_id):
             "revision": 0,
             "source_count": 0,
             "active_count": 0,
+            "revoked_count": 0,
+            "freshness_status": "unknown",
             "source_types": {},
             "last_built_at": None,
             "failure_code": None,
         }
     active_rows = StudentLearningVector.query.filter_by(
         student_id=normalized_student_id,
+        scope_type=STUDENT_SCOPE,
         status=ACTIVE,
     ).all()
+    revoked_count = StudentLearningVector.query.filter_by(
+        student_id=normalized_student_id,
+        scope_type=STUDENT_SCOPE,
+        status=REVOKED,
+    ).count()
     source_types = {}
     for row in active_rows:
         source_types[row.source_type] = source_types.get(row.source_type, 0) + 1
+    effective_status = "stale" if _index_is_stale(state) else state.status
     return {
-        "status": state.status,
+        "status": effective_status,
         "revision": int(state.revision or 0),
         "source_count": int(state.source_count or 0),
         "active_count": len(active_rows),
+        "revoked_count": revoked_count,
+        "freshness_status": "stale" if effective_status == "stale" else "fresh",
         "source_types": dict(sorted(source_types.items())),
         "last_built_at": state.last_built_at.isoformat() if state.last_built_at else None,
         "failure_code": state.failure_code,
@@ -488,6 +605,8 @@ def get_student_vector_snapshot(student_id):
 def build_student_learning_prompt_context(retrieval):
     """生成只含当前学生来源的 AI 上下文。"""
 
+    if retrieval.get("status") == "stale":
+        return "个人学习记录索引已经陈旧，请提示学生更新学习记忆；不要声称参考了陈旧记录。"
     if retrieval.get("status") != "grounded":
         return "当前没有可用的个人学习记录，不要声称参考了学生历史。"
     lines = [
@@ -510,6 +629,7 @@ def project_student_learning_evidence(retrieval):
             "retrieval_mode", "unavailable"
         ),
         "index_revision": (retrieval.get("metrics") or {}).get("index_revision", 0),
+        "fallback": retrieval.get("fallback"),
         "evidence": [
             {
                 "citation": item.get("citation"),
@@ -528,6 +648,11 @@ def project_student_learning_evidence(retrieval):
 def render_student_learning_receipt(retrieval):
     """Render a bounded receipt for the current student's learning sources."""
 
+    if retrieval.get("status") == "stale":
+        return (
+            "\n\n### 个人学习记录\n"
+            "当前索引需要更新，请在首页点击“更新我的学习记忆”后再次尝试。"
+        )
     if retrieval.get("status") != "grounded":
         return ""
     lines = ["\n\n### 参考我的学习记录"]

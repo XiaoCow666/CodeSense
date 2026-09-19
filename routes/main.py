@@ -19,11 +19,13 @@ from models import (
     AbilityTrend,
     KnowledgePointScore,
     ThinkingSession,
+    StudentLearningVector,
 )
 from services.teacher_analytics import build_teacher_dashboard_data
 from services.learning_graph import (
     LearningGraphAccessError,
     build_student_learning_graph,
+    build_teacher_knowledge_focus,
     build_teacher_knowledge_coverage,
 )
 from services.demo_database import current_demo_run_id
@@ -53,7 +55,9 @@ from services.profile import get_profile_settings, PROFILE_VISIBILITY_PUBLIC
 from services.student_vector_store import (
     StudentVectorRebuildError,
     get_student_vector_snapshot,
+    list_student_learning_sources,
     rebuild_student_vector_index,
+    revoke_student_vector_source,
 )
 from utils.auth import admin_required
 from utils.access import authoritative_class_name, assignment_target_class_filter, can_access_student
@@ -294,6 +298,7 @@ def home():
         knowledge_profile = KnowledgePointScore.get_student_profile(student_id)
         knowledge_profile_rows = _knowledge_profile_rows(knowledge_profile)
         student_vector_snapshot = get_student_vector_snapshot(student_id)
+        student_learning_sources = list_student_learning_sources(student_id)
         try:
             learning_graph = build_student_learning_graph(
                 student_id=student_id,
@@ -397,6 +402,7 @@ def home():
             'knowledge_profile': knowledge_profile,
             'knowledge_profile_rows': knowledge_profile_rows,
             'student_vector_snapshot': student_vector_snapshot,
+            'student_learning_sources': student_learning_sources,
             'learning_graph': learning_graph,
             'ability_trend': trend_record,
             'analysis_status': analysis_status,
@@ -574,6 +580,40 @@ def rebuild_student_learning_memory():
     return redirect(url_for('main.home'))
 
 
+@main.route('/student/learning-memory/revoke', methods=['POST'])
+@login_required
+def revoke_student_learning_memory_source():
+    """撤回当前学生的一条学习来源。"""
+
+    if getattr(current_user, 'usertype', None) != '学生':
+        flash('只有学生可以管理自己的学习记忆。', 'warning')
+        return redirect(url_for('main.home'))
+
+    source_type = (request.form.get('source_type') or '').strip()
+    source_id = (request.form.get('source_id') or '').strip()
+    if not source_type or not source_id:
+        flash('请选择要撤回的学习来源。', 'warning')
+        return redirect(url_for('main.home'))
+
+    matching_rows = StudentLearningVector.query.filter_by(
+        student_id=current_user.student_id,
+        source_type=source_type,
+        source_id=source_id,
+        scope_type='student_private',
+    ).all()
+    if not matching_rows or not any(row.status == 'active' for row in matching_rows):
+        flash('学习来源不存在或已经撤回。', 'warning')
+        return redirect(url_for('main.home'))
+
+    revoke_student_vector_source(
+        current_user.student_id,
+        source_type,
+        source_id,
+    )
+    flash('学习来源已撤回，后续学习记忆更新也会保留此选择。', 'success')
+    return redirect(url_for('main.home'))
+
+
 @main.route('/teacher_dashboard')
 @login_required
 def teacher_dashboard():
@@ -622,6 +662,35 @@ def teacher_dashboard():
                            learning_graph=learning_graph,
                            ai_suggestions=ai_suggestions,
                            open_review_count=open_review_count)
+
+
+@main.route('/teacher/knowledge-focus/<string:knowledge_point>')
+@login_required
+def teacher_knowledge_focus(knowledge_point):
+    """Show managed assignments that can address one class knowledge point."""
+
+    if not current_user.is_teacher:
+        flash('您没有权限访问此页面', 'danger')
+        return redirect(url_for('main.home'))
+
+    selected_class_id = request.args.get('class_id', type=int)
+    try:
+        focus = build_teacher_knowledge_focus(
+            viewer_id=current_user.student_id,
+            knowledge_point=knowledge_point,
+            class_id=selected_class_id,
+            limit=20,
+        )
+    except LearningGraphAccessError:
+        abort(403)
+
+    managed_classes = current_user.managed_classes.all()
+    return render_template(
+        'teacher_knowledge_focus.html',
+        focus=focus,
+        managed_classes=managed_classes,
+        selected_class_id=selected_class_id,
+    )
 
 
 @main.route('/teacher/ai_suggestions')

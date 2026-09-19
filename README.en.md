@@ -23,14 +23,14 @@
   <a href="https://github.com/XiaoCow666/CodeSense/stargazers"><img src="https://img.shields.io/github/stars/XiaoCow666/CodeSense?style=flat-square&logo=github" alt="GitHub stars"></a>
   <a href="https://github.com/XiaoCow666/CodeSense/network/members"><img src="https://img.shields.io/github/forks/XiaoCow666/CodeSense?style=flat-square&logo=github" alt="GitHub forks"></a>
   <a href="https://github.com/XiaoCow666/CodeSense/blob/main/LICENSE"><img src="https://img.shields.io/github/license/XiaoCow666/CodeSense?style=flat-square" alt="License"></a>
-  <img src="https://img.shields.io/badge/version-v1.5.0-2563eb?style=flat-square" alt="v1.5.0">
+  <img src="https://img.shields.io/badge/version-v1.6.0-2563eb?style=flat-square" alt="v1.6.0">
   <img src="https://img.shields.io/badge/Python-3.8--3.14-3776ab?style=flat-square&logo=python&logoColor=white" alt="Python 3.8–3.14">
   <img src="https://img.shields.io/badge/Flask-2.3.3-000000?style=flat-square&logo=flask&logoColor=white" alt="Flask 2.3.3">
 </p>
 
-> **Release status: formal release** · **Current version: `v1.5.0`**
+> **Release status: formal release** · **Current version: `v1.6.0`**
 >
-> `v1.5.0` adds scoped student learning memory, provenance-aware learning paths, and tutoring receipts. Releases use `vMAJOR.MINOR.PATCH` and are tracked in GitHub Releases/Tags and [CHANGELOG.md](CHANGELOG.md).
+> `v1.6.0` adds source governance, stale-index recovery guidance, teacher knowledge-point actions, and graph-aware tutoring. Releases use `vMAJOR.MINOR.PATCH` and are tracked in GitHub Releases/Tags and [CHANGELOG.md](CHANGELOG.md).
 
 ## Contents
 
@@ -72,6 +72,10 @@ These screenshots are from the runnable pages in the repository, not concept moc
 
 <p align="center">
   <img src="docs/assets/codesense-v1.5.0-student-learning-memory.png" alt="CodeSense v1.5.0 student learning memory and knowledge paths" width="100%">
+</p>
+
+<p align="center">
+  <img src="docs/assets/codesense-v1.6.0-knowledge-intervention.png" alt="CodeSense v1.6.0 knowledge intervention and learning memory governance" width="100%">
 </p>
 
 ## Public demo
@@ -136,9 +140,16 @@ Prompt constraints and the `sanitize_response` filter are used in guided-learnin
 - Builds a private, versioned learning index from the current student's evaluated feedback and knowledge-point records;
 - Uses assignment-scoped personal retrieval in student questions and Code Studio tutoring, with source, scope, and index-version receipts;
 - Supports explicit rebuilds, durable source revocation, retry after a failed rebuild, and offline retrieval evaluation;
-- Shows students a permission-aware learning path and teachers an aggregate class knowledge-coverage view with traceable edge provenance.
+- Shows students a permission-aware learning path and teachers an aggregate class knowledge-coverage view with traceable edge provenance;
+- Connects graph context and student memory to tutoring while keeping both sources assignment-scoped and private.
 
-### 5. Teacher management
+### 5. Knowledge-point teaching actions
+
+- Students can inspect source status, revoke one learning-memory source, and follow an update action when an index becomes stale;
+- Teachers can open targeted practice from a class knowledge-point reminder;
+- AI teaching suggestions preserve server-owned assignment links and keep suggested assignments within the current teacher's scope.
+
+### 6. Teacher management
 
 - Assignment creation, editing, test-case, and submission management;
 - Class, roster, and teacher invitation workflows;
@@ -146,7 +157,7 @@ Prompt constraints and the `sanitize_response` filter are used in guided-learnin
 - AI-assisted assignment formatting and learning suggestions;
 - Separate permissions for students, teachers, and administrators.
 
-### 6. Interaction and experience
+### 7. Interaction and experience
 
 - Browser-based code editing; pages using Monaco Editor load it on demand;
 - Step selection, code preview, and conversation interactions in guided-learning pages;
@@ -372,7 +383,7 @@ CodeSense follows semantic versioning:
 - `MINOR`: backward-compatible feature additions;
 - `PATCH`: backward-compatible fixes and small adjustments.
 
-The current version is **`v1.5.0`**. Students can maintain a private learning memory and see its sources in AI tutoring; students and teachers can use provenance-aware knowledge-path views with role-specific scopes. Every release updates [CHANGELOG.md](CHANGELOG.md) and uses a matching Git tag and GitHub Release.
+The current version is **`v1.6.0`**. Students can manage learning-memory sources and receive stale-index guidance; tutoring combines assignment-scoped graph context with private student memory. Teachers can move from knowledge-point reminders and AI suggestions into assignment actions within their scope. Every release updates [CHANGELOG.md](CHANGELOG.md) and uses a matching Git tag and GitHub Release.
 
 ## Star History
 

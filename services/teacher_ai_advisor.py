@@ -13,7 +13,6 @@ from utils.access import class_student_filter
 
 
 logger = logging.getLogger(__name__)
-logger = logging.getLogger(__name__)
 
 # 线程锁，防止重复并发生成同一班级的AI建议
 _generation_locks = {}
@@ -60,6 +59,31 @@ def _friendly_ai_error(code):
         'INVALID_RESPONSE': 'AI 返回内容格式不完整，请稍后重试。',
     }
     return messages.get(code, 'AI 上游服务暂时不可用，请稍后重试。')
+
+
+def _attach_assignment_ids(structured, suggested_assignments):
+    """只保留服务端候选作业编号。"""
+
+    ids_by_title = {
+        item['title']: item['id']
+        for item in suggested_assignments
+        if item.get('id')
+    }
+    assignments = []
+    for item in structured.get('suggested_assignments', []):
+        if not isinstance(item, dict):
+            continue
+        enriched = dict(item)
+        assignment_id = ids_by_title.get(enriched.get('title'))
+        if assignment_id:
+            enriched['assignment_id'] = assignment_id
+        else:
+            enriched.pop('assignment_id', None)
+        assignments.append(enriched)
+    structured['suggested_assignments'] = assignments
+    return structured
+
+
 def _mark_stream_failed_if_needed(class_id, teacher_id, suggestion, demo_run_id):
     """Do not leave a suggestion permanently stuck in ``processing``."""
 
@@ -156,7 +180,8 @@ def generate_class_suggestions(class_id, teacher_id, demo_run_id=None):
             candidate_assignments = Assignment.query.join(
                 AssignmentKnowledgePoint, Assignment.id == AssignmentKnowledgePoint.assignment_id
             ).filter(
-                AssignmentKnowledgePoint.knowledge_point.in_(weak_kp_codes)
+                AssignmentKnowledgePoint.knowledge_point.in_(weak_kp_codes),
+                Assignment.creator_id == teacher_id,
             ).all()
 
             for assign in candidate_assignments:
@@ -199,6 +224,7 @@ def generate_class_suggestions(class_id, teacher_id, demo_run_id=None):
             'suggested_assignments': [
                 {
                     'title': a['title'],
+                    'assignment_id': a['id'] or None,
                     'reason': f"针对弱势概念进行课后巩固训练。",
                     'difficulty': a['difficulty']
                 } for a in suggested_assignments[:3]
@@ -293,6 +319,10 @@ def generate_class_suggestions(class_id, teacher_id, demo_run_id=None):
                         parsed_json = json.loads(json_part)
                         # 确保基本字段完整
                         if 'attention_students' in parsed_json and 'weak_knowledge_points' in parsed_json:
+                            parsed_json = _attach_assignment_ids(
+                                parsed_json,
+                                suggested_assignments,
+                            )
                             suggestion.suggestion_markdown = markdown_part
                             suggestion.suggestion_json = json.dumps(parsed_json, ensure_ascii=False)
                             suggestion.status = 'completed'
@@ -505,7 +535,8 @@ def _generate_class_suggestions_stream(class_id, teacher_id, demo_run_id=None, *
         candidate_assignments = Assignment.query.join(
             AssignmentKnowledgePoint, Assignment.id == AssignmentKnowledgePoint.assignment_id
         ).filter(
-            AssignmentKnowledgePoint.knowledge_point.in_(weak_kp_codes)
+            AssignmentKnowledgePoint.knowledge_point.in_(weak_kp_codes),
+            Assignment.creator_id == teacher_id,
         ).all()
 
         for assign in candidate_assignments:
@@ -546,6 +577,7 @@ def _generate_class_suggestions_stream(class_id, teacher_id, demo_run_id=None, *
         'suggested_assignments': [
             {
                 'title': a['title'],
+                'assignment_id': a['id'] or None,
                 'reason': f"针对弱势概念进行课后巩固训练。",
                 'difficulty': a['difficulty']
             } for a in suggested_assignments[:3]
@@ -677,6 +709,10 @@ def _generate_class_suggestions_stream(class_id, teacher_id, demo_run_id=None, *
                         ):
                             if isinstance(parsed_json.get(key), list):
                                 structured_json[key] = parsed_json[key]
+                        structured_json = _attach_assignment_ids(
+                            structured_json,
+                            suggested_assignments,
+                        )
                     else:
                         raise ValueError('structured response is not an object')
                 except Exception as je:

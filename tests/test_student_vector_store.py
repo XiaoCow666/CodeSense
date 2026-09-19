@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -17,6 +17,7 @@ from models import (
 from services.student_vector_store import (
     StudentVectorRebuildError,
     get_student_vector_snapshot,
+    list_student_learning_sources,
     rebuild_student_vector_index,
     revoke_student_vector_source,
     search_student_learning_vectors,
@@ -209,6 +210,9 @@ def test_search_filters_student_and_assignment_scope_before_similarity(
 
         assert own["status"] == "grounded"
         assert own["evidence"][0]["assignment_id"] == ids["assignment_one"]
+        assert own["metrics"]["scope_candidate_count"] >= own["metrics"]["candidate_count"]
+        assert own["metrics"]["freshness_status"] == "fresh"
+        assert own["metrics"]["revoked_count"] == 0
         assert other_student["status"] == "no_result"
         assert other_assignment["status"] == "no_result"
 
@@ -314,6 +318,85 @@ def test_user_revocation_survives_source_version_change(
         assert result["status"] == "no_result"
 
 
+def test_student_source_projection_is_private_and_student_can_revoke_from_home(
+    seeded_student_vector_context,
+):
+    app, ids = seeded_student_vector_context
+    with app.app_context():
+        rebuild_student_vector_index(ids["student_one"])
+        sources = list_student_learning_sources(ids["student_one"])
+
+        assert sources
+        assert all(item["scope"] == "student_private" for item in sources)
+        assert all("content" not in item for item in sources)
+        submission_source = next(
+            item for item in sources if item["source_type"] == "submission_feedback"
+        )
+
+    client = app.test_client()
+    login = client.post(
+        "/login",
+        data={"username": ids["student_one"], "password": "password"},
+    )
+    assert login.status_code in {302, 303}
+    home = client.get("/home")
+    assert home.status_code == 200
+    home_body = home.get_data(as_text=True)
+    assert "学习来源" in home_body
+    assert submission_source["source_version"] in home_body
+
+    revoked = client.post(
+        "/student/learning-memory/revoke",
+        data={
+            "source_type": submission_source["source_type"],
+            "source_id": submission_source["source_id"],
+        },
+        follow_redirects=True,
+    )
+    assert revoked.status_code == 200
+    assert "已撤回" in revoked.get_data(as_text=True)
+
+    with app.app_context():
+        result = search_student_learning_vectors(
+            ids["student_one"],
+            "递归边界",
+            assignment_id=ids["assignment_one"],
+        )
+        assert result["status"] == "no_result"
+
+
+def test_student_source_revoke_rejects_other_student_scope(
+    seeded_student_vector_context,
+):
+    app, ids = seeded_student_vector_context
+    with app.app_context():
+        rebuild_student_vector_index(ids["student_one"])
+        source = list_student_learning_sources(ids["student_one"])[0]
+
+    client = app.test_client()
+    login = client.post(
+        "/login",
+        data={"username": ids["student_two"], "password": "password"},
+    )
+    assert login.status_code in {302, 303}
+    response = client.post(
+        "/student/learning-memory/revoke",
+        data={
+            "source_type": source["source_type"],
+            "source_id": source["source_id"],
+        },
+    )
+    unknown = client.post(
+        "/student/learning-memory/revoke",
+        data={
+            "source_type": source["source_type"],
+            "source_id": "submission:unknown",
+        },
+    )
+    assert response.status_code == unknown.status_code == 302
+    assert response.headers["Location"] == unknown.headers["Location"]
+
+
 def test_failed_rebuild_keeps_previous_active_revision_and_can_retry(
     seeded_student_vector_context,
 ):
@@ -333,6 +416,11 @@ def test_failed_rebuild_keeps_previous_active_revision_and_can_retry(
         ).count()
         failed_status = failed_state.status
         failed_revision = failed_state.revision
+        recovered = search_student_learning_vectors(
+            ids["student_one"],
+            "递归边界",
+            assignment_id=ids["assignment_one"],
+        )
 
         retried = rebuild_student_vector_index(ids["student_one"])
 
@@ -340,8 +428,52 @@ def test_failed_rebuild_keeps_previous_active_revision_and_can_retry(
         assert failed_status == "failed"
         assert failed_revision == 1
         assert active_after_failure == first["source_count"]
+        assert recovered["status"] == "grounded"
+        assert recovered["metrics"]["index_status"] == "failed"
         assert retried["status"] == "ready"
         assert retried["revision"] == 2
+
+
+def test_stale_student_vector_index_falls_back_until_rebuilt(
+    seeded_student_vector_context,
+):
+    app, ids = seeded_student_vector_context
+    with app.app_context():
+        rebuild_student_vector_index(ids["student_one"])
+        state = StudentVectorIndexState.query.filter_by(
+            student_id=ids["student_one"]
+        ).one()
+        state.last_built_at = datetime.utcnow() - timedelta(days=31)
+        db.session.commit()
+
+        client = app.test_client()
+        login = client.post(
+            "/login",
+            data={"username": ids["student_one"], "password": "password"},
+        )
+        assert login.status_code in {302, 303}
+        stale_home = client.get("/home")
+        assert stale_home.status_code == 200
+        assert "需要更新" in stale_home.get_data(as_text=True)
+
+        stale = search_student_learning_vectors(
+            ids["student_one"],
+            "递归边界",
+            assignment_id=ids["assignment_one"],
+        )
+        assert stale["status"] == "stale"
+        assert stale["evidence"] == []
+        assert stale["metrics"]["freshness_status"] == "stale"
+        assert stale["metrics"]["revoked_count"] == 0
+
+        rebuilt = rebuild_student_vector_index(ids["student_one"])
+        fresh = search_student_learning_vectors(
+            ids["student_one"],
+            "递归边界",
+            assignment_id=ids["assignment_one"],
+        )
+        assert rebuilt["status"] == "ready"
+        assert fresh["status"] == "grounded"
 
 
 def test_submission_refresh_entrypoint_builds_the_same_student_index(

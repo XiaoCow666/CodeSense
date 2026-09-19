@@ -139,6 +139,7 @@ def test_chat_advice_is_grounded_and_emits_evidence_only_on_done(
     prompt = _FakeSharedClient.captured_messages[-1]["content"]
     assert "[K1]" in prompt
     assert "只能使用这些证据" in prompt
+    assert "当前作业知识点" in prompt
 
 
 def test_chat_advice_includes_current_student_learning_memory(
@@ -216,19 +217,21 @@ def test_analysis_sse_and_json_expose_the_same_additive_evidence_contract(
     code_advice_knowledge_context, monkeypatch
 ):
     _, client, assignment_id = code_advice_knowledge_context
+    captured = []
     monkeypatch.setattr(api_routes, "retrieve_assignment_knowledge", _grounded_retrieval)
-    monkeypatch.setattr(
-        api_routes,
-        "generate_code_advice",
-        lambda **kwargs: {
+
+    def fake_generate_code_advice(**kwargs):
+        captured.append(kwargs)
+        return {
             "overall_feedback": "可以继续手动追踪。",
             "algorithm_score": 80,
             "style_score": 82,
             "functionality_score": 78,
             "efficiency_score": 76,
             "suggestions": ["检查边界"],
-        },
-    )
+        }
+
+    monkeypatch.setattr(api_routes, "generate_code_advice", fake_generate_code_advice)
     payload = {"code": "int main(){return 0;}", "assignment_id": assignment_id}
 
     streamed = client.post(
@@ -247,6 +250,8 @@ def test_analysis_sse_and_json_expose_the_same_additive_evidence_contract(
     assert legacy_data["knowledge_evidence"]["status"] == "grounded"
     assert legacy_data["knowledge_retrieval"]["evidence"][0]["citation"] == "[K1]"
     assert legacy_data["advice"]
+    assert len(captured) == 2
+    assert all("当前作业知识点" in item["knowledge_context"] for item in captured)
 
 
 def test_unavailable_knowledge_keeps_code_advice_answer_available(

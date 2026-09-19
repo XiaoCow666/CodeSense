@@ -163,6 +163,7 @@ def test_ask_question_returns_scoped_citations_and_metrics(knowledge_context, mo
     assert evidence_view["status"] == retrieval["status"]
     assert evidence_view["has_evidence"] is True
     assert retrieval["metrics"]["candidate_count"] == 1
+    assert "当前作业知识点" in captured["knowledge_context"]
     assert retrieval["metrics"]["hit_count"] == 1
     assert retrieval["metrics"]["retrieval_hit_rate"] == 1.0
     assert retrieval["metrics"]["citation_completeness"] == 1.0

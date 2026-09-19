@@ -16,7 +16,9 @@ from models import (
 from services.learning_graph import (
     LearningGraphAccessError,
     build_student_learning_graph,
+    build_student_learning_graph_context,
     build_teacher_knowledge_coverage,
+    build_teacher_knowledge_focus,
 )
 
 
@@ -45,6 +47,13 @@ def learning_graph_context(tmp_path, monkeypatch):
             full_name="其他教师",
         )
         other_teacher.password = "password"
+        admin = User(
+            student_id="graph-admin",
+            username="graph-admin",
+            usertype="管理员",
+            full_name="图谱管理员",
+        )
+        admin.password = "password"
         class_a = Class(
             name="图谱班级A",
             grade="2024",
@@ -57,7 +66,7 @@ def learning_graph_context(tmp_path, monkeypatch):
             major="软件工程",
             teacher_id=other_teacher.student_id,
         )
-        db.session.add_all([teacher, other_teacher, class_a, class_b])
+        db.session.add_all([teacher, other_teacher, admin, class_a, class_b])
         db.session.flush()
 
         student_one = User(
@@ -191,6 +200,7 @@ def learning_graph_context(tmp_path, monkeypatch):
         ids = {
             "teacher": teacher.student_id,
             "other_teacher": other_teacher.student_id,
+            "admin": admin.student_id,
             "student_one": student_one.student_id,
             "student_two": student_two.student_id,
             "outside_student": outside_student.student_id,
@@ -308,6 +318,51 @@ def test_teacher_cannot_read_unmanaged_class(learning_graph_context):
             )
 
 
+def test_teacher_knowledge_focus_returns_only_managed_assignments(
+    learning_graph_context,
+):
+    app, ids = learning_graph_context
+    with app.app_context():
+        focus = build_teacher_knowledge_focus(
+            viewer_id=ids["teacher"],
+            knowledge_point="array",
+            class_id=ids["class_a"],
+        )
+
+    assert focus["meta"]["class_id"] == ids["class_a"]
+    assert [item["assignment_id"] for item in focus["assignments"]] == [
+        ids["assignment_one"]
+    ]
+    assert focus["assignments"][0]["knowledge_point"] == "array"
+    assert "graph-student" not in repr(focus)
+
+    with app.app_context():
+        with pytest.raises(LearningGraphAccessError):
+            build_teacher_knowledge_focus(
+                viewer_id=ids["teacher"],
+                knowledge_point="tree",
+                class_id=ids["class_b"],
+            )
+
+
+def test_student_graph_context_explains_current_knowledge_state(
+    learning_graph_context,
+):
+    app, ids = learning_graph_context
+    with app.app_context():
+        graph = build_student_learning_graph(
+            student_id=ids["student_one"],
+            assignment_id=ids["assignment_one"],
+        )
+        context = build_student_learning_graph_context(graph)
+
+    assert "当前作业知识点" in context
+    assert "数组" in context
+    assert "掌握度" in context
+    assert "student_private" in context
+    assert ids["student_one"] not in context
+
+
 def test_student_dashboard_renders_next_action_from_graph(learning_graph_context):
     app, ids = learning_graph_context
     client = app.test_client()
@@ -350,3 +405,78 @@ def test_teacher_dashboard_renders_aggregate_graph(learning_graph_context):
     assert "班级知识覆盖" in html
     assert "仅班级聚合" in html
     assert "数组" in html
+    assert "查看针对性练习" in html
+
+
+def test_teacher_can_open_knowledge_focus_and_other_teacher_cannot(
+    learning_graph_context,
+):
+    app, ids = learning_graph_context
+    with app.app_context():
+        classroom = db.session.get(Class, ids["class_a"])
+        shared_assignment = Assignment(
+            title="其他教师创建的数组练习",
+            description="用于验证布置权限显示。",
+            target_classes=classroom.name,
+            creator_id=ids["other_teacher"],
+            created_time=dt.utcnow(),
+        )
+        db.session.add(shared_assignment)
+        db.session.flush()
+        db.session.add(
+            AssignmentKnowledgePoint(
+                assignment_id=shared_assignment.id,
+                knowledge_point="array",
+            )
+        )
+        db.session.commit()
+
+    client = app.test_client()
+    login = client.post(
+        "/login",
+        data={"username": ids["teacher"], "password": "password"},
+        follow_redirects=True,
+    )
+    assert login.status_code == 200
+
+    focus = client.get(
+        f"/teacher/knowledge-focus/array?class_id={ids['class_a']}"
+    )
+    assert focus.status_code == 200
+    body = focus.get_data(as_text=True)
+    assert "数组与递归" in body
+    assert "布置到班级" in body
+    assert f"/assign/{ids['assignment_one']}" in body
+    shared_start = body.index("其他教师创建的数组练习")
+    shared_card = body[shared_start:body.index("</article>", shared_start)]
+    assert "布置到班级" not in shared_card
+    assert "当前账号无法布置此作业" in shared_card
+
+    other_client = app.test_client()
+    other_login = other_client.post(
+        "/login",
+        data={"username": ids["other_teacher"], "password": "password"},
+    )
+    assert other_login.status_code in {302, 303}
+    forbidden = other_client.get(
+        f"/teacher/knowledge-focus/array?class_id={ids['class_a']}"
+    )
+    assert forbidden.status_code == 403
+
+
+def test_admin_cannot_use_student_or_teacher_learning_actions(learning_graph_context):
+    app, ids = learning_graph_context
+    client = app.test_client()
+    login = client.post(
+        "/login",
+        data={"username": ids["admin"], "password": "password"},
+    )
+    assert login.status_code in {302, 303}
+
+    focus = client.get("/teacher/knowledge-focus/array")
+    assert focus.status_code in {302, 303}
+    revoke = client.post(
+        "/student/learning-memory/revoke",
+        data={"source_type": "submission_feedback", "source_id": "submission:1"},
+    )
+    assert revoke.status_code in {302, 303}

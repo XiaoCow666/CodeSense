@@ -28,6 +28,7 @@ from utils.access import (
     can_access_assignment,
     can_access_class,
     class_student_filter,
+    can_manage_assignment,
     managed_classes,
 )
 
@@ -333,6 +334,49 @@ def build_student_learning_graph(*, student_id, assignment_id=None, limit=DEFAUL
     }
 
 
+def build_student_learning_graph_context(graph):
+    """把当前学生的作业图谱投影为有界 AI 上下文。"""
+
+    if not graph or (graph.get("meta") or {}).get("scope") != "student":
+        return "当前作业没有可用知识点图谱。"
+
+    nodes = [
+        node
+        for node in graph.get("nodes", [])
+        if node.get("type") == "knowledge_point"
+    ]
+    if not nodes:
+        return "当前作业没有可用知识点图谱。"
+
+    lines = [
+        "当前作业知识点（来源于作业知识点标签和本人的掌握记录，仅用于学习引导）："
+    ]
+    edges_by_target = {}
+    for edge in graph.get("edges", []):
+        edges_by_target.setdefault(edge.get("target"), []).append(edge)
+
+    for node in nodes[:8]:
+        mastery = node.get("mastery")
+        if mastery is None:
+            state = "尚未形成掌握度记录"
+        elif mastery < LOW_MASTERY_THRESHOLD:
+            state = f"当前掌握度 {mastery:.1f}/100，建议优先练习"
+        else:
+            state = f"当前掌握度 {mastery:.1f}/100"
+        versions = sorted(
+            {
+                str(edge.get("source_version") or "")[:12]
+                for edge in edges_by_target.get(node.get("id"), [])
+                if edge.get("source_version")
+            }
+        )
+        version_note = f"；来源版本 {versions[0]}" if versions else ""
+        lines.append(f"- {node.get('label', node.get('code'))}：{state}{version_note}")
+
+    lines.append("作用域：student_private；知识点关系只用于解释练习方向，不参与评分。")
+    return "\n".join(lines)
+
+
 def _teacher_classes(viewer, class_id=None):
     classes = managed_classes(viewer)
     if class_id is None:
@@ -450,6 +494,7 @@ def build_teacher_knowledge_coverage(*, viewer_id, class_id=None, limit=DEFAULT_
             recommendations.append(
                 {
                     "code": code,
+                    "knowledge_point": code,
                     "label": _knowledge_label(code),
                     "reason": "班级掌握度偏低，可安排针对性练习"
                     if average < LOW_MASTERY_THRESHOLD
@@ -478,6 +523,81 @@ def build_teacher_knowledge_coverage(*, viewer_id, class_id=None, limit=DEFAULT_
             "sample_size": len(students),
             "assignment_count": len(assignments),
             "knowledge_point_count": len(limited_codes),
+            "privacy": "class_aggregate",
+        },
+    }
+
+
+def build_teacher_knowledge_focus(
+    *,
+    viewer_id,
+    knowledge_point,
+    class_id=None,
+    limit=DEFAULT_LIMIT,
+):
+    """返回当前教师可管理范围内的知识点练习作业。"""
+
+    viewer = User.query.filter_by(student_id=viewer_id).first()
+    if viewer is None:
+        raise LearningGraphAccessError("teacher is not available")
+
+    code = str(knowledge_point or "").strip()
+    if not code:
+        raise LearningGraphAccessError("knowledge point is not available")
+
+    classes = _teacher_classes(viewer, class_id)
+    class_names = {
+        str(classroom.name).strip()
+        for classroom in classes
+        if str(classroom.name or "").strip()
+    }
+    assignments = _teacher_assignments(classes)
+    assignments = [
+        assignment
+        for assignment in assignments
+        if can_access_assignment(assignment, viewer)
+    ]
+    assignment_ids = [assignment.id for assignment in assignments]
+    grouped = _group_assignment_knowledge(
+        _assignment_knowledge_rows(assignment_ids)
+    )
+
+    result = []
+    for assignment in assignments:
+        detail = grouped.get(assignment.id, {}).get(code)
+        if detail is None:
+            continue
+        target_classes = sorted(
+            set(assignment.get_target_class_list()) & class_names
+        )
+        result.append(
+            {
+                "assignment_id": assignment.id,
+                "title": assignment.title,
+                "description": str(assignment.description or "").strip(),
+                "difficulty_level": int(assignment.difficulty_level or 1),
+                "target_classes": target_classes,
+                "knowledge_point": code,
+                "knowledge_label": _knowledge_label(code),
+                "weight": detail["weight"],
+                "difficulty": detail["difficulty"],
+                "source_refs": detail["source_refs"],
+                "source_version": detail["source_versions"][0],
+                "can_manage": can_manage_assignment(assignment, viewer),
+            }
+        )
+        if len(result) >= _bounded_limit(limit):
+            break
+
+    return {
+        "assignments": result,
+        "meta": {
+            "scope": "teacher_knowledge_focus",
+            "class_id": class_id,
+            "class_count": len(classes),
+            "knowledge_point": code,
+            "knowledge_label": _knowledge_label(code),
+            "assignment_count": len(result),
             "privacy": "class_aggregate",
         },
     }

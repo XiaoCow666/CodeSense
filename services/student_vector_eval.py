@@ -45,6 +45,7 @@ def evaluate_student_vector_fixture(
     embedder = embedder or NgramCountEmbedder()
     active_sources = [source for source in sources if source.get("status") == "active"]
     revoked_sources = [source for source in sources if source.get("status") == "revoked"]
+    expired_sources = [source for source in sources if source.get("status") == "expired"]
     recall_at_1 = []
     recall_at_k = []
     cross_scope_hit_count = 0
@@ -115,6 +116,7 @@ def evaluate_student_vector_fixture(
         "source_count": len(sources),
         "active_source_count": len(active_sources),
         "revoked_source_count": len(revoked_sources),
+        "expired_source_count": len(expired_sources),
         "query_count": len(queries),
         "recall_at_1": round(sum(recall_at_1) / len(recall_at_1), 3)
         if recall_at_1

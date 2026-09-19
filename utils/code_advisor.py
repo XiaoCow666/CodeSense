@@ -74,7 +74,8 @@ class CodeAdvisor:
                      language: str = 'cpp', 
                      assignment_title: Optional[str] = None, 
                      assignment_description: Optional[str] = None, 
-                     advanced_mode: bool = False) -> Dict[str, Any]:
+                     advanced_mode: bool = False,
+                     knowledge_context: Optional[str] = None) -> Dict[str, Any]:
         """
         分析代码并提供建议
         
@@ -108,7 +109,12 @@ class CodeAdvisor:
         if advanced_mode and self.use_llm:
             try:
                 return self._analyze_with_guidance_mode(
-                    code, language, assignment_title, assignment_description)
+                    code,
+                    language,
+                    assignment_title,
+                    assignment_description,
+                    knowledge_context,
+                )
             except Exception as e:
                 logger.error(f"指导性分析失败: {e}")
                 logger.info("回退到规则分析")
@@ -116,7 +122,12 @@ class CodeAdvisor:
         elif self.use_llm:  # 基础模式也可以使用LLM，但用不同的提示词
             try:
                 return self._analyze_with_structured_evaluation(
-                    code, language, assignment_title, assignment_description)
+                    code,
+                    language,
+                    assignment_title,
+                    assignment_description,
+                    knowledge_context,
+                )
             except Exception as e:
                 logger.error(f"结构化评估失败: {e}")
                 logger.info("回退到规则分析")
@@ -236,7 +247,8 @@ class CodeAdvisor:
                                    code: str, 
                                    language: str,
                                    assignment_title: Optional[str] = None,
-                                   assignment_description: Optional[str] = None) -> Dict[str, Any]:
+                                   assignment_description: Optional[str] = None,
+                                   knowledge_context: Optional[str] = None) -> Dict[str, Any]:
         """
         高级模式：使用大语言模型提供指导性建议
         不直接给出答案，而是引导学生思考和学习
@@ -245,6 +257,11 @@ class CodeAdvisor:
         
         # 使用专门的指导性提示词
         guidance_prompt = prompt_manager.get_guidance_prompt(code, assignment_title, assignment_description)
+        if knowledge_context:
+            guidance_prompt += (
+                "\n\n当前作业知识上下文（仅用于解释和学习引导，不参与评分）：\n"
+                f"{knowledge_context}"
+            )
         
         try:
             import time
@@ -324,7 +341,8 @@ class CodeAdvisor:
                                           code: str, 
                                           language: str,
                                           assignment_title: Optional[str] = None,
-                                          assignment_description: Optional[str] = None) -> Dict[str, Any]:
+                                          assignment_description: Optional[str] = None,
+                                          knowledge_context: Optional[str] = None) -> Dict[str, Any]:
         """
         基础模式：使用大语言模型进行结构化代码评估
         提供传统的分析报告和评分
@@ -333,6 +351,11 @@ class CodeAdvisor:
         
         # 使用专门的分析提示词
         analysis_prompt = prompt_manager.get_basic_analysis_prompt(code, assignment_title, assignment_description)
+        if knowledge_context:
+            analysis_prompt += (
+                "\n\n当前作业知识上下文（仅用于解释和学习引导，不参与评分）：\n"
+                f"{knowledge_context}"
+            )
         
         try:
             import time
@@ -902,7 +925,8 @@ def generate_code_advice(code: str,
                          language: str = 'cpp', 
                          assignment_title: Optional[str] = None, 
                          assignment_description: Optional[str] = None, 
-                         advanced_mode: bool = False) -> Dict[str, Any]:
+                         advanced_mode: bool = False,
+                         knowledge_context: Optional[str] = None) -> Dict[str, Any]:
     """
     生成代码建议
     
@@ -941,7 +965,8 @@ def generate_code_advice(code: str,
             language=language,
             assignment_title=assignment_title,
             assignment_description=assignment_description,
-            advanced_mode=advanced_mode
+            advanced_mode=advanced_mode,
+            knowledge_context=knowledge_context,
         )
     except Exception as e:
         logger.error(f"生成代码建议时出错: {e}")
