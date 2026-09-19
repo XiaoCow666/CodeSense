@@ -676,6 +676,10 @@
 
                 if (data.passed) {
                     showNotification('🎉 思路描述通过！进入积木编程阶段', 'success');
+                    // 后端此刻已把会话推进到阶段二。同步一次生命周期，
+                    // 让“服务器观察时间/下一步”在切换时刷新，而不是停在
+                    // 会话创建时的快照（0分0秒、下一步指向阶段一）。
+                    refreshSessionLifecycle({ announce: false }).catch(() => {});
                     setTimeout(() => initStage(2), 1500);
                 } else {
                     // Proactively post AI Companion guidance
