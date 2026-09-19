@@ -300,7 +300,7 @@ def _ensure_preset(assignment):
             'step_id': 2,
             'part_name': '主程序',
             'type': 'fill',
-            'question': '补全循环条件，确保从第三项计算到第 N 项。',
+            'question': '补全循环条件，确保从第三项计算到第 N 项（程序读入的变量名为小写 n）。',
             'context_before': 'for (int i = 2; i <',
             'context_after': '; ++i) { ... }',
             'blank_hint': '输入循环上界',
