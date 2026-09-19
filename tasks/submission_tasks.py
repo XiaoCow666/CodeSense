@@ -3,13 +3,44 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
+import time
 
 from models import Assignment, Submission, SystemLog, TestCase as TC, User, db
 from services.demo_database import activate_demo_run, is_active_demo_run
 from utils.code_evaluator import evaluate_cpp_code, llm_evaluator
 from utils.sandbox_runner import run_test_cases
 from utils.scoring import normalize_evaluation_score, normalize_feedback_text
+
+
+logger = logging.getLogger(__name__)
+
+
+def _log_submission_evaluation_event(
+    event: str,
+    submission_id: int,
+    started_at: float,
+    *,
+    level: int = logging.INFO,
+    **fields,
+) -> None:
+    """Write a bounded lifecycle signal without logging submission content."""
+
+    parts = [
+        "submission_evaluation",
+        f"event={event}",
+        f"submission_id={int(submission_id)}",
+        f"elapsed_ms={int((time.perf_counter() - started_at) * 1000)}",
+    ]
+    parts.extend(f"{key}={value}" for key, value in fields.items())
+    try:
+        from flask import current_app, has_app_context
+
+        target_logger = current_app.logger if has_app_context() else logger
+    except RuntimeError:
+        target_logger = logger
+    target_logger.log(level, " ".join(parts))
 
 
 def _demo_database_is_available(demo_run_id: str | None) -> bool:
@@ -123,9 +154,17 @@ def evaluate_submission_async(
             raise
 
     def _evaluate():
+        started_at = time.perf_counter()
         with app.app_context():
+            _log_submission_evaluation_event("started", submission_id, started_at)
             if demo_run_id and not activate_demo_run(demo_run_id):
                 print("公开体验会话已失效，跳过提交评测")
+                _log_submission_evaluation_event(
+                    "skipped",
+                    submission_id,
+                    started_at,
+                    reason="demo_run_unavailable",
+                )
                 return
 
             try:
@@ -337,11 +376,25 @@ def evaluate_submission_async(
                         user_id=student_id,
                         icon="bi bi-check-circle-fill",
                     )
+                _log_submission_evaluation_event(
+                    "finished",
+                    submission_id,
+                    started_at,
+                    state=submission.status,
+                    sandbox_status=submission.sandbox_status or "none",
+                )
                 print(f"提交 {submission_id} 评测全部完成")
                 return "evaluated"
 
             except Exception as error:
                 print(f"评测线程崩溃: {type(error).__name__}")
+                _log_submission_evaluation_event(
+                    "failed",
+                    submission_id,
+                    started_at,
+                    level=logging.WARNING,
+                    error_type=type(error).__name__,
+                )
                 if not _demo_database_is_available(demo_run_id):
                     return
                 try:
