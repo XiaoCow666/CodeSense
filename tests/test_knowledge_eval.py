@@ -22,6 +22,10 @@ def test_fixed_knowledge_eval_reports_vector_fallback_and_no_result_modes():
     assert metrics["mean_total_latency_ms"] >= metrics["mean_query_latency_ms"]
     assert metrics["performance_sample"]["document_count"] == 64
     assert metrics["performance_sample"]["chunk_count"] == 64
+    assert metrics["case_results"][-1]["retrieved_document_ids"] == [
+        "array-boundary"
+    ]
+    assert metrics["case_results"][-1]["recall_at_k"] == 0.5
 
 
 def _write_fixture(tmp_path, documents, queries):
