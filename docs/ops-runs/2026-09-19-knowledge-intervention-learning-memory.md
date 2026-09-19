@@ -8,6 +8,7 @@
 - 候选目录：`E:\CodeSense\源代码\.worktrees\weak-point-guidance-20260919`
 - 初始候选基线：`4af13b13681735b156bd7342dbbbb0a55b4c1317`
 - 远端最新基线：`d3673e7848bee6731dd0f6fabf78fae099128108`
+- 候选代码提交：`af4856d`
 - 目标版本：`v1.6.0`
 
 ## 主方案与必要性判断
@@ -46,7 +47,7 @@
 9. **学生作业图谱进入 AI 辅导**：学生问答和 Code Studio 可获得当前作业知识点与本人掌握提示；学生端、AI API、图谱服务受影响；文件为 `routes/api.py`、`services/learning_graph.py`、`utils/code_advisor.py`；入口为 `/api/ask_question` 与 `/api/code_advice` 的聊天和分析 JSON/SSE 流程；实测提示词包含图谱标记，Code Studio 分析请求把图谱上下文传入 `CodeAdvisor`，当前作业和学生作用域均通过测试，公共知识不可用时仍会独立尝试图谱并在数据依赖故障时保持 answer-only 响应；保留理由是完成图谱消费闭环；回滚移除图谱上下文拼接。
 10. **教师 AI 建议作业动作**：教师建议保留服务端作业编号，并可查看或布置到班级；教师 AI 页面和作业流程受影响；文件为 `services/teacher_ai_advisor.py`、`templates/teacher_ai_suggestions.html`；入口为同步建议、SSE 建议、初始卡片和刷新后的卡片；实测跨教师作业不会进入候选，模型提供的未知编号会被移除，合法编号在两种渲染路径均显示查看与布置链接；必要性为把建议转成教师可执行动作；回滚保留旧文字卡片。
 11. **离线过期来源评测样本**：评测可覆盖 expired 来源、查询命中边界和状态字段；评测服务与 fixture 受影响；文件为 `services/student_vector_eval.py`、`tests/fixtures/student_vector_eval.json`、`tests/test_student_vector_eval.py`；入口为离线评测命令与测试；实测过期样本不会污染目标查询，已有 recall 和跨作用域检查保持通过；保留理由是让陈旧策略有可复现样本；回滚移除 fixture 扩展。
-12. **角色和响应兼容回归**：学生、教师、管理员入口以及 JSON/SSE 状态保持已有行为；受影响端为三类角色、AI 接口和作业页面；文件为相关测试文件及模板；入口为学生首页、教师仪表盘、教师建议、管理员跳转、问答和代码辅导；实测完整测试 827 项通过，重点场景覆盖空态、错误、陈旧、撤回、权限和 SSE；保留理由是发布前确认融合质量；回滚仅恢复本轮测试与入口改动。
+12. **角色和响应兼容回归**：学生、教师、管理员入口以及 JSON/SSE 状态保持已有行为；受影响端为三类角色、AI 接口和作业页面；文件为相关测试文件及模板；入口为学生首页、教师仪表盘、教师建议、管理员跳转、问答和代码辅导；实测完整测试 829 项通过，重点场景覆盖空态、错误、陈旧、撤回、权限和 SSE；保留理由是发布前确认融合质量；回滚仅恢复本轮测试与入口改动。
 13. **版本说明与信息图资产**：用户能通过 README、CHANGELOG 和版本信息图理解 v1.6.0 的直接收益；公共文档受影响；文件为 `README.md`、`README.en.md`、`CHANGELOG.md`、`docs/assets/codesense-v1.6.0-knowledge-intervention.png`；入口为仓库首页和 Release 资产；实测资源已保存，文件大小约 2.1 MB，SHA-256 为 `204254f01a43bda69cd34b21252c6843951a6b7c28f35f007b0b7c782687c9c6`；保留理由是版本用户说明完整；回滚删除新增版本说明和资源引用。
 
 ## 真实角色走查与融合审查
@@ -60,25 +61,26 @@
 ## 验证结果
 
 - 候选初始基线：`817 passed`。
-- 定向回归：学生向量与评测 `13 passed`；知识检索与 Code Studio `17 passed`；教师建议完整集合 `7 passed`；异常兼容补充 `3 passed`。
+- 定向回归：学生向量与评测 `13 passed`；知识检索与 Code Studio `17 passed`；教师建议完整集合 `8 passed`；异常兼容补充 `3 passed`。
 - 最新远端合并及审查修正后的全量测试：`829 passed, 2183 warnings`，耗时约 258 秒。
-- `python -m compileall -q services routes tasks models.py`：通过。
+- `python -m compileall -q services routes tasks models.py utils`：通过。
 - `git diff --check`：通过。
 - 警告分类：既有 Flask-Session 弃用提示、SQLAlchemy `Query.get` 弃用提示、循环外键删除排序提示和测试类收集提示；没有新增失败。
 
 ## 发布门禁
 
-- 候选代码发布状态：本地验证通过，等待最终独立审查后集成提交。
+- 候选代码发布状态：本地验证通过，自审结论 PASS，代码已提交为 `af4856d`；生产发布待外部门禁。
 - 目标服务器：`cn-heyuan`、实例 `i-f8zbujornnh55dsydozz`、目录 `/var/www/codesense`；本轮在生产服务器执行前仍需重新完成只读门禁。
 - `update.sh`：尚未执行。
 - 线上 HEAD、应用、worker、`/healthz`、`/readyz`：待部署门禁。
+- 信息图：已由内置 ImageGen 生成并保存为 `docs/assets/codesense-v1.6.0-knowledge-intervention.png`；当前环境按 `AGENTS.md` 约束未调用主动视觉检查工具，文字可读性与裁切复核保留为人工门禁。
 - GitHub Release：尚未创建。
 - 飞书消息：尚未发送，等待部署核验通过后使用“小牛顿”对应机器人身份向实际项目群和 CoDeBuGo 总群发送同版用户介绍与信息图。
 - 项目知识库：尚未更新，等待部署核验通过后写入版本、信息图、Release 链接和内部证据并复读核验。
 
 ## 回滚与遗留风险
 
-- 回滚方式：恢复本轮候选之前的稳定提交 `52acab2bdf99461bbd5f25cfe08e98c118bc03e6`，按相同 `update.sh` 部署并核验应用、worker、`/healthz` 和 `/readyz`；本轮没有执行回滚。
+- 回滚方式：将代码恢复到候选父提交 `d3673e7848bee6731dd0f6fabf78fae099128108`，确认服务器此前稳定 HEAD 后按相同 `update.sh` 部署并核验应用、worker、`/healthz` 和 `/readyz`；本轮没有执行回滚。
 - 数据范围：没有新增数据库迁移，没有修改生产数据库，没有改变学生、教师、管理员权限边界。
 - 遗留风险：学生向量行当前采用状态撤回，删除后的历史行仍保留；embedding 算法版本字段仍未建立；30 天陈旧窗口属于当前规则；浏览器逐像素检查和生产外部服务核验仍待发布门禁。
-- 维护决定：本轮候选保留，满足代码和本地验收后继续完成独立审查；发布闭环中的外部写入必须等待全部门禁通过。
+- 维护决定：本轮候选保留，代码与本地验收通过；Workbench、信息图人工复核和生产门禁完成后再执行外部写入。
