@@ -92,6 +92,40 @@ def test_worker_entry_disables_web_threads_and_preset_scanner(monkeypatch):
     build.assert_called_once_with(app)
 
 
+def test_expired_demo_run_emits_terminal_skipped_event(caplog):
+    _require_worker_contract()
+    caplog.set_level("INFO")
+    app = Flask(__name__)
+
+    class ImmediateThread:
+        def __init__(self, target, *args, **kwargs):
+            self.target = target
+            self.daemon = False
+
+        def start(self):
+            self.target()
+
+    with patch.object(worker_tasks.threading, "Thread", ImmediateThread), \
+            patch.object(worker_tasks, "activate_demo_run", return_value=False):
+        worker_tasks.evaluate_submission_async(
+            app,
+            41,
+            "循环题",
+            demo_run_id="expired-demo-run",
+        )
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert any(
+        "submission_evaluation event=started submission_id=41" in message
+        for message in messages
+    )
+    assert any(
+        "submission_evaluation event=skipped submission_id=41" in message
+        and "reason=demo_run_unavailable" in message
+        for message in messages
+    )
+
+
 def test_rq_backend_enqueues_without_starting_legacy_thread():
     _require_worker_contract()
     app = Flask(__name__)

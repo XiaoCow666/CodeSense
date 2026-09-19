@@ -159,6 +159,12 @@ def evaluate_submission_async(
             _log_submission_evaluation_event("started", submission_id, started_at)
             if demo_run_id and not activate_demo_run(demo_run_id):
                 print("公开体验会话已失效，跳过提交评测")
+                _log_submission_evaluation_event(
+                    "skipped",
+                    submission_id,
+                    started_at,
+                    reason="demo_run_unavailable",
+                )
                 return
 
             try:
