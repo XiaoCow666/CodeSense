@@ -27,6 +27,14 @@ def _log_submission_evaluation_event(
 ) -> None:
     """Write a bounded lifecycle signal without logging submission content."""
 
+    try:
+        from flask import current_app, has_app_context
+
+        target_logger = current_app.logger if has_app_context() else logger
+    except RuntimeError:
+        target_logger = logger
+    if not target_logger.isEnabledFor(level):
+        return
     parts = [
         "submission_evaluation",
         f"event={event}",
@@ -34,12 +42,6 @@ def _log_submission_evaluation_event(
         f"elapsed_ms={int((time.perf_counter() - started_at) * 1000)}",
     ]
     parts.extend(f"{key}={value}" for key, value in fields.items())
-    try:
-        from flask import current_app, has_app_context
-
-        target_logger = current_app.logger if has_app_context() else logger
-    except RuntimeError:
-        target_logger = logger
     target_logger.log(level, " ".join(parts))
 
 
