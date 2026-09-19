@@ -37,6 +37,7 @@ from services.feedback import (
     create_feedback_record,
     find_feedback,
     list_feedback,
+    next_feedback_status_options,
     save_feedback,
     update_feedback_status,
 )
@@ -1120,12 +1121,15 @@ def admin_feedback():
         status_filter = ''
     if category_filter not in FEEDBACK_CATEGORY_LABELS:
         category_filter = ''
+    feedback_records = list_feedback(
+        status=status_filter or None,
+        category=category_filter or None,
+    )
+    for record in feedback_records:
+        record['next_statuses'] = next_feedback_status_options(record.get('status'))
     return render_template(
         'admin_feedback.html',
-        feedback_records=list_feedback(
-            status=status_filter or None,
-            category=category_filter or None,
-        ),
+        feedback_records=feedback_records,
         feedback_statuses=FEEDBACK_STATUS_OPTIONS,
         feedback_categories=FEEDBACK_CATEGORIES,
         status_filter=status_filter,

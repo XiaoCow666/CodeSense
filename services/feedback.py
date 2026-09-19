@@ -45,6 +45,18 @@ _FEEDBACK_STATUS_TRANSITIONS = {
 }
 
 
+def next_feedback_status_options(current_status: str | None) -> tuple[tuple[str, str], ...]:
+    """Return only the valid next workflow choices in display order."""
+
+    allowed_statuses = _FEEDBACK_STATUS_TRANSITIONS.get(
+        str(current_status or "").strip(),
+        set(),
+    )
+    return tuple(
+        option for option in FEEDBACK_STATUS_OPTIONS if option[0] in allowed_statuses
+    )
+
+
 class FeedbackValidationError(ValueError):
     """Raised when a feedback submission cannot be accepted safely."""
 
