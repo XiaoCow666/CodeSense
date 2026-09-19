@@ -492,11 +492,12 @@ export async function applyGithubOutcome(env, outcome) {
   const assigneeName = valueText(record.fields[FIELD_NAMES.assignee]) || "成员";
   if (githubLogin && assignee) await rememberGithubMember(env, project.repository, githubLogin, assignee, assigneeName);
   const merged = outcome.merged === true || outcome.merge?.merged === true;
-  const updateFields = { [FIELD_NAMES.status]: merged ? ["已完成"] : ["进行中"], [FIELD_NAMES.verification]: outcomeText(outcome), [FIELD_NAMES.blocked]: null };
+  const completed = merged || outcome.review?.decision === "approve";
+  const updateFields = { [FIELD_NAMES.status]: completed ? ["已完成"] : ["进行中"], [FIELD_NAMES.verification]: outcomeText(outcome), [FIELD_NAMES.blocked]: null };
   if (env.FEISHU_BOT_OPEN_ID) updateFields[FIELD_NAMES.reviewer] = [{ id: env.FEISHU_BOT_OPEN_ID }];
   await updateRecord(env, project, record.record_id, updateFields);
   let nextTask = null;
-  if (merged && assignee) {
+  if (completed && assignee) {
     const currentStage = parseStageNumber(valueText(record.fields[FIELD_NAMES.title]));
     if (currentStage && currentStage < 14) {
       const nextStage = currentStage + 1;
