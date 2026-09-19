@@ -105,7 +105,7 @@ def refresh_student_learning_index(student_id):
     return rebuild_student_vector_index(student_id)
 
 
-def _mark_submission_failed(submission_id: int, message: str) -> None:
+def mark_submission_failed(submission_id: int, message: str) -> None:
     """Mark one submission failed in the already-bound database."""
 
     submission = db.session.get(Submission, submission_id)
@@ -114,12 +114,6 @@ def _mark_submission_failed(submission_id: int, message: str) -> None:
     submission.status = "failed"
     submission.feedback = message
     db.session.commit()
-
-
-def mark_submission_failed(submission_id: int, message: str) -> None:
-    """Expose the shared failure transition to submission entry points."""
-
-    _mark_submission_failed(submission_id, message)
 
 
 def evaluate_submission_async(
@@ -147,7 +141,7 @@ def evaluate_submission_async(
         except SubmissionQueueUnavailable:
             with app.app_context():
                 try:
-                    _mark_submission_failed(
+                    mark_submission_failed(
                         submission_id,
                         "提交评测队列暂时不可用，请稍后重试",
                     )
@@ -401,7 +395,7 @@ def evaluate_submission_async(
                     return
                 try:
                     db.session.rollback()
-                    _mark_submission_failed(
+                    mark_submission_failed(
                         submission_id,
                         "AI 评测失败，请稍后重试。" if demo_run_id else "后台评测发生严重错误，请稍后重试。",
                     )
