@@ -22,7 +22,8 @@ const FIELD_NAMES = {
   acceptance: "验收标准",
 };
 
-const CHINESE_STAGES = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九", "十", "十一", "十二", "十三", "十四"];
+const CHINESE_STAGES = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九", "十", "十一", "十二", "十三", "十四", "十五"];
+const MAX_STAGE = 15;
 const ACTIVE_TASK_STATUSES = new Set(["待开始", "进行中", "待评审", "阻塞"]);
 const PROJECT_ENV = {
   codesense: { key: "codesense", name: "CodeSense", repository: "XiaoCow666/CodeSense", baseToken: "FEISHU_CODESENSE_BASE_TOKEN", tableId: "FEISHU_CODESENSE_TASK_TABLE_ID", wikiParent: "FEISHU_CODESENSE_WIKI_PARENT_TOKEN", chatIds: "FEISHU_CODESENSE_CHAT_IDS" },
@@ -140,7 +141,7 @@ export function nextStageEligibility(records, record) {
   if (snapshot.status !== "已完成") return { eligible: false, reason: "status_not_completed" };
   if (!snapshot.assigneeOpenId) return { eligible: false, reason: "assignee_missing" };
   if (!snapshot.stage) return { eligible: false, reason: "stage_missing" };
-  if (snapshot.stage >= 14) return { eligible: false, reason: "final_stage" };
+  if (snapshot.stage >= MAX_STAGE) return { eligible: false, reason: "final_stage" };
   const hasActiveNextStage = (Array.isArray(records) ? records : [])
     .map((item) => item?.taskName ? item : taskRecordSnapshot(item))
     .some((item) => item.assigneeOpenId === snapshot.assigneeOpenId
@@ -189,7 +190,7 @@ export function memberTaskPlan(records, memberOpenId) {
     .sort((left, right) => right.snapshot.stage - left.snapshot.stage);
   if (!completedStages.length) return { action: "create_stage_one" };
   const latest = completedStages[0];
-  if (latest.snapshot.stage >= 14) return { action: "complete", reason: "final_stage" };
+  if (latest.snapshot.stage >= MAX_STAGE) return { action: "complete", reason: "final_stage" };
   return { action: "create_next", record: latest.record, next_stage: latest.snapshot.stage + 1 };
 }
 
@@ -365,6 +366,17 @@ const STAGE_STORIES = {
     acceptance: "PR 完成复现、改动、验证、评审回复和合并后的记录。",
     type: "研发",
   },
+  15: {
+    title: "把改进接进真实链路",
+    situation: "你已经完成独立闭环，现在要让一次改进稳定进入真实使用路径。",
+    target: "证明新改动能被真实入口使用，并且旧功能继续可用。",
+    action: "选择一个真实入口，接入阶段十四成果或一个真实痛点；补充集成测试和失败处理，运行相关测试与全量测试，并在 PR 中写清影响范围。",
+    result: "提交一份别人可以复现的集成改动，附验证结果和后续风险。",
+    area: "真实入口、集成边界、测试与运行记录",
+    plan: "先选真实入口，再写失败用例，接入改动后验证旧功能和新功能",
+    acceptance: "PR 包含真实入口、集成测试、失败处理、影响范围和可复现的验证命令。",
+    type: "研发",
+  },
 };
 
 export function stageTaskContent(projectName, stage, assigneeName, repositoryUrl = "") {
@@ -499,7 +511,7 @@ export async function applyGithubOutcome(env, outcome) {
   let nextTask = null;
   if (completed && assignee) {
     const currentStage = parseStageNumber(valueText(record.fields[FIELD_NAMES.title]));
-    if (currentStage && currentStage < 14) {
+    if (currentStage && currentStage < MAX_STAGE) {
       const nextStage = currentStage + 1;
       const alreadyActive = records.some((item) => assigneeId(item) === assignee && parseStageNumber(valueText(item.fields[FIELD_NAMES.title])) === nextStage && valueText(item.fields[FIELD_NAMES.status]) !== "已完成");
       if (!alreadyActive) {
