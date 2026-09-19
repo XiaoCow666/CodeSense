@@ -71,6 +71,7 @@
 
 - 候选代码发布状态：本地验证通过，自审结论 PASS，代码已提交为 `af4856d`；生产发布待外部门禁。
 - 目标服务器：`cn-heyuan`、实例 `i-f8zbujornnh55dsydozz`、目录 `/var/www/codesense`；本轮在生产服务器执行前仍需重新完成只读门禁。
+- 生产连接复核：重新尝试浏览器控制台连接时，浏览器插件运行时引用缺失的 `browser-service.mjs` 文件；当前工具目录也未提供 Workbench 或服务器连接接口，因此无法完成目标实例确认和服务器命令执行。
 - `update.sh`：尚未执行。
 - 线上 HEAD、应用、worker、`/healthz`、`/readyz`：待部署门禁。
 - 信息图：已由内置 ImageGen 生成并保存为 `docs/assets/codesense-v1.6.0-knowledge-intervention.png`；当前环境按 `AGENTS.md` 约束未调用主动视觉检查工具，文字可读性与裁切复核保留为人工门禁。
