@@ -1323,6 +1323,7 @@
                 let buffer = '';
                 let assistantMessage = '';
                 let messageElement = null;
+                let streamErrorPayload = null;
 
                 while (true) {
                     const { done, value } = await reader.read();
@@ -1368,13 +1369,29 @@
                                     }
                                     updateStreamingMessage(messageElement, assistantMessage);
                                 } else if (data.error) {
-                                    throw new Error(data.error);
+                                    streamErrorPayload = data;
+                                    break;
                                 }
                             } catch (e) {
                                 console.error('解析SSE数据失败:', e);
+                                streamErrorPayload = {
+                                    type: 'error',
+                                    error: 'AI_RESPONSE_INVALID',
+                                    message: 'AI服务响应格式异常，请稍后重试'
+                                };
+                                break;
                             }
                         }
                     }
+                    if (streamErrorPayload) break;
+                }
+
+                if (streamErrorPayload) {
+                    const streamError = new Error(
+                        streamErrorPayload.message || streamErrorPayload.error || 'AI服务暂时不可用'
+                    );
+                    streamError.payload = streamErrorPayload;
+                    throw streamError;
                 }
             } else {
                 // 非流式响应（兼容旧版本）
@@ -1392,7 +1409,16 @@
             }
         } catch (error) {
             console.error('AI请求失败:', error);
-            addMessage('assistant', '抱歉，连接AI服务失败，请稍后再试。');
+            const errorWrapper = addMessage(
+                'assistant',
+                error.message || '抱歉，连接AI服务失败，请稍后再试。'
+            );
+            const errorContent = errorWrapper && errorWrapper.querySelector('.ai-message-content');
+            const errorPayload = error.payload || {};
+            renderKnowledgeReceipt(
+                errorContent,
+                errorPayload.knowledge_evidence || (errorPayload.data && errorPayload.data.knowledge_evidence)
+            );
         }
     }
 

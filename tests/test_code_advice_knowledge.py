@@ -6,6 +6,7 @@ from app import create_app
 from config import TestingConfig as _TestingConfig
 from models import Assignment, AssignmentKnowledgePoint, User, db
 from routes import api as api_routes
+from services.llm_client import LLMServiceError
 
 
 @pytest.fixture
@@ -94,6 +95,17 @@ class _FakeSharedClient:
     def chat_stream(self, messages, **kwargs):
         type(self).captured_messages = messages
         return iter(["先检查边界条件。", "再手动追踪一次。"])
+
+
+class _InterruptedSharedClient(_FakeSharedClient):
+    def chat_stream(self, messages, **kwargs):
+        type(self).captured_messages = messages
+
+        def stream():
+            yield "先检查边界条件。"
+            raise LLMServiceError("STREAM_INTERRUPTED")
+
+        return stream()
 
 
 def test_chat_advice_is_grounded_and_emits_evidence_only_on_done(
@@ -233,3 +245,33 @@ def test_unavailable_knowledge_keeps_code_advice_answer_available(
     assert done["type"] == "done"
     assert done["knowledge_evidence"]["status"] == "unavailable"
     assert "先检查边界条件" in done["answer"]
+
+
+def test_code_advice_stream_failure_preserves_evidence_receipt(
+    code_advice_knowledge_context, monkeypatch
+):
+    _, client, assignment_id = code_advice_knowledge_context
+    monkeypatch.setattr(api_routes, "retrieve_assignment_knowledge", _grounded_retrieval)
+    monkeypatch.setattr(
+        "services.llm_client.SharedLLMClient",
+        lambda: _InterruptedSharedClient(),
+    )
+
+    response = client.post(
+        "/api/code_advice",
+        json={
+            "code": "int main(){return 0;}",
+            "assignment_id": assignment_id,
+            "question": "数组边界为什么重要？",
+        },
+        headers={"Accept": "text/event-stream"},
+    )
+
+    assert response.status_code == 200
+    events = _events(response)
+    assert [event["type"] for event in events] == ["start", "delta", "error"]
+    error = events[-1]
+    assert error["error"] == "STREAM_INTERRUPTED"
+    assert error["knowledge_retrieval"]["status"] == "grounded"
+    assert error["knowledge_evidence"]["evidence"][0]["citation"] == "[K1]"
+    assert error["data"]["knowledge_evidence"]["status"] == "grounded"

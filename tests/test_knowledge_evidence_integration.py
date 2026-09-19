@@ -141,6 +141,11 @@ def test_assignment_submission_api_and_code_advice_share_safe_evidence_projectio
     assert "数组边界" in assignment_page.get_data(as_text=True)
     assert "数组边界" in submit_page.get_data(as_text=True)
     assert "不是本次评分依据" in submission_page.get_data(as_text=True)
+    submit_html = submit_page.get_data(as_text=True)
+    assert 'data-knowledge-evidence-receipt="true"' in submit_html
+    assert "streamErrorPayload" in submit_html
+    assert "streamErrorPayload.message" in submit_html
+    assert "error.payload" in submit_html
 
     api_view = evidence_api.json["data"]["knowledge_evidence"]
     done = _events(advice)[-1]

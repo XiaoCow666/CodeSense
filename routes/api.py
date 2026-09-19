@@ -1258,6 +1258,19 @@ def get_code_advice():
                         'type': 'start',
                         'message': '正在根据你的问题分析代码...'
                     })
+
+                    def stream_error_event(code, message):
+                        """Keep the evidence receipt available on a failed stream."""
+                        payload = {
+                            'type': 'error',
+                            'error': code,
+                            'message': message,
+                        }
+                        if knowledge_fields:
+                            payload.update(knowledge_fields)
+                            payload['data'] = dict(knowledge_fields)
+                        return payload
+
                     try:
                         for content in shared_client.chat_stream(
                             messages,
@@ -1274,11 +1287,10 @@ def get_code_advice():
 
                         full_content = ''.join(chunks)
                         if not full_content:
-                            yield sse_event({
-                                'type': 'error',
-                                'error': 'AI_EMPTY_RESPONSE',
-                                'message': 'AI服务未返回有效内容，请稍后重试',
-                            })
+                            yield sse_event(stream_error_event(
+                                'AI_EMPTY_RESPONSE',
+                                'AI服务未返回有效内容，请稍后重试',
+                            ))
                             return
                         yield sse_event({
                             'type': 'done',
@@ -1292,18 +1304,16 @@ def get_code_advice():
                             **knowledge_fields,
                         })
                     except LLMServiceError as exc:
-                        yield sse_event({
-                            'type': 'error',
-                            'error': exc.code,
-                            'message': 'AI服务流式输出中断，请稍后重试',
-                        })
+                        yield sse_event(stream_error_event(
+                            exc.code,
+                            'AI服务流式输出中断，请稍后重试',
+                        ))
                     except Exception as exc:
                         current_app.logger.warning('代码建议流式输出失败: %s', type(exc).__name__)
-                        yield sse_event({
-                            'type': 'error',
-                            'error': 'AI_STREAM_FAILED',
-                            'message': 'AI服务流式输出失败，请稍后重试',
-                        })
+                        yield sse_event(stream_error_event(
+                            'AI_STREAM_FAILED',
+                            'AI服务流式输出失败，请稍后重试',
+                        ))
 
                 return sse_response(generate())
 
