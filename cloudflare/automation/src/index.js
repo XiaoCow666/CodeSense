@@ -160,6 +160,24 @@ function outcomeStateKey(outcome) {
   return `${decision}:${reasons.join(",") || "not_ready"}`;
 }
 
+export function taskCompletionState(outcome) {
+  if (outcome?.merge?.merged === true || outcome?.merged === true) return "已完成";
+  return outcome?.review?.decision === "approve" ? "已完成" : "进行中";
+}
+
+export function taskUpdateActionKey(outcome, previousResponse = null, retryBucket = Math.floor(Date.now() / (10 * 60 * 1000))) {
+  const baseKey = `task-pr:${outcome.repository}#${outcome.number}:${outcome.headSha || "closed"}:${outcomeStateKey(outcome)}`;
+  if (previousResponse?.matched === false && previousResponse.reason === "task_not_linked") return `${baseKey}:link-retry:${retryBucket}`;
+  return baseKey;
+}
+
+async function taskUpdateActionKeyForEvent(env, outcome) {
+  const baseKey = taskUpdateActionKey(outcome);
+  const existing = await env.STATE_DB.prepare("SELECT status, response_json FROM action_log WHERE action_key = ?").bind(baseKey).first();
+  const previousResponse = existing?.status === "completed" && existing.response_json ? JSON.parse(existing.response_json) : null;
+  return taskUpdateActionKey(outcome, previousResponse);
+}
+
 function explicitReviewRequested(event) {
   if (event?.payload?.force_review === true) return true;
   if (event?.source !== "github" || event.event_type !== "issue_comment") return false;
@@ -317,7 +335,7 @@ async function processGithubReview(env, event, reviewResult) {
   const gate = evaluateMergeGate(fresh, checks, normalized, pullRequestContext(event).head_sha || headSha);
   let merge = { merged: false, skipped: true, reasons: gate.reasons };
   if (gate.allowed) merge = await runAction(env, event, "github_merge", `github-merge:${reference.repository}#${reference.number}:${headSha}`, () => mergeGithubPullRequest(env, reference, headSha));
-  return { handled: true, repository: reference.repository, number: reference.number, url: `https://github.com/${reference.repository}/pull/${reference.number}`, title: fresh.title || pullRequestContext(event).title, author_login: fresh.user?.login || pullRequestContext(event).author || null, headSha, review: normalized, reviewAction, checks, gate, merge };
+  return { handled: true, repository: reference.repository, number: reference.number, url: `https://github.com/${reference.repository}/pull/${reference.number}`, title: fresh.title || pullRequestContext(event).title, headRefName: fresh.head?.ref || pullRequestContext(event).head || null, author_login: fresh.user?.login || pullRequestContext(event).author || null, headSha, review: normalized, reviewAction, checks, gate, merge };
 }
 
 async function processGithubClosed(env, event) {
@@ -347,13 +365,13 @@ async function processGithubEffects(env, event, reviewResult) {
   if (event.event_type === "pull_request" && githubAction(event) === "closed") {
     const closed = await processGithubClosed(env, event);
     if (!closed.handled) return closed;
-    const task = await runAction(env, event, "task_update", `task-pr:${closed.repository}#${closed.number}:${closed.headSha || "closed"}`, () => applyGithubOutcome(env, closed));
+    const task = await runAction(env, event, "task_update", await taskUpdateActionKeyForEvent(env, closed), () => applyGithubOutcome(env, closed));
     return { ...closed, task };
   }
   if (!reviewResult) return null;
   const outcome = await processGithubReview(env, event, reviewResult);
+  const task = await runAction(env, event, "task_update", await taskUpdateActionKeyForEvent(env, outcome), () => applyGithubOutcome(env, outcome));
   const stateKey = outcomeStateKey(outcome);
-  const task = await runAction(env, event, "task_update", `task-pr:${outcome.repository}#${outcome.number}:${outcome.headSha}:${stateKey}`, () => applyGithubOutcome(env, outcome));
   const knowledge = await runAction(env, event, "knowledge_record", `wiki-pr:${outcome.repository}#${outcome.number}:${outcome.headSha}:${stateKey}`, () => appendKnowledgeRecord(env, outcome));
   return { ...outcome, task, knowledge };
 }
@@ -381,6 +399,8 @@ async function notifyGithubOutcome(env, event, outcome) {
   if (assignee && outcome.review) {
     const message = outcome.merge?.merged
       ? `PR #${outcome.number} 已通过检查并合并。下一阶段任务已经放进任务台，继续按新任务做就可以。\n${outcome.url}`
+      : taskCompletionState(outcome) === "已完成"
+        ? `PR #${outcome.number} 已通过评审，当前阶段任务已经完成，下一阶段任务已经放进任务台。${outcome.gate?.reasons?.length ? `\n当前合并条件：${outcome.gate.reasons.join("、")}，这不会影响你继续下一阶段。` : ""}\n${outcome.url}`
       : outcome.review.decision === "changes_requested"
         ? `PR #${outcome.number} 需要你改几处。请直接按 GitHub Review 里的“当前问题 → 应该改成什么 → 交给 AI 的操作提示”逐项处理，再推送新的提交。\n${outcome.url}`
         : `PR #${outcome.number} 已完成检查，当前还在等待合并条件满足。\n${outcome.url}`;
@@ -514,7 +534,7 @@ async function persistEvent(env, message) {
     if (effectiveEvent.source === "github") sideEffects = await processGithubEffects(env, effectiveEvent, reviewResult);
     if (effectiveEvent.source === "feishu") sideEffects = await processFeishuEvent(env, effectiveEvent, reviewResult);
   }
-  if (effectiveEvent.source === "github" && sideEffects?.handled) await notifyGithubOutcome(env, effectiveEvent, sideEffects);
+  if (sideEffects?.handled && (effectiveEvent.source === "github" || (effectiveEvent.source === "internal" && sideEffects.repository && Number.isInteger(Number(sideEffects.number))))) await notifyGithubOutcome(env, effectiveEvent, sideEffects);
   await env.STATE_DB.prepare("UPDATE event_inbox SET status = 'processed', action_status = 'completed', processed_at = ?, result_json = ?, action_result_json = ?, error = NULL WHERE event_id = ?").bind(seenAt, reviewResult ? JSON.stringify(reviewResult) : null, sideEffects ? JSON.stringify(sideEffects) : null, eventId).run();
 }
 
