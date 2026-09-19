@@ -10,7 +10,8 @@
 - 远端最新基线：`96650592e19e1ab379f1ee3e74a3041e0a1f8e95`
 - 候选代码提交：`39704d2a347914626c35958f9d88917b604113fb`
 - 远端融合提交：`b8b78f0`
-- 发布与运行记录收口提交：`8a7d1acf9a2d2f9be1769edfbce26c966726ff2f`
+- 初次发布收口提交：`8a7d1acf9a2d2f9be1769edfbce26c966726ff2f`
+- 最终运行记录提交：`44b8858e191069bcb41b65bf0f53fd1f9720a044`
 - 目标版本：`v1.6.0`
 
 ## 主方案与必要性判断
@@ -73,13 +74,13 @@
 
 ## 发布门禁
 
-- 候选代码发布状态：本地验证通过，自审结论 PASS，代码提交 `39704d2` 已推送；运行记录收口提交 `8a7d1ac` 已推送，生产部署已完成。
+- 候选代码发布状态：本地验证通过，自审结论 PASS，代码提交 `39704d2` 已推送；初次发布收口提交 `8a7d1ac` 和最终运行记录提交 `44b8858` 均已推送，生产部署已完成。
 - 目标服务器：`cn-heyuan`、实例 `i-f8zbujornnh55dsydozz`、目录 `/var/www/codesense`；部署前只读门禁已通过。
 - Workbench CLI：`v1.0.1`；已确认目标实例、生产目录、分支和部署前工作树状态。
-- `update.sh`：收口前目标 `39704d2` 与收口后目标 `8a7d1ac` 均执行完成，退出码均为 `0`；数据库维护和服务重启均完成。
-- 线上 HEAD：`8a7d1acf9a2d2f9be1769edfbce26c966726ff2f`；应用、submission worker、ability worker 均 active；本机和公开 `/healthz`、`/readyz`、`/login` 均返回 `200`。
+- `update.sh`：目标 `39704d2`、`8a7d1ac` 和 `44b8858` 均执行完成，退出码均为 `0`；数据库维护和服务重启均完成。
+- 线上 HEAD：`44b8858e191069bcb41b65bf0f53fd1f9720a044`；应用、submission worker、ability worker 均 active；本机和公开 `/healthz`、`/readyz`、`/login` 均返回 `200`。
 - 信息图：已由内置 ImageGen 生成并保存为 `docs/assets/codesense-v1.6.0-knowledge-intervention.png`；当前环境按 `AGENTS.md` 约束未调用主动视觉检查工具，文字可读性与裁切复核保留为人工门禁。
-- GitHub Release：[v1.6.0](https://github.com/XiaoCow666/CodeSense/releases/tag/v1.6.0) 已创建，正文只包含用户可见更新；信息图资源已上传，SHA-256 为 `204254f01a43bda69cd34b21252c6843951a6b7c28f35f007b0b7c782687c9c6`。
+- GitHub Release：[v1.6.0](https://github.com/XiaoCow666/CodeSense/releases/tag/v1.6.0) 已创建，tag 指向初次发布收口提交 `8a7d1ac`，正文只包含用户可见更新；信息图资源已上传，SHA-256 为 `204254f01a43bda69cd34b21252c6843951a6b7c28f35f007b0b7c782687c9c6`。
 - 飞书消息：`牛顿不讲理·CodeX` 已确认在两个群内，并发送同版用户介绍与信息图；CodeSense 研发协作消息为 `om_x100b65d7fca1c8a8b15f1eb13f3f254`，CoDeBuGo 总群消息为 `om_x100b65d7fdc808a4b04f0e6de98ba1f`。
 - 项目知识库：已从 revision `18` 更新至 revision `21`，版本说明、信息图、Release 链接、部署证据和消息记录已复读确认。
 
