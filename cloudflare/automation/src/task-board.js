@@ -207,6 +207,17 @@ export function parseStageNumber(title) {
   return digits[chinese[1]] ?? null;
 }
 
+export function parsePullRequestStage(value) {
+  const match = String(value || "").match(/(?:阶段|stage)[\s_-]*(\d+)/i);
+  return match ? Number(match[1]) : null;
+}
+
+export function pullRequestStageMatchesTask(taskTitle, outcome) {
+  const taskStage = parseStageNumber(taskTitle);
+  const pullRequestStage = parsePullRequestStage([outcome?.headRefName, outcome?.title].filter(Boolean).join(" "));
+  return !pullRequestStage || !taskStage || pullRequestStage === taskStage;
+}
+
 function stageLabel(number) {
   return CHINESE_STAGES[number] || String(number);
 }
@@ -493,7 +504,7 @@ export async function applyGithubOutcome(env, outcome) {
   if (!record && githubLogin) {
     const identity = await lookupGithubMember(env, project.repository, githubLogin);
     const candidate = identity ? selectTaskForGithubIdentity(records, identity.assignee_open_id) : null;
-    if (candidate) {
+    if (candidate && pullRequestStageMatchesTask(valueText(candidate.fields[FIELD_NAMES.title]), outcome)) {
       await updateRecord(env, project, candidate.record_id, { [FIELD_NAMES.pr]: prUrl });
       record = { ...candidate, fields: { ...candidate.fields, [FIELD_NAMES.pr]: prUrl } };
       linkedAutomatically = true;

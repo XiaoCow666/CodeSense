@@ -335,7 +335,7 @@ async function processGithubReview(env, event, reviewResult) {
   const gate = evaluateMergeGate(fresh, checks, normalized, pullRequestContext(event).head_sha || headSha);
   let merge = { merged: false, skipped: true, reasons: gate.reasons };
   if (gate.allowed) merge = await runAction(env, event, "github_merge", `github-merge:${reference.repository}#${reference.number}:${headSha}`, () => mergeGithubPullRequest(env, reference, headSha));
-  return { handled: true, repository: reference.repository, number: reference.number, url: `https://github.com/${reference.repository}/pull/${reference.number}`, title: fresh.title || pullRequestContext(event).title, author_login: fresh.user?.login || pullRequestContext(event).author || null, headSha, review: normalized, reviewAction, checks, gate, merge };
+  return { handled: true, repository: reference.repository, number: reference.number, url: `https://github.com/${reference.repository}/pull/${reference.number}`, title: fresh.title || pullRequestContext(event).title, headRefName: fresh.head?.ref || pullRequestContext(event).head || null, author_login: fresh.user?.login || pullRequestContext(event).author || null, headSha, review: normalized, reviewAction, checks, gate, merge };
 }
 
 async function processGithubClosed(env, event) {
@@ -534,7 +534,7 @@ async function persistEvent(env, message) {
     if (effectiveEvent.source === "github") sideEffects = await processGithubEffects(env, effectiveEvent, reviewResult);
     if (effectiveEvent.source === "feishu") sideEffects = await processFeishuEvent(env, effectiveEvent, reviewResult);
   }
-  if (effectiveEvent.source === "github" && sideEffects?.handled) await notifyGithubOutcome(env, effectiveEvent, sideEffects);
+  if (sideEffects?.handled && (effectiveEvent.source === "github" || (effectiveEvent.source === "internal" && sideEffects.repository && Number.isInteger(Number(sideEffects.number))))) await notifyGithubOutcome(env, effectiveEvent, sideEffects);
   await env.STATE_DB.prepare("UPDATE event_inbox SET status = 'processed', action_status = 'completed', processed_at = ?, result_json = ?, action_result_json = ?, error = NULL WHERE event_id = ?").bind(seenAt, reviewResult ? JSON.stringify(reviewResult) : null, sideEffects ? JSON.stringify(sideEffects) : null, eventId).run();
 }
 

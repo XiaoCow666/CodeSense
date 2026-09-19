@@ -5,6 +5,8 @@ import {
   nextStageEligibility,
   memberTaskPlan,
   parseStageNumber,
+  parsePullRequestStage,
+  pullRequestStageMatchesTask,
   projectForChat,
   projectForRepository,
   stageTaskContent,
@@ -18,6 +20,7 @@ test("stage parsing supports Arabic and Chinese stage names", () => {
   assert.equal(parseStageNumber("阶段八：真实问题"), 8);
   assert.equal(parseStageNumber("阶段十一：真实问题"), 11);
   assert.equal(parseStageNumber("阶段十五：真实链路"), 15);
+  assert.equal(parsePullRequestStage("codex/stage12-evaluation-followup"), 12);
 });
 
 test("repository and chat routing remain project-specific", () => {
@@ -102,6 +105,12 @@ test("stage fourteen completion creates stage fifteen and stage fifteen is final
     reason: "final_stage",
   });
   assert.notEqual(stageTaskContent("CodeSense", 14, "张三").description, stageTaskContent("CodeSense", 15, "张三").description);
+});
+
+test("automatic PR linking refuses a clearly different stage", () => {
+  assert.equal(pullRequestStageMatchesTask("阶段十五：把改进接进真实链路", { headRefName: "codex/stage12-evaluation-followup", title: "fix: correct stage12 evaluation evidence" }), false);
+  assert.equal(pullRequestStageMatchesTask("阶段十五：把改进接进真实链路", { headRefName: "codex/stage15-real-path", title: "feat: integrate the verified change" }), true);
+  assert.equal(pullRequestStageMatchesTask("阶段十五：把改进接进真实链路", { headRefName: "codex/knowledge-rag", title: "feat: improve retrieval" }), true);
 });
 
 test("github identity links only one active stage task", () => {
