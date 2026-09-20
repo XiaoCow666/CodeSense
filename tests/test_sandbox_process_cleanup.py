@@ -24,7 +24,10 @@ def _run_program(program, work_dir, timeout=0.1):
 def _cleanup_descendant(pid_file):
     if not pid_file.exists():
         return
-    pid = int(pid_file.read_text(encoding='utf-8'))
+    pid_text = pid_file.read_text(encoding='utf-8').strip()
+    if not pid_text:
+        return
+    pid = int(pid_text)
     if os.name == 'nt':
         subprocess.run(
             ['taskkill', '/PID', str(pid), '/T', '/F'],
@@ -37,6 +40,13 @@ def _cleanup_descendant(pid_file):
             os.kill(pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
+
+
+def test_cleanup_descendant_ignores_empty_pid_file(tmp_path):
+    pid_file = pathlib.Path(tmp_path) / 'grandchild.pid'
+    pid_file.write_text('', encoding='utf-8')
+
+    _cleanup_descendant(pid_file)
 
 
 def _descendant_program(pid_file, marker, delay=0.4):

@@ -263,6 +263,12 @@
                                                             <span class="badge bg-success text-white">{{ assign['difficulty'] }}</span>
                                                         </div>
                                                         <div class="text-muted small">{{ assign['reason'] }}</div>
+                                                        {% if assign.get('assignment_id') %}
+                                                        <div class="d-flex flex-wrap gap-2 mt-2">
+                                                            <a href="{{ url_for('assignments.view_assignment', assignment_id=assign['assignment_id']) }}" class="btn btn-sm btn-outline-success">查看作业</a>
+                                                            <a href="{{ url_for('assignments.assign_to_classes', assignment_id=assign['assignment_id']) }}" class="btn btn-sm btn-success">布置到班级</a>
+                                                        </div>
+                                                        {% endif %}
                                                     </div>
                                                     {% endfor %}
                                                 {% else %}
@@ -324,6 +330,15 @@
                 "'": '&#39;'
             }[character];
         });
+    }
+
+    const assignmentViewUrlTemplate = {{ url_for('assignments.view_assignment', assignment_id=0)|tojson }};
+    const assignmentAssignUrlTemplate = {{ url_for('assignments.assign_to_classes', assignment_id=0)|tojson }};
+
+    function assignmentActionUrl(template, assignmentId) {
+        const numericId = Number(assignmentId);
+        if (!Number.isSafeInteger(numericId) || numericId <= 0) return '';
+        return template.replace(/\/0$/, `/${numericId}`);
     }
 
     function setSuggestionBusy(classId, busy) {
@@ -628,6 +643,14 @@
                                       </div>
                                       <div class="text-muted small">${escapeHtml(assign.reason || assign.description || '课后针对巩固学习。')}</div>
                                     </div>`;
+                const viewUrl = assignmentActionUrl(assignmentViewUrlTemplate, assign.assignment_id);
+                const assignUrl = assignmentActionUrl(assignmentAssignUrlTemplate, assign.assignment_id);
+                if (viewUrl && assignUrl) {
+                    htmlContent += `<div class="d-flex flex-wrap gap-2 mt-2">
+                                      <a href="${viewUrl}" class="btn btn-sm btn-outline-success">查看作业</a>
+                                      <a href="${assignUrl}" class="btn btn-sm btn-success">布置到班级</a>
+                                    </div>`;
+                }
             });
         } else {
             htmlContent += '    <div class="alert alert-light border p-3 rounded text-center small text-muted"><i class="bi bi-check-circle-fill text-success me-1"></i>暂无推荐作业，可按需发布新题</div>';

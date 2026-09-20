@@ -1,4 +1,5 @@
 import inspect
+import re
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -89,6 +90,40 @@ def test_worker_entry_disables_web_threads_and_preset_scanner(monkeypatch):
     assert worker_module.os.environ["PRESET_SCAN_ENABLED"] == "0"
     assert worker_module.os.environ["ACCESS_LOG_ENABLED"] == "0"
     build.assert_called_once_with(app)
+
+
+def test_expired_demo_run_emits_terminal_skipped_event(caplog):
+    _require_worker_contract()
+    caplog.set_level("INFO")
+    app = Flask(__name__)
+
+    class ImmediateThread:
+        def __init__(self, target, *args, **kwargs):
+            self.target = target
+            self.daemon = False
+
+        def start(self):
+            self.target()
+
+    with patch.object(worker_tasks.threading, "Thread", ImmediateThread), \
+            patch.object(worker_tasks, "activate_demo_run", return_value=False):
+        worker_tasks.evaluate_submission_async(
+            app,
+            41,
+            "循环题",
+            demo_run_id="expired-demo-run",
+        )
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert any(
+        "submission_evaluation event=started submission_id=41" in message
+        for message in messages
+    )
+    assert any(
+        "submission_evaluation event=skipped submission_id=41" in message
+        and "reason=demo_run_unavailable" in message
+        for message in messages
+    )
 
 
 def test_rq_backend_enqueues_without_starting_legacy_thread():
@@ -193,8 +228,11 @@ def test_simple_worker_handles_slow_completion_and_persists_failure(monkeypatch)
     assert submission_queue.get_submission_job_status(app, 42) == "failed"
 
 
-def test_formal_worker_updates_submission_in_isolated_database(tmp_path, monkeypatch):
+def test_formal_worker_updates_submission_in_isolated_database(
+    tmp_path, monkeypatch, caplog
+):
     _require_worker_contract()
+    caplog.set_level("INFO")
     from app import create_app
     from config import TestingConfig as _TestingConfig
     from models import Assignment, StudentLearningVector, StudentVectorIndexState, Submission, User, db
@@ -287,6 +325,24 @@ def test_formal_worker_updates_submission_in_isolated_database(tmp_path, monkeyp
             vector.scope_type == "student_private"
             for vector in active_vectors
         )
+
+    finished_events = [
+        record.getMessage()
+        for record in caplog.records
+        if "submission_evaluation event=finished" in record.getMessage()
+    ]
+    started_events = [
+        record.getMessage()
+        for record in caplog.records
+        if "submission_evaluation event=started" in record.getMessage()
+    ]
+    assert len(started_events) == 1
+    assert len(finished_events) == 1
+    finished_event = finished_events[0]
+    assert f"submission_id={submission_id}" in finished_event
+    assert "state=evaluated" in finished_event
+    elapsed_match = re.search(r"elapsed_ms=(\d+)", finished_event)
+    assert elapsed_match is not None
 
     assert submission_queue.get_submission_job_status(app, submission_id) == "completed"
     assert state.operation_id == f"submission-evaluation-{submission_id}"

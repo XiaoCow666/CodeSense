@@ -9,8 +9,9 @@ from unittest.mock import patch
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from app import create_app
-from models import Assignment, Class, Submission, User, KnowledgePointScore, TeacherAISuggestion, db
+from models import Assignment, AssignmentKnowledgePoint, Class, Submission, User, KnowledgePointScore, TeacherAISuggestion, db
 from services.teacher_ai_advisor import (
+    _attach_assignment_ids,
     _generate_rule_based_markdown,
     generate_class_suggestions,
     generate_class_suggestions_stream,
@@ -192,6 +193,66 @@ class TeacherAISuggestionsTestCase(unittest.TestCase):
             # 找到指针初探
             assign_detail = [a for a in details['suggested_assignments'] if a['title'] == '指针初探'][0]
             self.assertEqual(assign_detail['difficulty'], '较易')
+            expected_assignment_id = Assignment.query.filter_by(title='指针初探').one().id
+            self.assertEqual(assign_detail['assignment_id'], expected_assignment_id)
+
+    def test_suggestion_page_links_to_existing_assignment_actions(self):
+        with self.app.app_context():
+            suggestion = generate_class_suggestions(self.class_id, self.teacher_id)
+            details = suggestion.get_suggestion_dict()
+            assignment_id = next(
+                item['assignment_id']
+                for item in details['suggested_assignments']
+                if item['title'] == '指针初探'
+            )
+
+        self.login_teacher()
+        response = self.client.get('/teacher/ai_suggestions')
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+        self.assertIn(f'/view_assignment/{assignment_id}', body)
+        self.assertIn(f'/assign/{assignment_id}', body)
+        self.assertIn('布置到班级', body)
+        self.assertIn('assignmentActionUrl', body)
+        self.assertIn('assign.assignment_id', body)
+
+    def test_suggestion_candidates_stay_within_current_teacher_scope(self):
+        with self.app.app_context():
+            other_teacher = User(
+                student_id='teacher_other',
+                username='teacher_other',
+                usertype='教师',
+                full_name='其他教师',
+            )
+            other_teacher.password = 'password123'
+            other_class = Class(
+                name='其他教师班级',
+                grade='2024',
+                major='计算机科学与技术',
+                teacher_id=other_teacher.student_id,
+            )
+            other_assignment = Assignment(
+                title='其他教师指针练习',
+                target_classes=other_class.name,
+                creator_id=other_teacher.student_id,
+            )
+            db.session.add_all([other_teacher, other_class, other_assignment])
+            db.session.flush()
+            db.session.add(
+                AssignmentKnowledgePoint(
+                    assignment_id=other_assignment.id,
+                    knowledge_point='pointer',
+                )
+            )
+            db.session.commit()
+
+            suggestion = generate_class_suggestions(self.class_id, self.teacher_id)
+            titles = [
+                item['title']
+                for item in suggestion.get_suggestion_dict()['suggested_assignments']
+            ]
+
+        self.assertNotIn('其他教师指针练习', titles)
 
     def test_routes_accessibility(self):
         self.login_teacher()
@@ -290,6 +351,21 @@ class TeacherAISuggestionsTestCase(unittest.TestCase):
         self.assertIn('可用的 AI 正文', visible)
         self.assertNotIn('===JSON===', visible)
         self.assertIn('attention_students', events[-1]['suggestion_json'])
+
+    def test_ai_assignment_ids_are_limited_to_server_candidates(self):
+        structured = {
+            'suggested_assignments': [
+                {'title': '指针初探', 'assignment_id': 99999},
+                {'title': '模型虚构作业', 'assignment_id': 88888},
+            ]
+        }
+        result = _attach_assignment_ids(
+            structured,
+            [{'id': 123, 'title': '指针初探'}],
+        )
+
+        self.assertEqual(result['suggested_assignments'][0]['assignment_id'], 123)
+        self.assertNotIn('assignment_id', result['suggested_assignments'][1])
 
 if __name__ == '__main__':
     unittest.main()

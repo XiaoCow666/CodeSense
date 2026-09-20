@@ -3,7 +3,16 @@
 """
 from flask import Blueprint, render_template, request, redirect, url_for, flash, Response, current_app, jsonify, abort, send_file
 from flask_login import current_user
-from models import db, User, Assignment, Submission, SystemLog, AssignmentThinkingPreset
+from models import (
+    db,
+    User,
+    Assignment,
+    Submission,
+    SystemLog,
+    AssignmentThinkingPreset,
+    AssignmentKnowledgePoint,
+    KnowledgePointScore,
+)
 from forms import AssignmentForm, SubmissionForm
 from utils.auth import (
     login_required,
@@ -1727,6 +1736,24 @@ def assign_to_classes(assignment_id):
 def add_teacher_assignment():
     """教师创建新作业"""
     form = AssignmentForm()
+    focus_knowledge_point = (request.args.get('knowledge_point') or '').strip()
+    focus_class_id = request.args.get('class_id', type=int)
+    managed_class_objects = accessible_classes(current_user)
+    focus_class = None
+    if focus_class_id is not None:
+        focus_class = next(
+            (
+                classroom
+                for classroom in managed_class_objects
+                if classroom.id == focus_class_id
+            ),
+            None,
+        )
+        if focus_class is None:
+            abort(403)
+    if len(focus_knowledge_point) > 50:
+        abort(400)
+
     if form.validate_on_submit():
         # 检查作业ID是否已存在
         assignment_id = form.assignment_id.data
@@ -1734,7 +1761,12 @@ def add_teacher_assignment():
         
         if existing_assignment:
             flash('该作业ID已存在，请使用其他ID', 'danger')
-            return render_template('teacher_add_assignment.html', form=form)
+            return render_template(
+                'teacher_add_assignment.html',
+                form=form,
+                focus_knowledge_point=focus_knowledge_point,
+                focus_class=focus_class,
+            )
 
         new_assignment = Assignment(
             id=form.assignment_id.data,
@@ -1746,6 +1778,18 @@ def add_teacher_assignment():
             average_score=0.0,
             count=0
         )
+        if focus_class is not None:
+            new_assignment.set_target_classes([focus_class.name])
+        if focus_knowledge_point:
+            db.session.add(
+                AssignmentKnowledgePoint(
+                    assignment=new_assignment,
+                    knowledge_point=focus_knowledge_point,
+                    weight=1.0,
+                    difficulty=1.0,
+                    auto_detected=False,
+                )
+            )
         
         try:
             db.session.add(new_assignment)
@@ -1759,17 +1803,33 @@ def add_teacher_assignment():
                 current_app.logger.error(f"触发预设生成任务失败: {e}")
                 
             flash('作业创建成功！', 'success')
+            redirect_url = (
+                url_for(
+                    'assignments.assign_to_classes',
+                    assignment_id=new_assignment.id,
+                )
+                if focus_class is not None
+                else url_for('assignments.teacher_assignments')
+            )
             # AJAX 提交时返回 JSON，普通提交时重定向
             if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-                return jsonify({'success': True, 'assignment_id': new_assignment.id,
-                                 'redirect': url_for('assignments.teacher_assignments')})
-            return redirect(url_for('assignments.teacher_assignments'))
+                return jsonify({
+                    'success': True,
+                    'assignment_id': new_assignment.id,
+                    'redirect': redirect_url,
+                })
+            return redirect(redirect_url)
         except Exception:
             db.session.rollback()
             current_app.logger.exception('教师创建作业失败')
             flash('创建作业失败，请稍后重试。', 'danger')
             
-    return render_template('teacher_add_assignment.html', form=form)
+    return render_template(
+        'teacher_add_assignment.html',
+        form=form,
+        focus_knowledge_point=focus_knowledge_point,
+        focus_class=focus_class,
+    )
 
 
 @assignments.route('/teacher/edit/<int:assignment_id>', methods=['GET', 'POST'])

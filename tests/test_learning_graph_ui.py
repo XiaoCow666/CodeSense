@@ -22,6 +22,7 @@ def test_learning_graph_panel_has_accessible_and_safe_states():
     assert "不会在此处展示个人姓名或个人分数" in PANEL
     assert "不代表系统已经判定它们存在先后依赖" in PANEL
     assert "url_for('assignments.submit_code'" in PANEL
+    assert "查看针对性练习" in PANEL
     assert "innerHTML" not in PANEL
 
 

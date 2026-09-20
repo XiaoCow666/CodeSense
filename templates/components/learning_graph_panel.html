@@ -117,10 +117,10 @@
             <h3>教学提醒</h3>
             <div class="learning-graph-recommendations">
                 {% for item in graph_recommendations[:4] %}
-                <div class="learning-graph-recommendation is-static">
-                    <span><strong>{{ item.label }}</strong><small>{{ item.reason }}</small></span>
-                    <i class="bi bi-lightbulb" aria-hidden="true"></i>
-                </div>
+                <a class="learning-graph-recommendation" href="{{ url_for('main.teacher_knowledge_focus', knowledge_point=item.get('knowledge_point', item.get('code')), class_id=meta.get('class_id')) }}">
+                    <span><strong>查看针对性练习：{{ item.label }}</strong><small>{{ item.reason }}</small></span>
+                    <i class="bi bi-arrow-up-right" aria-hidden="true"></i>
+                </a>
                 {% endfor %}
             </div>
         </div>

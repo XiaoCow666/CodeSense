@@ -22,6 +22,11 @@
         <strong>尚未建立</strong>
         <span>完成一次评测或手动更新后，Code Studio 才会参考你的学习记录。</span>
     </div>
+    {% elif memory.get('status') == 'stale' %}
+    <div class="student-learning-memory-panel__state is-warning" role="alert">
+        <strong>需要更新</strong>
+        <span>学习记忆索引已经超过更新时间窗口，AI 辅导会暂时跳过个人记录。请点击下方按钮更新。</span>
+    </div>
     {% elif memory.get('status') == 'failed' %}
     <div class="student-learning-memory-panel__state is-warning" role="alert">
         <strong>更新失败</strong>
@@ -55,6 +60,35 @@
             {{ count }} 条
         </span>
         {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if student_learning_sources %}
+    <div class="student-learning-memory-panel__source-list" aria-labelledby="student-learning-memory-sources-title">
+        <h3 id="student-learning-memory-sources-title">学习来源</h3>
+        <ul>
+            {% for source in student_learning_sources %}
+            <li>
+                <div>
+                    <strong>{{ source.get('title') or '学习记录' }}</strong>
+                    <small>
+                        {% if source.get('source_type') == 'submission_feedback' %}提交反馈{% elif source.get('source_type') == 'knowledge_point_score' %}知识点记录{% else %}学习记录{% endif %}
+                        · 版本 {{ source.get('source_version') }}
+                    </small>
+                </div>
+                {% if source.get('status') == 'revoked' %}
+                <span class="text-muted small" role="status">{{ '已撤回' if source.get('revoke_reason') == 'user_revoked' else '来源已移除' }}</span>
+                {% else %}
+                <form method="post" action="{{ url_for('main.revoke_student_learning_memory_source') }}">
+                    {% if csrf_token is defined %}{{ csrf_token() }}{% endif %}
+                    <input type="hidden" name="source_type" value="{{ source.get('source_type') }}">
+                    <input type="hidden" name="source_id" value="{{ source.get('source_id') }}">
+                    <button type="submit" class="btn btn-sm btn-outline-danger">撤回此来源</button>
+                </form>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
     </div>
     {% endif %}
 

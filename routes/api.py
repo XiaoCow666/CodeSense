@@ -5,6 +5,7 @@ API路由模块
 from flask import Blueprint, request, session, render_template, Response, current_app, jsonify
 from flask_login import current_user
 from sqlalchemy import desc
+from sqlalchemy.exc import SQLAlchemyError
 from models import db, User, Assignment, Submission, AbilityTrend, TestCase
 from utils.auth import (
     login_required,
@@ -52,6 +53,12 @@ from services.student_vector_store import (
     project_student_learning_evidence,
     render_student_learning_receipt,
     search_student_learning_vectors,
+)
+from services.learning_graph import (
+    LearningGraphAccessError,
+    build_student_learning_graph,
+    build_student_learning_graph_context,
+    project_student_learning_graph,
 )
 from tasks.submission_tasks import evaluate_submission_async, _normalise_score, _refresh_user_stats
 from utils.scoring import normalize_feedback_text
@@ -469,6 +476,93 @@ def _retrieve_knowledge_context(assignment_id, query="", *, limit=MAX_EVIDENCE):
         (retrieval.get("fallback") or {}).get("code"),
     )
     return retrieval
+
+
+def _empty_student_graph_projection(status, *, reason=None):
+    projection = {
+        "status": status,
+        "scope": "student_private",
+        "nodes": [],
+        "edges": [],
+        "recommendations": [],
+        "meta": {
+            "scope": "student_private",
+            "privacy": "student_private",
+        },
+    }
+    if reason:
+        projection["meta"]["reason"] = reason
+    return projection
+
+
+def _retrieve_student_graph_payload(
+    student_id,
+    assignment_id,
+    *,
+    allow_data_unavailable=False,
+):
+    """返回当前学生作业的图谱上下文和安全投影。"""
+
+    try:
+        graph = build_student_learning_graph(
+            student_id=student_id,
+            assignment_id=assignment_id,
+            limit=8,
+        )
+        return {
+            "context": build_student_learning_graph_context(graph),
+            "projection": project_student_learning_graph(graph),
+        }
+    except LearningGraphAccessError:
+        return {
+            "context": "当前作业没有可用知识点图谱。",
+            "projection": _empty_student_graph_projection("no_result"),
+        }
+    except SQLAlchemyError:
+        if not allow_data_unavailable:
+            raise
+        current_app.logger.warning(
+            "student learning graph data unavailable student_id=%s assignment_id=%s",
+            student_id,
+            assignment_id,
+        )
+        return {
+            "context": "当前作业知识点图谱暂时不可用。",
+            "projection": _empty_student_graph_projection(
+                "unavailable",
+                reason="data_unavailable",
+            ),
+        }
+    except (RuntimeError, AttributeError):
+        if not allow_data_unavailable:
+            raise
+        current_app.logger.warning(
+            "student learning graph dependency unavailable student_id=%s assignment_id=%s",
+            student_id,
+            assignment_id,
+        )
+        return {
+            "context": "当前作业知识点图谱暂时不可用。",
+            "projection": _empty_student_graph_projection(
+                "unavailable",
+                reason="dependency_unavailable",
+            ),
+        }
+
+
+def _retrieve_student_graph_context(
+    student_id,
+    assignment_id,
+    *,
+    allow_data_unavailable=False,
+):
+    """仅返回当前学生当前作业的图谱提示。"""
+
+    return _retrieve_student_graph_payload(
+        student_id,
+        assignment_id,
+        allow_data_unavailable=allow_data_unavailable,
+    )["context"]
 
 
 @api.route('/assignments/<int:assignment_id>/knowledge-evidence', methods=['GET'])
@@ -972,12 +1066,25 @@ def ask_question():
         student_learning_context = build_student_learning_prompt_context(
             student_learning_retrieval
         )
+        student_graph_payload = _retrieve_student_graph_payload(
+            student_id,
+            assignment_id,
+            allow_data_unavailable=(
+                public_knowledge_retrieval.get("status") == "unavailable"
+            ),
+        )
+        student_graph_context = student_graph_payload["context"]
+        student_learning_graph = student_graph_payload["projection"]
         student_learning_receipt = render_student_learning_receipt(
             student_learning_retrieval
         )
         knowledge_prompt_context = "\n\n".join(
             part
-            for part in (knowledge_prompt_context, student_learning_context)
+            for part in (
+                knowledge_prompt_context,
+                student_graph_context,
+                student_learning_context,
+            )
             if part
         )
 
@@ -1067,10 +1174,12 @@ def ask_question():
                                 'knowledge_retrieval': public_knowledge_retrieval,
                                 'knowledge_evidence': knowledge_evidence,
                                 'student_learning_evidence': student_learning_evidence,
+                                'student_learning_graph': student_learning_graph,
                             },
                             'knowledge_retrieval': public_knowledge_retrieval,
                             'knowledge_evidence': knowledge_evidence,
                             'student_learning_evidence': student_learning_evidence,
+                            'student_learning_graph': student_learning_graph,
                         })
                     except Exception as stream_error:
                         db.session.rollback()
@@ -1148,6 +1257,7 @@ def ask_question():
                     'knowledge_retrieval': public_knowledge_retrieval,
                     'knowledge_evidence': knowledge_evidence,
                     'student_learning_evidence': student_learning_evidence,
+                    'student_learning_graph': student_learning_graph,
                 }
             )
             
@@ -1235,7 +1345,9 @@ def get_code_advice():
         knowledge_prompt_context = ""
         student_learning_retrieval = None
         student_learning_evidence = None
+        student_learning_graph = None
         student_learning_receipt = ""
+        student_graph_context = ""
         if assignment_id:
             assignment = Assignment.query.get(assignment_id)
             if not assignment:
@@ -1258,6 +1370,15 @@ def get_code_advice():
             knowledge_prompt_context = build_knowledge_prompt_context(
                 public_knowledge_retrieval,
             )
+            student_graph_payload = _retrieve_student_graph_payload(
+                student_id,
+                assignment_id,
+                allow_data_unavailable=(
+                    public_knowledge_retrieval.get("status") == "unavailable"
+                ),
+            )
+            student_graph_context = student_graph_payload["context"]
+            student_learning_graph = student_graph_payload["projection"]
 
         student_learning_query = user_question.strip()
         if not student_learning_query and assignment_title:
@@ -1281,7 +1402,11 @@ def get_code_advice():
             )
             knowledge_prompt_context = "\n\n".join(
                 part
-                for part in (knowledge_prompt_context, student_learning_context)
+                for part in (
+                    knowledge_prompt_context,
+                    student_graph_context,
+                    student_learning_context,
+                )
                 if part
             )
 
@@ -1293,6 +1418,8 @@ def get_code_advice():
             }
         if student_learning_evidence is not None:
             knowledge_fields["student_learning_evidence"] = student_learning_evidence
+        if student_learning_graph is not None:
+            knowledge_fields["student_learning_graph"] = student_learning_graph
 
         # 判断是否为聊天式交互（有用户问题）还是代码分析
         if user_question:
@@ -1444,6 +1571,7 @@ def get_code_advice():
                             language=language,
                             assignment_title=assignment_title,
                             assignment_description=assignment_description,
+                            knowledge_context=knowledge_prompt_context,
                             advanced_mode=False
                         )
                         if not analysis_result:
@@ -1492,6 +1620,7 @@ def get_code_advice():
                     language=language,
                     assignment_title=assignment_title,
                     assignment_description=assignment_description,
+                    knowledge_context=knowledge_prompt_context,
                     advanced_mode=False
                 )
 

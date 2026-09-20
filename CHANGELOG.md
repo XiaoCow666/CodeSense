@@ -10,6 +10,30 @@ This file records release-level information for users and maintainers. Versions 
 
 Future unreleased changes will be listed here.
 
+## [1.7.0] - 2026-09-20
+
+### Added
+
+- 学生提问和 Code Studio 辅导增加当前作业的安全知识图谱投影，回答完成响应提供图谱状态、作用域、关系和来源版本。
+- 学生向量检索在数据库查询阶段执行学生与作业范围过滤，离线评测增加作用域候选数量、过滤后数量和查询延迟指标。
+- 教师知识点干预页展示班级聚合掌握度信号，并可创建预先关联知识点和班级的练习作业，再进入现有班级布置流程。
+- 学习图谱与学生学习记忆继续保留无结果、数据暂不可用和私有作用域状态，便于学生理解当前辅导依据。
+
+[1.7.0]: https://github.com/XiaoCow666/CodeSense/releases/tag/v1.7.0
+
+## [1.6.0] - 2026-09-19
+
+### Added
+
+- 学生首页增加学习记忆来源列表、来源版本和自助撤回入口；撤回来源继续受学生作用域限制。
+- 学生向量索引增加陈旧状态提示和重建失败后的上一版索引恢复查询，空索引仍提供明确更新动作。
+- 学生提问与 Code Studio 辅导结合当前作业的知识图谱和学生私有学习记录，保留来源、作用域和版本信息。
+- 教师班级知识点提醒增加针对性练习入口，新增教师知识点行动页并提供查看作业和布置班级动作。
+- 教师 AI 建议保留服务端作业编号，建议作业限定在当前教师范围内，并提供后续作业动作链接。
+- 离线学习记忆评测补充过期来源样本，帮助验证撤回、陈旧状态和检索边界。
+
+[1.6.0]: https://github.com/XiaoCow666/CodeSense/releases/tag/v1.6.0
+
 ## [1.5.0] - 2026-09-18
 
 ### Added
@@ -71,7 +95,7 @@ CodeSense 标准版首个正式版本。
 
 First formal release of the CodeSense Standard Edition.
 
-[Unreleased]: https://github.com/XiaoCow666/CodeSense/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/XiaoCow666/CodeSense/compare/v1.7.0...HEAD
 [1.5.0]: https://github.com/XiaoCow666/CodeSense/releases/tag/v1.5.0
 [1.4.0]: https://github.com/XiaoCow666/CodeSense/releases/tag/v1.4.0
 [1.3.0]: https://github.com/XiaoCow666/CodeSense/releases/tag/v1.3.0
