@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 
 import pytest
+from sqlalchemy import event
 
 from app import create_app
 from config import TestingConfig
@@ -215,6 +216,38 @@ def test_search_filters_student_and_assignment_scope_before_similarity(
         assert own["metrics"]["revoked_count"] == 0
         assert other_student["status"] == "no_result"
         assert other_assignment["status"] == "no_result"
+
+
+def test_assignment_scope_is_applied_before_vector_rows_are_loaded(
+    seeded_student_vector_context,
+):
+    app, ids = seeded_student_vector_context
+    with app.app_context():
+        rebuild_student_vector_index(ids["student_one"])
+        statements = []
+
+        def capture_statement(
+            connection, cursor, statement, parameters, context, executemany
+        ):
+            if "student_learning_vectors" in statement.lower():
+                statements.append(statement.lower())
+
+        event.listen(db.engine, "before_cursor_execute", capture_statement)
+        try:
+            result = search_student_learning_vectors(
+                ids["student_one"],
+                "递归边界",
+                assignment_id=ids["assignment_one"],
+            )
+        finally:
+            event.remove(db.engine, "before_cursor_execute", capture_statement)
+
+        assert result["status"] == "grounded"
+        assert result["metrics"]["scope_filter"] == "assignment"
+        assert result["metrics"]["scope_candidate_count"] == 2
+        assert result["metrics"]["candidate_count"] == 1
+        assert statements
+        assert any("assignment_id" in statement for statement in statements)
 
 
 def test_rebuild_revokes_changed_source_and_search_logs_have_no_query_text(

@@ -334,6 +334,158 @@ def build_student_learning_graph(*, student_id, assignment_id=None, limit=DEFAUL
     }
 
 
+def project_student_learning_graph(graph):
+    """把学生图谱转换为带来源版本的安全响应。"""
+
+    if not isinstance(graph, dict):
+        return {
+            "status": "no_result",
+            "scope": "student_private",
+            "nodes": [],
+            "edges": [],
+            "recommendations": [],
+            "meta": {"scope": "student_private", "privacy": "student_private"},
+        }
+
+    if (graph.get("meta") or {}).get("scope") != "student":
+        raise LearningGraphAccessError("student graph scope is unavailable")
+
+    raw_nodes = list(graph.get("nodes") or [])
+    raw_edges = list(graph.get("edges") or [])
+    node_ids = {str(node.get("id")) for node in raw_nodes if node.get("id")}
+    node_sources = {}
+    node_versions = {}
+    for node_id in node_ids:
+        node_sources[node_id] = set()
+        node_versions[node_id] = set()
+
+    for edge in raw_edges:
+        source = str(edge.get("source") or "")
+        target = str(edge.get("target") or "")
+        refs = {
+            str(value)
+            for value in edge.get("source_refs", [])
+            if str(value).strip()
+        }
+        versions = {
+            str(value)
+            for value in (
+                edge.get("source_versions")
+                or [edge.get("source_version")]
+            )
+            if str(value).strip()
+        }
+        for node_id in (source, target):
+            if node_id in node_sources:
+                node_sources[node_id].update(refs)
+                node_versions[node_id].update(versions)
+
+    nodes = []
+    for raw_node in raw_nodes:
+        node_id = str(raw_node.get("id") or "")
+        versions = sorted(node_versions.get(node_id, set()))
+        if not node_id or not versions:
+            continue
+        node = {
+            "id": node_id,
+            "type": raw_node.get("type"),
+            "label": raw_node.get("label"),
+            "scope": "student_private",
+            "source_refs": sorted(node_sources.get(node_id, set())),
+            "source_versions": versions,
+        }
+        for field in ("assignment_id", "title", "code", "mastery", "attempts"):
+            if field in raw_node:
+                node[field] = raw_node[field]
+        nodes.append(node)
+
+    kept_ids = {node["id"] for node in nodes}
+    edges = []
+    for raw_edge in raw_edges:
+        source = str(raw_edge.get("source") or "")
+        target = str(raw_edge.get("target") or "")
+        if source not in kept_ids or target not in kept_ids:
+            continue
+        versions = sorted(
+            {
+                str(value)
+                for value in (
+                    raw_edge.get("source_versions")
+                    or [raw_edge.get("source_version")]
+                )
+                if str(value).strip()
+            }
+        )
+        if not versions:
+            continue
+        edge = {
+            "source": source,
+            "target": target,
+            "relation_type": raw_edge.get("relation_type"),
+            "provenance": raw_edge.get("provenance"),
+            "scope": "student_private",
+            "is_inferred": bool(raw_edge.get("is_inferred")),
+            "source_refs": sorted(
+                {
+                    str(value)
+                    for value in raw_edge.get("source_refs", [])
+                    if str(value).strip()
+                }
+            ),
+            "source_versions": versions,
+        }
+        for field in ("weight", "difficulty"):
+            if field in raw_edge:
+                edge[field] = raw_edge[field]
+        edges.append(edge)
+
+    knowledge_node_count = sum(
+        node.get("type") == "knowledge_point" for node in nodes
+    )
+    status = "grounded" if knowledge_node_count and edges else "no_result"
+    if status == "no_result":
+        nodes = []
+        edges = []
+
+    recommendations = []
+    for recommendation in graph.get("recommendations") or []:
+        item = {
+            "assignment_id": recommendation.get("assignment_id"),
+            "knowledge_point": recommendation.get("knowledge_point"),
+            "label": recommendation.get("label"),
+            "reason": recommendation.get("reason"),
+            "action": recommendation.get("action"),
+            "scope": "student_private",
+        }
+        recommendations.append(item)
+
+    source_versions = sorted(
+        {
+            version
+            for node in nodes
+            for version in node.get("source_versions", [])
+        }
+    )
+    return {
+        "status": status,
+        "scope": "student_private",
+        "nodes": nodes,
+        "edges": edges,
+        "recommendations": recommendations if status == "grounded" else [],
+        "meta": {
+            "scope": "student_private",
+            "privacy": "student_private",
+            "assignment_count": sum(
+                node.get("type") == "assignment" for node in nodes
+            ),
+            "knowledge_point_count": knowledge_node_count
+            if status == "grounded"
+            else 0,
+            "source_versions": source_versions,
+        },
+    }
+
+
 def build_student_learning_graph_context(graph):
     """把当前学生的作业图谱投影为有界 AI 上下文。"""
 
@@ -557,6 +709,40 @@ def build_teacher_knowledge_focus(
         for assignment in assignments
         if can_access_assignment(assignment, viewer)
     ]
+    students_by_id = _class_students(classes)
+    student_ids = list(students_by_id)
+    score_rows = (
+        KnowledgePointScore.query.filter(
+            KnowledgePointScore.student_id.in_(student_ids),
+            KnowledgePointScore.knowledge_point == code,
+        ).all()
+        if student_ids
+        else []
+    )
+    mastery_values = [_normalise_score(row.score) for row in score_rows]
+    average_mastery = (
+        round(sum(mastery_values) / len(mastery_values), 1)
+        if mastery_values
+        else None
+    )
+    low_mastery_count = sum(
+        value < LOW_MASTERY_THRESHOLD for value in mastery_values
+    )
+    if len(mastery_values) < MIN_TEACHER_SAMPLE:
+        focus_status = "insufficient_sample"
+    elif low_mastery_count or (
+        average_mastery is not None and average_mastery < LOW_MASTERY_THRESHOLD
+    ):
+        focus_status = "needs_attention"
+    else:
+        focus_status = "covered"
+    focus_signal = {
+        "status": focus_status,
+        "student_sample_size": len(mastery_values),
+        "average_mastery": average_mastery,
+        "low_mastery_count": low_mastery_count,
+        "scope": "class_aggregate",
+    }
     assignment_ids = [assignment.id for assignment in assignments]
     grouped = _group_assignment_knowledge(
         _assignment_knowledge_rows(assignment_ids)
@@ -598,6 +784,7 @@ def build_teacher_knowledge_focus(
             "knowledge_point": code,
             "knowledge_label": _knowledge_label(code),
             "assignment_count": len(result),
+            "focus_signal": focus_signal,
             "privacy": "class_aggregate",
         },
     }

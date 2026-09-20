@@ -21,12 +21,12 @@
   <a href="https://github.com/XiaoCow666/CodeSense/stargazers"><img src="https://img.shields.io/github/stars/XiaoCow666/CodeSense?style=flat-square&logo=github" alt="GitHub stars"></a>
   <a href="https://github.com/XiaoCow666/CodeSense/network/members"><img src="https://img.shields.io/github/forks/XiaoCow666/CodeSense?style=flat-square&logo=github" alt="GitHub forks"></a>
   <a href="https://github.com/XiaoCow666/CodeSense/blob/main/LICENSE"><img src="https://img.shields.io/github/license/XiaoCow666/CodeSense?style=flat-square" alt="License"></a>
-  <img src="https://img.shields.io/badge/version-v1.6.0-2563eb?style=flat-square" alt="v1.6.0">
+  <img src="https://img.shields.io/badge/version-v1.7.0-2563eb?style=flat-square" alt="v1.7.0">
   <img src="https://img.shields.io/badge/Python-3.8--3.14-3776ab?style=flat-square&logo=python&logoColor=white" alt="Python 3.8–3.14">
   <img src="https://img.shields.io/badge/Flask-2.3.3-000000?style=flat-square&logo=flask&logoColor=white" alt="Flask 2.3.3">
 </p>
 
-> 当前版本：<a href="https://github.com/XiaoCow666/CodeSense/releases/tag/v1.6.0"><code>v1.6.0</code></a>。
+> 当前版本：<a href="https://github.com/XiaoCow666/CodeSense/releases/tag/v1.7.0"><code>v1.7.0</code></a>。
 >
 > 这是 CodeSense Standard Edition 的当前正式版本。发布级变更会记录在 [CHANGELOG.md](CHANGELOG.md)、Git tag 和 GitHub Release 中。
 
@@ -89,6 +89,10 @@
   <img src="docs/assets/codesense-v1.6.0-knowledge-intervention.png" alt="CodeSense v1.6.0 知识点干预与学习记忆治理信息图" width="100%">
 </p>
 
+<p align="center">
+  <img src="docs/assets/codesense-v1.7.0-knowledge-retrieval.png" alt="CodeSense v1.7.0 知识图谱与学生学习记忆闭环信息图" width="100%">
+</p>
+
 ## 为什么做这个项目
 
 普通 OJ 很擅长判断程序是否通过测试，但学生看到的通常只有 AC 或 WA。他们不一定知道问题出在算法、实现、边界条件还是调试过程。教师面对大量提交记录，也很难手工归纳每个班级反复出现的问题。
@@ -137,6 +141,10 @@ CodeSense 把代码提交、受限执行、AI 辅导、分阶段练习和学情�
 作业提交得分与能力画像不是同一个指标：前者当前按 0–5 分记录，后者按 0–100 分记录。
 
 ### 学习记忆与知识路径
+
+v1.7.0 把知识图谱和学生学习记忆接入学生辅导与教师干预流程。学生提问和 Code Studio 的完成响应会返回带有作用域、来源引用和来源版本的图谱投影；没有图谱数据时会明确显示无结果状态，个人记录只在当前学生范围内使用。
+
+教师知识点提醒展示班级聚合掌握度、样本数和需要加强的人数，并可直接创建预先关联知识点、预先选择班级的练习作业，创建后进入已有班级布置流程。学生向量检索先在数据库中执行学生与作业范围过滤，再计算相似度；离线评测同时记录召回、作用域过滤和查询延迟指标。
 
 v1.6.0 在学生首页提供来源治理。学生可以查看学习记忆的来源类型、版本和状态，撤回单条来源，并在索引陈旧或重建失败时看到明确的更新入口。索引只读取当前学生的数据，来源内容经过隐私过滤，撤回后不会继续参与检索。
 
@@ -433,7 +441,7 @@ CodeSense 使用语义化版本号：
 - <code>MINOR</code>：向后兼容的功能增加；
 - <code>PATCH</code>：向后兼容的问题修复和小幅调整。
 
-当前正式版本是 [v1.6.0](https://github.com/XiaoCow666/CodeSense/releases/tag/v1.6.0)。学生可以维护学习记忆来源，并在陈旧或重建失败时获得更新提示；AI 辅导会结合当前作业的知识图谱和学生个人学习记录。教师可以从知识点提醒与 AI 教学建议进入作业动作，权限范围清晰可查。知识记忆与知识证据用于学习参考，分数由评测流程和教师判断决定。
+当前正式版本是 [v1.7.0](https://github.com/XiaoCow666/CodeSense/releases/tag/v1.7.0)。学生辅导会接收当前作业范围内的知识图谱投影和个人学习记忆，教师可以从班级聚合信号创建带知识点的针对性练习。知识记忆与知识证据用于学习参考，分数由评测流程和教师判断决定。
 
 ## Star History
 

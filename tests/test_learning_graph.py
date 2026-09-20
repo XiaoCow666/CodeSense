@@ -20,6 +20,7 @@ from services.learning_graph import (
     build_teacher_knowledge_coverage,
     build_teacher_knowledge_focus,
 )
+from services import learning_graph
 
 
 @pytest.fixture
@@ -335,6 +336,91 @@ def test_teacher_knowledge_focus_returns_only_managed_assignments(
     ]
     assert focus["assignments"][0]["knowledge_point"] == "array"
     assert "graph-student" not in repr(focus)
+
+
+def test_teacher_knowledge_focus_exposes_aggregate_action_signal(
+    learning_graph_context,
+):
+    app, ids = learning_graph_context
+    with app.app_context():
+        focus = build_teacher_knowledge_focus(
+            viewer_id=ids["teacher"],
+            knowledge_point="array",
+            class_id=ids["class_a"],
+        )
+
+    signal = focus["meta"]["focus_signal"]
+    assert signal["status"] == "needs_attention"
+    assert signal["student_sample_size"] == 2
+    assert signal["average_mastery"] == 62.5
+    assert signal["low_mastery_count"] == 1
+    assert "graph-student" not in repr(signal)
+
+
+def test_student_graph_projection_keeps_scope_state_and_source_versions(
+    learning_graph_context,
+):
+    app, ids = learning_graph_context
+    with app.app_context():
+        graph = build_student_learning_graph(
+            student_id=ids["student_one"],
+            assignment_id=ids["assignment_one"],
+        )
+        projection_builder = getattr(
+            learning_graph,
+            "project_student_learning_graph",
+            None,
+        )
+        assert projection_builder is not None
+        projection = projection_builder(graph)
+
+    assert projection["status"] == "grounded"
+    assert projection["scope"] == "student_private"
+    assert projection["nodes"]
+    assert all(node["source_versions"] for node in projection["nodes"])
+    assert all(node["scope"] == "student_private" for node in projection["nodes"])
+    assert ids["student_one"] not in repr(projection)
+
+
+def test_teacher_can_create_tagged_focus_assignment_and_open_class_flow(
+    learning_graph_context,
+):
+    app, ids = learning_graph_context
+    client = app.test_client()
+    login = client.post(
+        "/login",
+        data={"username": ids["teacher"], "password": "password"},
+    )
+    assert login.status_code in {302, 303}
+
+    focus = client.get(
+        f"/teacher/knowledge-focus/array?class_id={ids['class_a']}"
+    )
+    assert focus.status_code == 200
+    assert "knowledge_point=array" in focus.get_data(as_text=True)
+
+    response = client.post(
+        f"/teacher/add?knowledge_point=array&class_id={ids['class_a']}",
+        data={
+            "assignment_id": "9001",
+            "title": "数组巩固练习",
+            "description": "围绕数组边界安排一次巩固练习。",
+            "due_date": "",
+        },
+    )
+    assert response.status_code in {302, 303}
+
+    with app.app_context():
+        assignment = db.session.get(Assignment, 9001)
+        assert assignment is not None
+        assert assignment.creator_id == ids["teacher"]
+        assert assignment.get_target_class_list() == ["图谱班级A"]
+        relation = AssignmentKnowledgePoint.query.filter_by(
+            assignment_id=assignment.id,
+            knowledge_point="array",
+        ).one()
+        assert relation.auto_detected is False
+        assert response.headers["Location"].endswith(f"/assign/{assignment.id}")
 
     with app.app_context():
         with pytest.raises(LearningGraphAccessError):

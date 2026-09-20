@@ -49,6 +49,18 @@
             <span class="badge text-bg-light">{{ focus.meta.assignment_count }} 份</span>
         </div>
 
+        <div class="alert alert-info d-flex flex-wrap justify-content-between align-items-center gap-2" role="status">
+            <div>
+                <strong>{{ focus.meta.knowledge_label }}班级信号：{{ focus.meta.focus_signal.status }}</strong>
+                <span class="small ms-2">
+                    样本 {{ focus.meta.focus_signal.student_sample_size }} 人，
+                    平均掌握度 {{ focus.meta.focus_signal.average_mastery if focus.meta.focus_signal.average_mastery is not none else '暂无' }}，
+                    需要加强 {{ focus.meta.focus_signal.low_mastery_count }} 人
+                </span>
+            </div>
+            <a href="{{ url_for('assignments.add_teacher_assignment', knowledge_point=focus.meta.knowledge_point, class_id=selected_class_id) }}" class="btn btn-primary btn-sm">创建针对性练习</a>
+        </div>
+
         {% if focus.assignments %}
         <div class="row g-3">
             {% for assignment in focus.assignments %}
@@ -86,7 +98,7 @@
             <div>
                 <strong>当前范围还没有带有该知识点的作业</strong>
                 <p class="mb-2">可以创建一份针对 {{ focus.meta.knowledge_label }} 的练习，再从作业列表布置给班级。</p>
-                <a href="{{ url_for('assignments.add_teacher_assignment') }}" class="btn btn-primary btn-sm">创建练习作业</a>
+                <a href="{{ url_for('assignments.add_teacher_assignment', knowledge_point=focus.meta.knowledge_point, class_id=selected_class_id) }}" class="btn btn-primary btn-sm">创建练习作业</a>
             </div>
         </div>
         {% endif %}

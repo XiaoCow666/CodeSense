@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import time
 from pathlib import Path
 from typing import Any
 
@@ -38,11 +39,13 @@ def evaluate_student_vector_fixture(
     path: str | Path = DEFAULT_FIXTURE,
     *,
     embedder=None,
+    clock=None,
 ) -> dict[str, Any]:
     """检查作用域过滤、撤回来源过滤和有限检索召回率。"""
 
     sources, queries = load_fixture(path)
     embedder = embedder or NgramCountEmbedder()
+    clock = clock or time.perf_counter
     active_sources = [source for source in sources if source.get("status") == "active"]
     revoked_sources = [source for source in sources if source.get("status") == "revoked"]
     expired_sources = [source for source in sources if source.get("status") == "expired"]
@@ -51,19 +54,24 @@ def evaluate_student_vector_fixture(
     cross_scope_hit_count = 0
     revoked_hit_count = 0
     case_results = []
+    query_latencies_ms = []
 
     for case in queries:
+        started_at = clock()
         student_id = str(case["student_id"])
         assignment_id = case.get("assignment_id")
-        scoped_sources = [
+        scope_sources = [
             source
             for source in active_sources
             if str(source.get("student_id")) == student_id
-            and (
-                assignment_id is None
-                or source.get("assignment_id") == assignment_id
-            )
         ]
+        scoped_sources = [
+            source
+            for source in scope_sources
+            if assignment_id is None or source.get("assignment_id") == assignment_id
+        ]
+        scope_candidate_count = len(scope_sources)
+        filtered_candidate_count = len(scoped_sources)
         query_vector = embedder.embed(case["query"])
         scored = []
         for source in scoped_sources:
@@ -110,7 +118,20 @@ def evaluate_student_vector_fixture(
         else:
             case_result["recall_at_1"] = None
             case_result["recall_at_k"] = None
+        latency_ms = max(0.0, (clock() - started_at) * 1000)
+        query_latencies_ms.append(latency_ms)
+        case_result["scope_candidate_count"] = scope_candidate_count
+        case_result["filtered_candidate_count"] = filtered_candidate_count
+        case_result["latency_ms"] = round(latency_ms, 3)
         case_results.append(case_result)
+
+    sorted_latencies = sorted(query_latencies_ms)
+    p95_index = max(0, math.ceil(len(sorted_latencies) * 0.95) - 1)
+    mean_query_latency_ms = (
+        sum(query_latencies_ms) / len(query_latencies_ms)
+        if query_latencies_ms
+        else 0.0
+    )
 
     return {
         "source_count": len(sources),
@@ -128,6 +149,11 @@ def evaluate_student_vector_fixture(
         "revoked_hit_count": revoked_hit_count,
         "status_mismatch_count": sum(
             1 for result in case_results if not result["status_match"]
+        ),
+        "mean_query_latency_ms": round(mean_query_latency_ms, 3),
+        "p95_query_latency_ms": round(
+            sorted_latencies[p95_index] if sorted_latencies else 0.0,
+            3,
         ),
         "case_results": case_results,
     }

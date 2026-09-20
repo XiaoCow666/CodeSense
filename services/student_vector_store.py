@@ -8,6 +8,8 @@ import json
 import math
 from datetime import datetime as dt, timedelta
 
+from sqlalchemy import and_, or_
+
 from models import (
     Assignment,
     AssignmentKnowledgePoint,
@@ -312,6 +314,39 @@ def _index_is_stale(state, *, now=None):
     return now - state.last_built_at > timedelta(days=INDEX_STALE_AFTER_DAYS)
 
 
+def _student_vector_queries(student_id, assignment_id=None):
+    """Build the private base query and its optional assignment projection."""
+
+    base_query = StudentLearningVector.query.filter_by(
+        student_id=student_id,
+        scope_type=STUDENT_SCOPE,
+        status=ACTIVE,
+    )
+    if assignment_id is None:
+        return base_query, base_query, False
+
+    assignment_codes = {
+        row.knowledge_point
+        for row in AssignmentKnowledgePoint.query.filter_by(
+            assignment_id=assignment_id
+        ).all()
+    }
+    assignment_labels = {
+        KnowledgePointScore.KNOWLEDGE_POINTS.get(code, code)
+        for code in assignment_codes
+    }
+    conditions = [StudentLearningVector.assignment_id == assignment_id]
+    if assignment_labels:
+        conditions.append(
+            and_(
+                StudentLearningVector.source_type == "knowledge_point_score",
+                StudentLearningVector.source_title.in_(assignment_labels),
+            )
+        )
+    filtered_query = base_query.filter(or_(*conditions))
+    return base_query, filtered_query, True
+
+
 def _retrieval_log(
     student_id,
     assignment_id,
@@ -367,6 +402,7 @@ def search_student_learning_vectors(
                 "index_revision": revision,
                 "freshness_status": "unknown",
                 "revoked_count": 0,
+                "scope_filter": "assignment" if assignment_id is not None else "student",
             },
             "fallback": {
                 "code": "STUDENT_VECTOR_INDEX_NOT_READY"
@@ -403,6 +439,7 @@ def search_student_learning_vectors(
                 "freshness_status": "stale",
                 "revoked_count": revoked_count,
                 "index_status": state.status,
+                "scope_filter": "assignment" if assignment_id is not None else "student",
             },
             "fallback": {
                 "code": "STUDENT_VECTOR_INDEX_STALE",
@@ -410,32 +447,12 @@ def search_student_learning_vectors(
             },
         }
 
-    rows = StudentLearningVector.query.filter_by(
-        student_id=normalized_student_id,
-        scope_type=STUDENT_SCOPE,
-        status=ACTIVE,
-    ).all()
-    scope_candidate_count = len(rows)
-    if assignment_id is not None:
-        assignment_codes = {
-            row.knowledge_point
-            for row in AssignmentKnowledgePoint.query.filter_by(
-                assignment_id=assignment_id
-            ).all()
-        }
-        assignment_labels = {
-            KnowledgePointScore.KNOWLEDGE_POINTS.get(code, code)
-            for code in assignment_codes
-        }
-        rows = [
-            row
-            for row in rows
-            if row.assignment_id == assignment_id
-            or (
-                row.source_type == "knowledge_point_score"
-                and row.source_title in assignment_labels
-            )
-        ]
+    scope_query, filtered_query, assignment_filter_applied = _student_vector_queries(
+        normalized_student_id,
+        assignment_id,
+    )
+    scope_candidate_count = scope_query.count()
+    rows = filtered_query.all()
     query_vector = NgramCountEmbedder().embed(query)
     scored = []
     for row in rows:
@@ -475,6 +492,7 @@ def search_student_learning_vectors(
             "freshness_status": "fresh",
             "revoked_count": revoked_count,
             "index_status": state.status,
+            "scope_filter": "assignment" if assignment_filter_applied else "student",
         },
         "fallback": None
         if evidence

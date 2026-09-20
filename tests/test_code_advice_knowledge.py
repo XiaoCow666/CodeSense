@@ -179,9 +179,14 @@ def test_chat_advice_includes_current_student_learning_memory(
     assert response.status_code == 200
     done = _events(response)[-1]
     evidence = done["student_learning_evidence"]
+    graph = done["student_learning_graph"]
     assert evidence["status"] == "grounded"
     assert evidence["evidence"][0]["scope"] == "student_private"
     assert evidence["evidence"][0]["source_version"]
+    assert graph["status"] == "grounded"
+    assert graph["scope"] == "student_private"
+    assert graph["nodes"]
+    assert all(node["source_versions"] for node in graph["nodes"])
     assert "上次提交仍然需要检查数组边界" in _FakeSharedClient.captured_messages[-1]["content"]
     assert "参考我的学习记录" in done["answer"]
 
