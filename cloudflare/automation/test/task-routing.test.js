@@ -81,6 +81,15 @@ test("online task reconciliation does not create a duplicate active next stage",
   });
 });
 
+test("an existing next-stage record prevents another next-stage record", () => {
+  const completed = { taskName: "阶段十一：维护整理", status: "已完成", assigneeOpenId: "ou_member", assigneeName: "张三", stage: 11 };
+  const existingNext = { taskName: "阶段十二：经验方法", status: "已完成", assigneeOpenId: "ou_member", assigneeName: "张三", stage: 12 };
+  assert.deepEqual(nextStageEligibility([completed, existingNext], completed), {
+    eligible: false,
+    reason: "next_stage_exists",
+  });
+});
+
 test("completed task recovery reports missing metadata instead of silently skipping", () => {
   assert.deepEqual(
     nextStageEligibility([], { taskName: "历史任务", status: "已完成", assigneeOpenId: null, stage: 2 }),
@@ -126,6 +135,41 @@ test("github identity links only one active stage task", () => {
   };
   assert.equal(selectTaskForGithubIdentity([task], "ou_member"), task);
   assert.equal(selectTaskForGithubIdentity([task, { ...task, record_id: "rec_other" }], "ou_member"), null);
+});
+
+test("github identity follows the next stage after the highest completed stage", () => {
+  const staleEarlier = {
+    record_id: "rec_stage_9_old",
+    fields: {
+      "任务名称": "阶段九：旧记录（张三）",
+      "状态": ["待评审"],
+      "负责人": [{ id: "ou_member", name: "张三" }],
+      "任务模式": ["阶段任务"],
+      "GitHub PR / Issue": null,
+    },
+  };
+  const completed = {
+    record_id: "rec_stage_10",
+    fields: {
+      "任务名称": "阶段十：已完成（张三）",
+      "状态": ["已完成"],
+      "负责人": [{ id: "ou_member", name: "张三" }],
+      "任务模式": ["阶段任务"],
+      "GitHub PR / Issue": "https://github.com/XiaoCow666/CodeSense/pull/64",
+    },
+  };
+  const expected = {
+    record_id: "rec_stage_11",
+    fields: {
+      "任务名称": "阶段十一：当前任务（张三）",
+      "状态": ["待开始"],
+      "负责人": [{ id: "ou_member", name: "张三" }],
+      "任务模式": ["阶段任务"],
+      "GitHub PR / Issue": null,
+    },
+  };
+  assert.equal(selectTaskForGithubIdentity([staleEarlier, completed, expected], "ou_member"), expected);
+  assert.deepEqual(memberTaskPlan([staleEarlier, completed, expected], "ou_member"), { action: "keep", record_id: "rec_stage_11" });
 });
 
 test("member reconciliation keeps an active later stage and recovers the missing next stage", () => {

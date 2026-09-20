@@ -142,12 +142,11 @@ export function nextStageEligibility(records, record) {
   if (!snapshot.assigneeOpenId) return { eligible: false, reason: "assignee_missing" };
   if (!snapshot.stage) return { eligible: false, reason: "stage_missing" };
   if (snapshot.stage >= MAX_STAGE) return { eligible: false, reason: "final_stage" };
-  const hasActiveNextStage = (Array.isArray(records) ? records : [])
+  const hasNextStage = (Array.isArray(records) ? records : [])
     .map((item) => item?.taskName ? item : taskRecordSnapshot(item))
     .some((item) => item.assigneeOpenId === snapshot.assigneeOpenId
-      && item.stage === snapshot.stage + 1
-      && item.status !== "已完成");
-  if (hasActiveNextStage) return { eligible: false, reason: "next_stage_exists" };
+      && item.stage === snapshot.stage + 1);
+  if (hasNextStage) return { eligible: false, reason: "next_stage_exists" };
   return {
     eligible: true,
     assigneeOpenId: snapshot.assigneeOpenId,
@@ -167,29 +166,56 @@ export function nextStageForCompletedRecord(records, record) {
 }
 
 export function selectTaskForGithubIdentity(records, assigneeOpenId) {
-  const candidates = (Array.isArray(records) ? records : []).filter((record) => {
-    const snapshot = taskRecordSnapshot(record);
+  const snapshots = (Array.isArray(records) ? records : []).map((record) => ({ record, snapshot: taskRecordSnapshot(record) }));
+  const completedStages = snapshots
+    .filter(({ snapshot }) => snapshot.assigneeOpenId === assigneeOpenId && snapshot.status === "已完成" && snapshot.stage)
+    .map(({ snapshot }) => snapshot.stage);
+  const expectedStage = completedStages.length ? Math.max(...completedStages) + 1 : null;
+  const candidates = snapshots.filter(({ record, snapshot }) => {
     const mode = valueText(record?.fields?.[FIELD_NAMES.mode]);
     return snapshot.assigneeOpenId === assigneeOpenId
       && ACTIVE_TASK_STATUSES.has(snapshot.status)
-      && Boolean(snapshot.stage)
+      && (!expectedStage || snapshot.stage === expectedStage)
       && !snapshot.prUrl
       && (!mode || mode === "阶段任务");
-  });
+  }).map(({ record }) => record);
   return candidates.length === 1 ? candidates[0] : null;
 }
 
 export function memberTaskPlan(records, memberOpenId) {
   const memberRecords = (Array.isArray(records) ? records : [])
-    .filter((record) => taskRecordSnapshot(record).assigneeOpenId === memberOpenId);
-  const active = memberRecords.find((record) => taskRecordSnapshot(record).status !== "已完成");
-  if (active) return { action: "keep", record_id: taskRecordSnapshot(active).recordId };
-  const completedStages = memberRecords
     .map((record) => ({ record, snapshot: taskRecordSnapshot(record) }))
-    .filter(({ snapshot }) => snapshot.status === "已完成" && snapshot.stage)
+    .filter(({ snapshot }) => snapshot.assigneeOpenId === memberOpenId);
+  const active = memberRecords.filter(({ snapshot }) => snapshot.status !== "已完成");
+  const completedStages = memberRecords
+    .filter(({ snapshot }) => snapshot.status === "已完成")
+    .filter(({ snapshot }) => snapshot.stage)
     .sort((left, right) => right.snapshot.stage - left.snapshot.stage);
-  if (!completedStages.length) return { action: "create_stage_one" };
+  if (!completedStages.length) {
+    if (active.length) {
+      const current = active
+        .slice()
+        .sort((left, right) => (right.snapshot.stage || 0) - (left.snapshot.stage || 0))[0];
+      return { action: "keep", record_id: current.snapshot.recordId };
+    }
+    return { action: "create_stage_one" };
+  }
   const latest = completedStages[0];
+  const expectedStage = latest.snapshot.stage + 1;
+  const expectedActive = active.filter(({ snapshot }) => snapshot.stage === expectedStage);
+  if (expectedActive.length) {
+    const current = expectedActive
+      .slice()
+      .sort((left, right) => Number(Boolean(right.snapshot.prUrl)) - Number(Boolean(left.snapshot.prUrl)) || String(left.snapshot.recordId).localeCompare(String(right.snapshot.recordId)))[0];
+    return { action: "keep", record_id: current.snapshot.recordId };
+  }
+  const laterActive = active.filter(({ snapshot }) => snapshot.stage && snapshot.stage > latest.snapshot.stage);
+  if (laterActive.length) {
+    const current = laterActive
+      .slice()
+      .sort((left, right) => (right.snapshot.stage || 0) - (left.snapshot.stage || 0) || String(left.snapshot.recordId).localeCompare(String(right.snapshot.recordId)))[0];
+    return { action: "keep", record_id: current.snapshot.recordId };
+  }
   if (latest.snapshot.stage >= MAX_STAGE) return { action: "complete", reason: "final_stage" };
   return { action: "create_next", record: latest.record, next_stage: latest.snapshot.stage + 1 };
 }
@@ -481,6 +507,16 @@ export async function ensureNextStageTask(env, project, record, records = []) {
   return { created: true, record_id: recordId, next_stage: eligibility.nextStage, assignee_open_id: eligibility.assigneeOpenId, assignee_name: eligibility.assigneeName };
 }
 
+function selectLinkedTaskRecord(records, prUrl, number) {
+  return (Array.isArray(records) ? records : [])
+    .filter((record) => prMatches(record, prUrl, number))
+    .sort((left, right) => {
+      const leftStage = parseStageNumber(valueText(left.fields?.[FIELD_NAMES.title])) || Number.MAX_SAFE_INTEGER;
+      const rightStage = parseStageNumber(valueText(right.fields?.[FIELD_NAMES.title])) || Number.MAX_SAFE_INTEGER;
+      return leftStage - rightStage || String(left.record_id).localeCompare(String(right.record_id));
+    })[0] || null;
+}
+
 function outcomeText(outcome) {
   const review = outcome.review || {};
   const merged = outcome.merged === true || outcome.merge?.merged === true;
@@ -499,7 +535,7 @@ export async function applyGithubOutcome(env, outcome) {
   const records = await listRecords(env, project);
   const prUrl = `https://github.com/${project.repository}/pull/${Number(outcome.number)}`;
   const githubLogin = String(outcome.author_login || "").trim();
-  let record = records.find((item) => prMatches(item, prUrl, outcome.number));
+  let record = selectLinkedTaskRecord(records, prUrl, outcome.number);
   let linkedAutomatically = false;
   if (!record && githubLogin) {
     const identity = await lookupGithubMember(env, project.repository, githubLogin);
@@ -524,8 +560,8 @@ export async function applyGithubOutcome(env, outcome) {
     const currentStage = parseStageNumber(valueText(record.fields[FIELD_NAMES.title]));
     if (currentStage && currentStage < MAX_STAGE) {
       const nextStage = currentStage + 1;
-      const alreadyActive = records.some((item) => assigneeId(item) === assignee && parseStageNumber(valueText(item.fields[FIELD_NAMES.title])) === nextStage && valueText(item.fields[FIELD_NAMES.status]) !== "已完成");
-      if (!alreadyActive) {
+      const nextStageExists = records.some((item) => assigneeId(item) === assignee && parseStageNumber(valueText(item.fields[FIELD_NAMES.title])) === nextStage);
+      if (!nextStageExists) {
         const nextId = await createRecord(env, project, nextTaskFields(project, record, nextStage, assignee, assigneeName, env.FEISHU_BOT_OPEN_ID));
         nextTask = { record_id: nextId, stage: nextStage };
       }

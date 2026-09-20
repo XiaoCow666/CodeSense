@@ -46,9 +46,10 @@ export function feishuDetails(payload) {
   };
 }
 
-export function isDirectMention(payload, botOpenId) {
+export function isDirectMention(payload, botOpenId, botAppId) {
   const details = feishuDetails(payload);
-  if (details.mentions.some((item) => openId(item.id || item.user_id) === botOpenId)) return true;
+  const botIdentifiers = new Set([botOpenId, botAppId].filter(Boolean));
+  if (details.mentions.some((item) => botIdentifiers.has(openId(item.id || item.user_id)))) return true;
   if (!botOpenId) return /@(?:牛顿|CodeX|Codex)/i.test(details.text);
   return false;
 }
@@ -58,8 +59,8 @@ export function isSevereTaskIssue(payload) {
   return /阻塞|无法提交|重复提交|权限申请|权限打不开|任务台.*错误|PR.*冲突|合并失败|一直不通过/i.test(details.text);
 }
 
-export function shouldHandleMessage(payload, botOpenId) {
-  return isDirectMention(payload, botOpenId) || isSevereTaskIssue(payload);
+export function shouldHandleMessage(payload, botOpenId, botAppId) {
+  return isDirectMention(payload, botOpenId, botAppId) || isSevereTaskIssue(payload);
 }
 
 export function normalizeChatMembers(value) {

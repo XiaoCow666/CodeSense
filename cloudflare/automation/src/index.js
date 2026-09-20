@@ -105,7 +105,7 @@ function isGithubEventForConfiguredProject(env, event) {
 
 export function shouldInvokeLuoxin(env, event) {
   if (event.source === "internal" && event.event_type === "reconcile") return Boolean(event.payload?.repository && event.payload?.number);
-  if (event.source === "feishu" && event.event_type === "im.message.receive_v1") return shouldHandleMessage(event.payload, env.FEISHU_BOT_OPEN_ID);
+  if (event.source === "feishu" && event.event_type === "im.message.receive_v1") return shouldHandleMessage(event.payload, env.FEISHU_BOT_OPEN_ID, env.FEISHU_APP_ID);
   if (event.source !== "github" || !isGithubEventForConfiguredProject(env, event)) return false;
   const action = githubAction(event);
   if (event.event_type === "pull_request") return AUTOMATIC_REVIEW_ACTIONS.has(action);
@@ -454,7 +454,7 @@ async function processFeishuEvent(env, event, reviewResult) {
         }),
       );
     }
-    if (!shouldHandleMessage(event.payload, env.FEISHU_BOT_OPEN_ID)) return { handled: false, reason: "ordinary_message" };
+    if (!shouldHandleMessage(event.payload, env.FEISHU_BOT_OPEN_ID, env.FEISHU_APP_ID)) return { handled: false, reason: "ordinary_message" };
     const reference = extractPullRequestReference(details.text, project?.repository);
     let reply = reviewResult?.kind === "message" ? formatMentionReply(reviewResult.reply) : "我收到消息了，但还缺少任务名称、PR 编号或链接。把其中一个发来，我就能继续查。";
     if (reference && isReviewRequest(details.text)) {

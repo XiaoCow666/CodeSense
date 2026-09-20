@@ -11,6 +11,18 @@ test("only a direct bot mention or a severe task issue is handled", () => {
   assert.equal(shouldHandleMessage(severe, "ou_bot"), true);
 });
 
+test("group mentions use the Feishu app id carried by the message", () => {
+  const mention = {
+    event: {
+      message: {
+        content: JSON.stringify({ text: "@牛顿 看一下我的任务" }),
+        mentions: [{ id: "cli_bot", name: "牛顿" }],
+      },
+    },
+  };
+  assert.equal(shouldHandleMessage(mention, "ou_bot", "cli_bot"), true);
+});
+
 test("Feishu event details preserve message and sender identifiers", () => {
   const payload = {
     header: { event_type: "im.message.receive_v1" },
