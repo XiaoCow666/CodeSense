@@ -182,3 +182,9 @@
 
 下一轮候选：向量索引生命周期的重建任务与失败重试、过期学习记忆清理、图谱来源撤回后的离线回归集、学生与教师浏览器登录后的完整角色走查、信息图人工视觉复核。候选进入开发前继续检查数据权限、删除影响和离线指标。
 
+## 收尾核验补充
+
+- 文档收尾提交 `fa8a05d1fe48945878006107dd79969041a82bc7` 已推送到 `origin/main`，生产目录随后从 `b48db23` 更新到该提交；该提交只增加本报告，不改变产品代码。
+- 第二次 `bash /var/www/codesense/update.sh` 返回 0；最终生产 HEAD 与 `origin/main` 均为 `fa8a05d1fe48945878006107dd79969041a82bc7`，生产工作区保持干净。
+- 最终服务状态：`codesense.service`、`codesense-submission-worker.service`、`codesense-ability-worker.service` 均为 `active`。
+- 生产 HTTPS 探针：`/healthz`、`/readyz`、`/login` 均返回 200，`/readyz` 返回 `{"checks":{"database":"ok"},"status":"ready"}`；公开 HTTPS 探针此前也均返回 200。
