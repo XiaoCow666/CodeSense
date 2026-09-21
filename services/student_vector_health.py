@@ -58,7 +58,10 @@ def build_teacher_learning_memory_health(teacher, *, now=None):
             counts["not_built_count"] += 1
             continue
         if state.status == "failed":
-            counts["failed_count"] += 1
+            if state.last_built_at is not None and state.last_built_at <= stale_before:
+                counts["stale_count"] += 1
+            else:
+                counts["failed_count"] += 1
             if state.revision > 0 and state.source_count > 0:
                 counts["previous_revision_count"] += 1
             continue

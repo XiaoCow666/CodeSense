@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from tests.test_learning_graph import learning_graph_context
 
 from models import StudentVectorIndexState, User, db
@@ -94,6 +96,33 @@ def test_teacher_dashboard_renders_learning_memory_health_and_scope(
     assert "仅统计当前管理班级" in body
     assert "需要更新" in body
     assert ids["outside_student"] not in body
+
+
+def test_teacher_learning_memory_health_marks_old_failure_as_stale(
+    learning_graph_context,
+):
+    app, ids = learning_graph_context
+    with app.app_context():
+        from datetime import datetime
+
+        now = datetime.utcnow()
+        db.session.add(
+            StudentVectorIndexState(
+                student_id=ids["student_one"],
+                revision=1,
+                status="failed",
+                source_count=1,
+                last_built_at=now - timedelta(days=31),
+                failure_code="EMBEDDING_FAILED",
+            )
+        )
+        db.session.commit()
+        teacher = db.session.get(User, ids["teacher"])
+        health = build_teacher_learning_memory_health(teacher, now=now)
+
+    assert health["stale_count"] == 1
+    assert health["failed_count"] == 0
+    assert health["previous_revision_count"] == 1
 
 
 def test_admin_dashboard_does_not_receive_teacher_learning_memory_panel(
