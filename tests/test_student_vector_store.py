@@ -23,6 +23,7 @@ from services.student_vector_store import (
     revoke_student_vector_source,
     search_student_learning_vectors,
 )
+from services import student_vector_store
 
 
 @pytest.fixture
@@ -547,3 +548,66 @@ def test_student_home_shows_vector_state_and_rebuilds_only_for_the_student(
     assert "我的学习记忆" in body
     assert "已建立" in body
     assert ids["student_two"] not in body
+
+
+def test_rebuild_keeps_revision_when_sources_are_unchanged(
+    seeded_student_vector_context,
+):
+    app, ids = seeded_student_vector_context
+    with app.app_context():
+        first = rebuild_student_vector_index(ids["student_one"])
+        second = rebuild_student_vector_index(ids["student_one"])
+
+        assert second["revision"] == first["revision"]
+        assert second["active_count"] == first["active_count"]
+
+
+def test_rebuild_marks_old_revoked_rows_expired_without_querying_them(
+    seeded_student_vector_context,
+):
+    app, ids = seeded_student_vector_context
+    with app.app_context():
+        rebuild_student_vector_index(ids["student_one"])
+        revoke_student_vector_source(
+            ids["student_one"],
+            "submission_feedback",
+            f"submission:{ids['submission_one']}",
+        )
+        row = StudentLearningVector.query.filter_by(
+            student_id=ids["student_one"],
+            source_type="submission_feedback",
+        ).first()
+        row.revoked_at = datetime.utcnow() - timedelta(days=31)
+        db.session.commit()
+
+        snapshot = rebuild_student_vector_index(ids["student_one"])
+        result = search_student_learning_vectors(ids["student_one"], "递归")
+
+        assert snapshot["expired_count"] >= 1
+        assert result["status"] == "grounded"
+        assert all(item["source_id"] != row.source_id for item in result["evidence"])
+        assert row.status == "expired"
+
+
+def test_retry_entrypoint_retries_after_a_build_failure(
+    seeded_student_vector_context,
+):
+    app, ids = seeded_student_vector_context
+    with app.app_context():
+        calls = {"count": 0}
+
+        class RetryEmbedder:
+            def embed(self, text):
+                calls["count"] += 1
+                if calls["count"] == 1:
+                    raise ValueError("transient embedding error")
+                return {"递": 1.0}
+
+        result = student_vector_store.rebuild_student_vector_index_with_retry(
+            ids["student_one"],
+            embedder=RetryEmbedder(),
+            max_attempts=2,
+        )
+
+        assert result["status"] == "ready"
+        assert calls["count"] >= 2
