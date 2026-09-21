@@ -28,6 +28,7 @@ from services.learning_graph import (
     build_teacher_knowledge_focus,
     build_teacher_knowledge_coverage,
 )
+from services.student_vector_health import build_teacher_learning_memory_health
 from services.demo_database import current_demo_run_id
 from services.feedback import (
     FEEDBACK_CATEGORIES,
@@ -642,6 +643,8 @@ def teacher_dashboard():
             getattr(g, 'codesense_request_id', None),
         )
         learning_graph = _learning_graph_fallback('teacher_class')
+
+    learning_memory_health = build_teacher_learning_memory_health(teacher)
     
     from models import TeacherAISuggestion
     ai_suggestions = {sug.class_id: sug for sug in TeacherAISuggestion.query.filter_by(teacher_id=teacher.student_id).all()}
@@ -660,6 +663,7 @@ def teacher_dashboard():
                            attention=dashboard['attention'],
                            chart_data=dashboard['chart_data'],
                            learning_graph=learning_graph,
+                           learning_memory_health=learning_memory_health,
                            ai_suggestions=ai_suggestions,
                            open_review_count=open_review_count)
 
