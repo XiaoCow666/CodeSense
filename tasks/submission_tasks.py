@@ -100,9 +100,9 @@ def _refresh_user_stats(student_id: str) -> None:
 def refresh_student_learning_index(student_id):
     """Refresh the persisted learning index after a submission is evaluated."""
 
-    from services.student_vector_store import rebuild_student_vector_index
+    from services.student_vector_store import rebuild_student_vector_index_with_retry
 
-    return rebuild_student_vector_index(student_id)
+    return rebuild_student_vector_index_with_retry(student_id)
 
 
 def mark_submission_failed(submission_id: int, message: str) -> None:

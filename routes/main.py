@@ -56,7 +56,7 @@ from services.student_vector_store import (
     StudentVectorRebuildError,
     get_student_vector_snapshot,
     list_student_learning_sources,
-    rebuild_student_vector_index,
+    rebuild_student_vector_index_with_retry,
     revoke_student_vector_source,
 )
 from utils.auth import admin_required
@@ -569,7 +569,7 @@ def rebuild_student_learning_memory():
         return redirect(url_for('main.home'))
 
     try:
-        snapshot = rebuild_student_vector_index(current_user.student_id)
+        snapshot = rebuild_student_vector_index_with_retry(current_user.student_id)
     except StudentVectorRebuildError:
         flash('学习记忆更新失败，原有记录仍然保留，请稍后重试。', 'danger')
     else:

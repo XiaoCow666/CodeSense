@@ -5,6 +5,7 @@ from sqlalchemy import event
 
 from app import create_app
 from config import TestingConfig
+from routes import main as main_routes
 from models import (
     Assignment,
     KnowledgePointScore,
@@ -523,6 +524,32 @@ def test_submission_refresh_entrypoint_builds_the_same_student_index(
         assert result["active_count"] == result["source_count"]
 
 
+def test_submission_refresh_entrypoint_uses_bounded_retry_service(
+    seeded_student_vector_context,
+    monkeypatch,
+):
+    app, ids = seeded_student_vector_context
+    calls = []
+
+    def rebuild(student_id):
+        calls.append(student_id)
+        return {"status": "ready", "source_count": 2, "active_count": 2}
+
+    monkeypatch.setattr(
+        student_vector_store,
+        "rebuild_student_vector_index_with_retry",
+        rebuild,
+    )
+
+    from tasks.submission_tasks import refresh_student_learning_index
+
+    with app.app_context():
+        result = refresh_student_learning_index(ids["student_one"])
+
+    assert result["status"] == "ready"
+    assert calls == [ids["student_one"]]
+
+
 def test_student_home_shows_vector_state_and_rebuilds_only_for_the_student(
     seeded_student_vector_context,
 ):
@@ -548,6 +575,72 @@ def test_student_home_shows_vector_state_and_rebuilds_only_for_the_student(
     assert "我的学习记忆" in body
     assert "已建立" in body
     assert ids["student_two"] not in body
+
+
+def test_student_rebuild_route_uses_bounded_retry_entrypoint(
+    seeded_student_vector_context,
+    monkeypatch,
+):
+    app, ids = seeded_student_vector_context
+    calls = []
+
+    def rebuild(student_id):
+        calls.append(student_id)
+        return {"status": "ready", "active_count": 2}
+
+    monkeypatch.setattr(
+        main_routes,
+        "rebuild_student_vector_index_with_retry",
+        rebuild,
+    )
+
+    client = app.test_client()
+    login = client.post(
+        "/login",
+        data={"username": ids["student_one"], "password": "password"},
+    )
+    assert login.status_code in {302, 303}
+    response = client.post(
+        "/student/rebuild-learning-memory",
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert calls == [ids["student_one"]]
+    assert "学习记忆已更新" in response.get_data(as_text=True)
+
+
+def test_student_home_explains_expired_sources_without_offering_revoke(
+    seeded_student_vector_context,
+):
+    app, ids = seeded_student_vector_context
+    with app.app_context():
+        rebuild_student_vector_index(ids["student_one"])
+        revoke_student_vector_source(
+            ids["student_one"],
+            "submission_feedback",
+            f"submission:{ids['submission_one']}",
+        )
+        row = StudentLearningVector.query.filter_by(
+            student_id=ids["student_one"],
+            source_type="submission_feedback",
+        ).first()
+        row.revoked_at = datetime.utcnow() - timedelta(days=31)
+        db.session.commit()
+        rebuild_student_vector_index(ids["student_one"])
+
+    client = app.test_client()
+    login = client.post(
+        "/login",
+        data={"username": ids["student_one"], "password": "password"},
+    )
+    assert login.status_code in {302, 303}
+    response = client.get("/home")
+    body = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "已过期" in body
+    assert "保留审计" in body
 
 
 def test_rebuild_keeps_revision_when_sources_are_unchanged(

@@ -30,7 +30,7 @@
     {% elif memory.get('status') == 'failed' %}
     <div class="student-learning-memory-panel__state is-warning" role="alert">
         <strong>更新失败</strong>
-        <span>原有学习记录仍然保留，可以再次尝试更新。</span>
+        <span>原有学习记录仍然保留，AI 辅导会标明当前使用上一版记录；可以再次尝试更新。</span>
     </div>
     {% elif memory.get('status') == 'empty' %}
     <div class="student-learning-memory-panel__state" role="status">
@@ -47,6 +47,9 @@
     <div class="student-learning-memory-panel__meta" aria-label="学习记忆索引信息">
         <span>版本 <strong>{{ memory.get('revision', 0) }}</strong></span>
         <span>来源 <strong>{{ memory.get('active_count', 0) }}</strong></span>
+        {% if memory.get('expired_count', 0) %}
+        <span>已过期 <strong>{{ memory.get('expired_count', 0) }}</strong></span>
+        {% endif %}
         {% if memory.get('last_built_at') %}
         <span>更新时间 <strong>{{ memory.get('last_built_at')|replace('T', ' ')|truncate(19, True, '') }}</strong></span>
         {% endif %}
@@ -76,7 +79,9 @@
                         · 版本 {{ source.get('source_version') }}
                     </small>
                 </div>
-                {% if source.get('status') == 'revoked' %}
+                {% if source.get('status') == 'expired' %}
+                <span class="text-muted small" role="status">已过期，保留审计，不参与 AI 查询</span>
+                {% elif source.get('status') == 'revoked' %}
                 <span class="text-muted small" role="status">{{ '已撤回' if source.get('revoke_reason') == 'user_revoked' else '来源已移除' }}</span>
                 {% else %}
                 <form method="post" action="{{ url_for('main.revoke_student_learning_memory_source') }}">
