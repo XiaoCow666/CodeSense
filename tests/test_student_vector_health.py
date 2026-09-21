@@ -94,3 +94,19 @@ def test_teacher_dashboard_renders_learning_memory_health_and_scope(
     assert "仅统计当前管理班级" in body
     assert "需要更新" in body
     assert ids["outside_student"] not in body
+
+
+def test_admin_dashboard_does_not_receive_teacher_learning_memory_panel(
+    learning_graph_context,
+):
+    app, ids = learning_graph_context
+    client = app.test_client()
+    login = client.post(
+        "/login",
+        data={"username": ids["admin"], "password": "password"},
+        follow_redirects=True,
+    )
+    body = login.get_data(as_text=True)
+
+    assert login.status_code == 200
+    assert "班级学习记录索引" not in body
