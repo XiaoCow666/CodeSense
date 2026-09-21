@@ -31,7 +31,7 @@
 - Consumes: 现有 `seeded_student_vector_context`、`rebuild_student_vector_index`、`search_student_learning_vectors`、`project_student_learning_evidence`。
 - Produces: 可证明无变化短路、软过期、失败后上一版可用、AI 回执状态字段的失败测试。
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 在 `tests/test_student_vector_store.py` 增加以下行为：
 
@@ -86,13 +86,13 @@ def test_retry_entrypoint_retries_after_a_build_failure(seeded_student_vector_co
 
 在 `tests/test_knowledge_rag.py` 增加一个失败状态检索投影测试，构造已有 revision 后把 `StudentVectorIndexState.status` 写为 `failed`，断言查询仍返回旧 evidence，投影包含 `index_status == "failed"` 和 `freshness_status == "previous_revision"`。
 
-- [ ] **Step 2: Run the focused tests to verify they fail**
+- [x] **Step 2: Run the focused tests to verify they fail**
 
 Run: `python -m pytest tests/test_student_vector_store.py tests/test_knowledge_rag.py -q`
 
 Expected: FAIL because the retry entrypoint, expired count, idempotent revision behavior and receipt status fields do not exist yet.
 
-- [ ] **Step 3: Commit the red tests**
+- [x] **Step 3: Commit the red tests**
 
 Run: `git add tests/test_student_vector_store.py tests/test_knowledge_rag.py && git commit -m "test: define learning memory recovery behavior"`
 
@@ -106,7 +106,7 @@ Run: `git add tests/test_student_vector_store.py tests/test_knowledge_rag.py && 
 - Consumes: existing source builders, `StudentVectorIndexState`, `StudentLearningVector`, `StudentVectorRebuildError`。
 - Produces: `EXPIRED`、`REVOKED_SOURCE_RETENTION_DAYS`、`rebuild_student_vector_index_with_retry()`、snapshot `expired_count` and `has_usable_previous_revision`。
 
-- [ ] **Step 1: Implement the minimum service behavior**
+- [x] **Step 1: Implement the minimum service behavior**
 
 在 `services/student_vector_store.py` 中：
 
@@ -117,13 +117,13 @@ Run: `git add tests/test_student_vector_store.py tests/test_knowledge_rag.py && 
 5. 增加只捕获 `StudentVectorRebuildError` 的有界重试函数；最后一次失败继续抛出原错误。
 6. 让快照返回 expired 数量和上一版是否可用；检索候选仍只来自 active 行。
 
-- [ ] **Step 2: Run the focused tests to verify they pass**
+- [x] **Step 2: Run the focused tests to verify they pass**
 
 Run: `python -m pytest tests/test_student_vector_store.py -q`
 
 Expected: PASS for the lifecycle, scope, retry, stale and source governance cases.
 
-- [ ] **Step 3: Commit the service change**
+- [x] **Step 3: Commit the service change**
 
 Run: `git add services/student_vector_store.py tests/test_student_vector_store.py && git commit -m "feat: recover student learning indexes safely"`
 
@@ -137,17 +137,17 @@ Run: `git add services/student_vector_store.py tests/test_student_vector_store.p
 - Consumes: retrieval `metrics.index_status` and `metrics.freshness_status`。
 - Produces: JSON/SSE evidence projection fields and readable receipt text for previous-revision fallback.
 
-- [ ] **Step 1: Implement projection and receipt assertions**
+- [x] **Step 1: Implement projection and receipt assertions**
 
 Extend `project_student_learning_evidence()` with `index_status` and `freshness_status`. Extend `render_student_learning_receipt()` so a grounded result whose state is `failed` says that the previous usable version is being used and the student can retry from the home page. Preserve the existing response keys and SSE done event shape.
 
-- [ ] **Step 2: Run the AI focused tests**
+- [x] **Step 2: Run the AI focused tests**
 
 Run: `python -m pytest tests/test_knowledge_rag.py tests/test_code_advice_knowledge.py -q`
 
 Expected: PASS with both JSON and SSE consumers retaining the original answer fields and receiving the new additive receipt fields.
 
-- [ ] **Step 3: Commit the AI integration**
+- [x] **Step 3: Commit the AI integration**
 
 Run: `git add services/student_vector_store.py tests/test_knowledge_rag.py && git commit -m "feat: explain learning index recovery in AI receipts"`
 
@@ -164,17 +164,17 @@ Run: `git add services/student_vector_store.py tests/test_knowledge_rag.py && gi
 - Consumes: `rebuild_student_vector_index_with_retry()`。
 - Produces: student home retry action, failure/expired state copy, and submission refresh using the same service entrypoint.
 
-- [ ] **Step 1: Implement route, worker and template wiring**
+- [x] **Step 1: Implement route, worker and template wiring**
 
 Use the retry entrypoint in `rebuild_student_learning_memory()` and `refresh_student_learning_index()`. In the student panel, show expired source count, label expired sources as retained for audit and excluded from AI queries, and keep the update button keyboard accessible with `role=status`/`role=alert` state containers.
 
-- [ ] **Step 2: Run route and worker tests**
+- [x] **Step 2: Run route and worker tests**
 
 Run: `python -m pytest tests/test_student_vector_store.py tests/test_submission_worker.py -q`
 
 Expected: PASS, including the existing formal submission refresh and student source revoke paths.
 
-- [ ] **Step 3: Commit the student workflow**
+- [x] **Step 3: Commit the student workflow**
 
 Run: `git add routes/main.py tasks/submission_tasks.py templates/components/student_learning_memory.html tests/test_student_vector_store.py tests/test_submission_worker.py && git commit -m "feat: connect learning index retry to student workflows"`
 
@@ -191,27 +191,27 @@ Run: `git add routes/main.py tasks/submission_tasks.py templates/components/stud
 - Consumes: managed class membership, `StudentVectorIndexState` and `INDEX_STALE_AFTER_DAYS`。
 - Produces: `build_teacher_learning_memory_health(teacher, now=None)` with only aggregate counts and a teacher dashboard panel.
 
-- [ ] **Step 1: Write the failing service and route tests**
+- [x] **Step 1: Write the failing service and route tests**
 
 Create a fixture with two students in a managed class, one ready state, one failed state with a previous revision, and one student in an unmanaged class. Assert the result contains total, ready, stale, failed and not-built counts, while no student identifier or source identifier appears in the returned structure or rendered teacher page. Add an admin request check that the teacher-only aggregate does not appear on the admin home.
 
-- [ ] **Step 2: Run the new tests to verify they fail**
+- [x] **Step 2: Run the new tests to verify they fail**
 
 Run: `python -m pytest tests/test_student_vector_health.py tests/test_learning_graph.py -q`
 
 Expected: FAIL because the service, dashboard context and panel do not exist.
 
-- [ ] **Step 3: Implement the aggregate service and page**
+- [x] **Step 3: Implement the aggregate service and page**
 
 Filter students by the teacher's managed classes before reading index states. Treat a recent ready state as ready, a ready or failed state older than the stale window as stale, a failed state with a revision as failed-with-previous, and missing state as not-built. Pass the result only to the teacher dashboard and render aggregate counts with a link to the existing knowledge coverage panel.
 
-- [ ] **Step 4: Run the new tests to verify they pass**
+- [x] **Step 4: Run the new tests to verify they pass**
 
 Run: `python -m pytest tests/test_student_vector_health.py tests/test_learning_graph.py -q`
 
 Expected: PASS with no private source fields in the service result or HTML.
 
-- [ ] **Step 5: Commit the teacher workflow**
+- [x] **Step 5: Commit the teacher workflow**
 
 Run: `git add services/student_vector_health.py routes/main.py templates/teacher_home.html tests/test_student_vector_health.py tests/test_learning_graph.py && git commit -m "feat: show teacher learning memory coverage"`
 
@@ -227,17 +227,17 @@ Run: `git add services/student_vector_health.py routes/main.py templates/teacher
 - Consumes: completed student, AI and teacher workflows plus test evidence。
 - Produces: user-facing v1.8.0 description and redacted internal run record.
 
-- [ ] **Step 1: Run focused and full verification**
+- [x] **Step 1: Run focused and full verification**
 
 Run: `python -m pytest tests/test_student_vector_store.py tests/test_student_vector_health.py tests/test_knowledge_rag.py tests/test_code_advice_knowledge.py tests/test_learning_graph.py tests/test_submission_worker.py -q`, `python -m pytest -q`, `python -m compileall -q services routes tasks tests`, `node --check static/js/knowledge-evidence.js`, and `git diff --check`.
 
 Expected: all affected tests and the full tracked suite exit with code 0; existing warning classes are recorded without suppressing them.
 
-- [ ] **Step 2: Perform role and fusion checks**
+- [x] **Step 2: Perform role and fusion checks**
 
 Use Flask test clients with isolated databases for student, teacher and administrator paths. Check empty, failed, stale, revoked and expired states; verify JSON/SSE additive fields, worker refresh, teacher aggregation, unauthorized source access and absence of private identifiers. Check rendered HTML for keyboard form controls, status roles and narrow-width-safe text structure without using image inspection.
 
-- [ ] **Step 3: Update release documents and run report**
+- [x] **Step 3: Update release documents and run report**
 
 Update README and CHANGELOG with v1.8.0 user benefits. Generate the required information graphic, inspect the generated result through the native media result, then record the final checksum, release link, deployment checks, rollback point and any unresolved visual or production gate in the redacted run report.
 
