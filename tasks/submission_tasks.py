@@ -6,6 +6,7 @@ import json
 import logging
 import threading
 import time
+from contextlib import nullcontext
 
 from models import Assignment, Submission, SystemLog, TestCase as TC, User, db
 from services.demo_database import activate_demo_run, is_active_demo_run
@@ -151,7 +152,14 @@ def evaluate_submission_async(
 
     def _evaluate():
         started_at = time.perf_counter()
-        with app.app_context():
+        from flask import current_app, has_app_context
+
+        evaluation_context = (
+            nullcontext()
+            if has_app_context() and current_app._get_current_object() is app
+            else app.app_context()
+        )
+        with evaluation_context:
             _log_submission_evaluation_event("started", submission_id, started_at)
             if demo_run_id and not activate_demo_run(demo_run_id):
                 print("公开体验会话已失效，跳过提交评测")
