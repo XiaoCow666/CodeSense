@@ -87,7 +87,8 @@
 - 部署后核验：`codesense.service`、`codesense-submission-worker.service`、`codesense-ability-worker.service` 均 active；服务器本机 HTTPS 的 `/healthz`、`/readyz`、`/login` 均返回 200，`/readyz` 数据库检查为 ok。
 - GitHub Release：已创建 [v1.8.0](https://github.com/XiaoCow666/CodeSense/releases/tag/v1.8.0)，目标提交为 `2d8f70b3b10fcb3f196ee3f3a5b989bed7e43f1c`，信息图资源 SHA-256 为 `8ae80184b29c8e198b5efc3be12f80d09782edca79bfde46348931c773ee40f8`。
 - 飞书消息：机器人“牛顿不讲理·CodeX”已确认在两个目标群内；CodeSense 研发协作消息为 `om_x100b6416ad1e18b4c343e44d48940d5`，CoDeBuGo 总群消息为 `om_x100b6416ad1ec48cc3801e2bb7020a3`，两条消息使用同一版用户说明和信息图。
-- 项目知识库：已更新 [CodeSense 项目文档](https://hcnohkzwsogo.feishu.cn/docx/HyhsdpRUgomhknxEgCvcApgungd)，revision 为 `27`，已回读确认 v1.8.0 章节、Release 链接、内部证据和信息图资源。
+- 项目知识库：已更新 [CodeSense 项目文档](https://hcnohkzwsogo.feishu.cn/docx/HyhsdpRUgomhknxEgCvcApgungd)，revision 为 `28`，已回读确认 v1.8.0 章节、Release 链接、内部证据和信息图资源。
+- 回退点：`9a6b63599ba1f7451304d1a784f621b6c354f03d`；需要恢复时重新部署该已验证提交，并复查服务状态。
 - 报告收口提交：本文件所在提交随本轮部署发布，完整 SHA 写入自动化记忆；产品 Release 仍指向上述产品目标提交。
 - 当前发布判定：自审通过，v1.8.0 已发布，外部介绍、项目知识库和部署核验均已完成。
 
