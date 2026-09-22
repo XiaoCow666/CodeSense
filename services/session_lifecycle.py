@@ -187,8 +187,19 @@ def _stage_progress(session, lifecycle_status):
 
 
 def session_lifecycle_payload(session, *, now=None, last_activity_at=None):
-    """Build a safe, content-free lifecycle payload for UI and teacher views."""
+    """Build a safe, content-free lifecycle payload for UI and teacher views.
+
+    ``last_activity_at`` 通常由批量场景的调用者一次性查出再传入，避免 N+1；
+    单 session 调用者可以不传，函数内部会基于 ``session.id`` 自查一次最近
+    活动时间。这样调用者不必在每个调用点重复写
+    ``last_activity_at=latest_session_activity([id]).get(id)``，也不会因为
+    漏传而退化成用 started_at 判 idle（刚活动的会话被误判空闲）。
+    """
     current_time = _utc_now(now)
+    if last_activity_at is None:
+        session_id = getattr(session, "id", None)
+        if session_id is not None:
+            last_activity_at = latest_session_activity([session_id]).get(session_id)
     lifecycle_status = session_lifecycle_status(
         session,
         now=current_time,

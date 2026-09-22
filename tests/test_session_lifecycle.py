@@ -197,3 +197,62 @@ def test_can_view_session_limits_teacher_to_owner_or_managed_class():
     assert can_view_session(admin, session) is True
     assert can_view_session(teacher, session) is True
     assert can_view_session(other_teacher, session) is False
+
+
+def test_payload_self_fetches_latest_activity_when_omitted(monkeypatch):
+    """单 session 调用者不传 last_activity_at 时，payload 应自查最近活动。
+
+    维护痛点：此前每个单 session 调用者都要手写
+    ``last_activity_at=latest_session_activity([id]).get(id)``，漏传就会
+    退化成用 started_at 判 idle（刚活动的会话被误判 idle）。改为 payload
+    内部自查后，调用者不再需要重复这行。
+    """
+    from services import session_lifecycle
+
+    calls = []
+    logged_activity = UTC_NOW - timedelta(minutes=2)
+
+    def fake_latest_activity(ids):
+        calls.append(list(ids))
+        return {7: logged_activity}
+
+    monkeypatch.setattr(
+        session_lifecycle, "latest_session_activity", fake_latest_activity
+    )
+
+    payload = session_lifecycle.session_lifecycle_payload(
+        _session(),  # id=7, started_at=UTC_NOW-5min
+        now=UTC_NOW,
+    )
+
+    # 用 session.id 自查一次
+    assert calls == [[7]]
+    # last_activity_at 取日志时间，而非 started_at
+    assert payload["last_activity_at"] == logged_activity.strftime("%Y-%m-%dT%H:%M:%SZ")
+    # activity_age 基于日志时间计算（约 2 分钟），不是 started_at 的 5 分钟
+    assert 110 <= payload["activity_age_seconds"] <= 130
+
+
+def test_payload_keeps_provided_activity_without_extra_query(monkeypatch):
+    """批量场景显式传 last_activity_at 时，不再自查，避免 N+1。"""
+    from services import session_lifecycle
+
+    calls = []
+
+    def fake_latest_activity(ids):
+        calls.append(list(ids))
+        return {}
+
+    monkeypatch.setattr(
+        session_lifecycle, "latest_session_activity", fake_latest_activity
+    )
+
+    provided = UTC_NOW - timedelta(minutes=3)
+    payload = session_lifecycle.session_lifecycle_payload(
+        _session(),
+        now=UTC_NOW,
+        last_activity_at=provided,
+    )
+
+    assert calls == []  # 没有触发自查
+    assert payload["last_activity_at"] == provided.strftime("%Y-%m-%dT%H:%M:%SZ")
