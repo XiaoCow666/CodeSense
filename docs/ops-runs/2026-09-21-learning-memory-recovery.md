@@ -23,7 +23,7 @@
 - 主工作区 `E:\CodeSense\源代码` 的用户改动已读取并保留：48 个 tracked 文件有未提交改动，另有 `tests/test_question_bank_features.py` 与 `utils/scoring.py` 两个未跟踪文件。改动内容集中在评分范围、题库批量功能、教师快照筛选与相关模板测试。
 - 上述主工作区改动没有复制到本轮候选，也没有执行覆盖、清理、暂存或回退操作。它们仍属于用户候选，待后续独立融合。
 - 候选工作树：`E:\CodeSense\源代码\.worktrees\learning-memory-rebuild-20260921`，基于 `9a6b635` 创建，当前候选提交包含文档、服务、路由、模板、worker 与测试。
-- 运行期间远端 `main` 前进至 `aeba547b3df089ff27a8a7bd6db14d7617bd0a06`，新增内容位于 `cloudflare/automation`，与本轮学习记忆文件无文件重叠。集成工作树需要以该远端提交为基础。
+- 运行期间远端 `main` 前进至 `949ba901d270c2b335249fd3fa47b6f969b93353`，包含 Cloudflare 自动化和首页作业查询性能提交。集成工作树已带入这些远端内容，路由修改与本轮学生学习记忆改动完成融合。
 
 ## 独立交付项
 
@@ -40,6 +40,9 @@
 11. 教师班级学习记录汇总。用户价值：教师从一个入口看到管理班级内 ready、stale、failed 和未构建数量。受影响端：教师首页、班级知识覆盖。变更文件：`services/student_vector_health.py`、`routes/main.py`、`templates/teacher_home.html`、`tests/test_student_vector_health.py`。融合入口：教师首页 `班级学习记录索引` 面板。验收证据：`test_teacher_learning_memory_health_uses_managed_class_aggregate`、`test_teacher_dashboard_renders_learning_memory_health_and_scope`。必要性：教师需要行动优先级，页面只提供聚合数字。发布状态：候选完成，等待集成。回退方式：移除教师首页聚合上下文与面板。
 12. 教师与管理员作用域隔离。用户价值：教师只看到管理班级汇总，管理员首页不会意外获得教师专用数据。受影响端：教师首页、管理员首页、权限过滤。变更文件：`services/student_vector_health.py`、`routes/main.py`、`templates/teacher_home.html`、`tests/test_student_vector_health.py`、`tests/test_learning_graph.py`。融合入口：managed class 查询与 dashboard 角色分支。验收证据：`test_teacher_dashboard_renders_learning_memory_health_and_scope`、`test_admin_dashboard_does_not_receive_teacher_learning_memory_panel`。必要性：学生私有来源不能跨角色展示。发布状态：候选完成，等待集成。回退方式：恢复教师页面原有上下文。
 13. 学生向量离线检索评测。用户价值：每次重建和查询规则变化都能复现召回与作用域安全结果。受影响端：向量服务、发布复审。变更文件：`services/student_vector_eval.py`、`tests/test_student_vector_eval.py`。融合入口：离线 fixture 评测命令。验收证据：`1 passed`；5 条来源中 active 3、revoked 1、expired 1，4 次查询 `recall_at_1=0.75`、`recall_at_k=1.0`、跨作用域命中 0、撤回命中 0、状态不匹配 0。必要性：向量检索结果需要可重复检查。发布状态：候选完成，等待集成。回退方式：保留评测 fixture，回退查询实现后重新比较指标。
+14. demo 测试数据库隔离。用户价值：学生、教师和公开体验路径的测试使用独立临时库，避免共享测试库状态影响发布判断。受影响端：学生 demo 登录、教师 demo 登录、公开提交体验的回归验证。变更文件：`tests/demo_test_utils.py`。融合入口：`create_test_app()` 与 `destroy_test_app()`。验收证据：demo 登录、会话绑定和提交隔离组合 `10 passed`；完整集成套件 `850 passed`。必要性：角色走查证据必须可重复，临时数据库需要在应用创建前绑定并在清理时释放连接池。发布状态：候选完成，等待集成。回退方式：恢复旧测试工具；不改变生产代码和用户数据。
+
+- 当前状态修订：第 1–14 项均已在最新远端集成工作树复验，发布状态统一为“集成完成，等待生产门禁”。
 
 ## 三条主流程闭环
 
@@ -59,9 +62,10 @@
 ## 测试与质量分类
 
 - 基线：候选初始完整套件为 `837 passed`。
-- 失败分类：首次完整套件出现 1 个 worker 会话状态失败；确认是嵌套 Flask 应用上下文产生旧会话对象，已通过复用同一应用上下文修复。
-- 当前完整套件：`850 passed`，退出代码 0，耗时 8 分 40 秒。
+- 失败分类：第一次集成完整套件出现 3 个 demo 数据库失败；确认是测试工具在应用创建后才覆盖数据库 URI，随后又因连接池未释放导致临时库无法删除。修复后 demo 组合为 `10 passed`。
+- 当前完整套件：`850 passed`，退出代码 0，耗时 11 分 06 秒。
 - 受影响主流程组：`64 passed`，退出代码 0，耗时 2 分 11 秒。
+- Cloudflare 自动化套件：`37 passed`，退出代码 0。
 - 离线评测：`1 passed`，召回、撤回过滤、跨作用域过滤与状态一致性均通过。
 - 静态检查：`compileall`、`node --check static/js/knowledge-evidence.js`、`git diff --check` 均通过。
 - 警告分类：现有 Werkzeug/AST、SQLAlchemy Query API、UTC 时间接口、Flask session 属性、fakeredis 和表删除外键循环提示；本轮没有关闭警告或修改测试以制造通过结果。
@@ -72,11 +76,11 @@
 - README：增加学习记忆恢复与教学闭环信息图、学生与教师可见收益说明。
 - CHANGELOG：增加学生重试、上一版记录、撤回/过期过滤、教师聚合入口说明。
 - 信息图：`docs/assets/codesense-v1.8.0-learning-memory-recovery.png`。使用 GPT Image/ImageGen 生成，已通过原生媒体结果检查文字可读性、裁切、错字和主题一致性。
-- 当前候选代码提交：`f973b7f`；发布材料和运行报告提交完成后，以集成工作树的完整提交作为部署候选。
+- 当前候选代码提交：产品候选 `f973b7f`，集成合并提交 `0e0c76383782863b1c3d7877aa55da9d62021cdc`，测试隔离修复提交 `b2db945`；运行报告收口提交随后生成。
 
 ## 发布、部署与外部同步
 
-- 远端基线：`origin/main=aeba547b3df089ff27a8a7bd6db14d7617bd0a06`，集成工作树必须从此提交创建。
+- 远端基线：`origin/main=949ba901d270c2b335249fd3fa47b6f969b93353`，集成工作树已从该提交融合候选。
 - 生产目标：已通过 Workbench 列出 `cn-heyuan` 的 `i-f8zbujornnh55dsydozz`，实例状态为 `Running`；部署目录固定为 `/var/www/codesense`。
 - 预部署只读检查、`update.sh`、线上 commit、应用与 worker 状态、`/healthz`、`/readyz`、公开探针：待集成提交完成后执行并记录结果。
 - GitHub Release：待部署核验通过后创建 `v1.8.0`，正文只描述学生、教师和 AI 辅导收到的用户收益。
