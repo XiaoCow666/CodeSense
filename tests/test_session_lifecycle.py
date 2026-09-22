@@ -256,3 +256,36 @@ def test_payload_keeps_provided_activity_without_extra_query(monkeypatch):
 
     assert calls == []  # 没有触发自查
     assert payload["last_activity_at"] == provided.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def test_payload_explicit_none_activity_skips_query_and_falls_back_to_started_at(monkeypatch):
+    """显式传入 last_activity_at=None 不得触发自查。
+
+    批量调用者先 latest_session_activity([...]) 一次查出映射，未命中的
+    会话得到 None 后会显式传入。若 payload 把显式 None 当成"省略参数"
+    再次自查，教师概览等列表就会为每个无活动记录的会话额外发一次查询
+    （N+1）。显式 None 必须保留改前行为：不查询，按现有规则回退到
+    started_at。
+    """
+    from services import session_lifecycle
+
+    calls = []
+
+    def fake_latest_activity(ids):
+        calls.append(list(ids))
+        return {}
+
+    monkeypatch.setattr(
+        session_lifecycle, "latest_session_activity", fake_latest_activity
+    )
+
+    payload = session_lifecycle.session_lifecycle_payload(
+        _session(),  # started_at = UTC_NOW - 5min
+        now=UTC_NOW,
+        last_activity_at=None,
+    )
+
+    assert calls == []  # 显式 None 与省略参数不同：不执行查询
+    # 回退到改前既有规则：以 started_at 作为活动时间
+    assert payload["last_activity_at"] == (UTC_NOW - timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    assert 290 <= payload["activity_age_seconds"] <= 310
