@@ -23,7 +23,7 @@
 - 主工作区 `E:\CodeSense\源代码` 的用户改动已读取并保留：49 个 tracked 文件有未提交改动，另有 `tests/test_question_bank_features.py` 与 `utils/scoring.py` 两个未跟踪文件。改动内容集中在评分范围、题库批量功能、教师快照筛选与相关模板测试。
 - 上述主工作区改动没有复制到本轮候选，也没有执行覆盖、清理、暂存或回退操作。它们仍属于用户候选，待后续独立融合。
 - 候选工作树：`E:\CodeSense\源代码\.worktrees\learning-memory-integration-20260921`，基于 `9a6b635` 创建，当前候选提交包含文档、服务、路由、模板、worker 与测试。
-- 运行期间远端 `main` 前进至 `949ba901d270c2b335249fd3fa47b6f969b93353`，包含 Cloudflare 自动化和首页作业查询性能提交。集成工作树已带入这些远端内容，路由修改与本轮学生学习记忆改动完成融合；最终远端 `main` 收口为 `071d054b0eec8183cbce6641124838efd2c84d29`。
+- 运行期间远端 `main` 前进至 `949ba901d270c2b335249fd3fa47b6f969b93353`，包含 Cloudflare 自动化和首页作业查询性能提交。集成工作树已带入这些远端内容，路由修改与本轮学生学习记忆改动完成融合；产品发布提交为 `e4ff5fb641bc5809957f2102422aafba159182c2`。
 
 ## 独立交付项
 
@@ -77,20 +77,20 @@
 - README：增加学习记忆恢复与教学闭环信息图、学生与教师可见收益说明。
 - CHANGELOG：增加学生重试、上一版记录、撤回/过期过滤、教师聚合入口说明。
 - 信息图：`docs/assets/codesense-v1.8.0-learning-memory-recovery.png`。使用 GPT Image/ImageGen 生成，已通过原生媒体结果检查文字可读性、裁切、错字和主题一致性。
-- 当前候选代码提交：学生索引恢复 `b37d767`、主流程接入 `ccabf1c`、教师汇总 `b9618fb`；集成合并提交 `0e0c76383782863b1c3d7877aa55da9d62021cdc`，测试隔离修复提交 `b2db945`，运行报告收口提交为 `071d054`。
+- 当前候选代码提交：学生索引恢复 `b37d767`、主流程接入 `ccabf1c`、教师汇总 `b9618fb`；集成合并提交 `0e0c76383782863b1c3d7877aa55da9d62021cdc`，测试隔离修复提交 `b2db945`，产品发布提交为 `e4ff5fb`。
 
 ## 发布、部署与外部同步
 
-- 远端基线：集成开始时为 `949ba901d270c2b335249fd3fa47b6f969b93353`，最终 `origin/main=071d054b0eec8183cbce6641124838efd2c84d29`，集成工作树已包含候选与收口文档。
+- 远端基线：集成开始时为 `949ba901d270c2b335249fd3fa47b6f969b93353`，产品发布提交为 `e4ff5fb641bc5809957f2102422aafba159182c2`，集成工作树已包含候选与收口文档。
 - 生产目标：已通过 Workbench 核对 `cn-heyuan`、`i-f8zbujornnh55dsydozz`、`/var/www/codesense`，实例状态为 `Running`。
 - 产品目标提交：`2d8f70b3b10fcb3f196ee3f3a5b989bed7e43f1c`；预部署检查确认服务器工作区干净、服务 active、`update.sh` 文件与远端一致。
-- `update.sh` 结果：最终线上提交 `071d054b0eec8183cbce6641124838efd2c84d29` 上执行返回退出码 0，依赖检查、数据库维护和服务重启完成，服务器工作区干净。
+- `update.sh` 结果：产品发布提交 `e4ff5fb641bc5809957f2102422aafba159182c2` 上执行返回退出码 0，依赖检查、数据库维护和服务重启完成，服务器工作区干净。
 - 部署后核验：`codesense.service`、`codesense-submission-worker.service`、`codesense-ability-worker.service` 均 active；服务器本机 HTTPS 的 `/healthz`、`/readyz`、`/login` 均返回 200，`/readyz` 数据库检查为 ok。
 - GitHub Release：已创建 [v1.8.0](https://github.com/XiaoCow666/CodeSense/releases/tag/v1.8.0)，目标提交为 `2d8f70b3b10fcb3f196ee3f3a5b989bed7e43f1c`，信息图资源 SHA-256 为 `8ae80184b29c8e198b5efc3be12f80d09782edca79bfde46348931c773ee40f8`。
 - 飞书消息：机器人“牛顿不讲理·CodeX”已确认在两个目标群内；CodeSense 研发协作消息为 `om_x100b6416ad1e18b4c343e44d48940d5`，CoDeBuGo 总群消息为 `om_x100b6416ad1ec48cc3801e2bb7020a3`，两条消息使用同一版用户说明和信息图。
-- 项目知识库：已更新 [CodeSense 项目文档](https://hcnohkzwsogo.feishu.cn/docx/HyhsdpRUgomhknxEgCvcApgungd)，revision 为 `30`，已回读确认 v1.8.0 章节、Release 链接、内部证据和信息图资源。
+- 项目知识库：已更新 [CodeSense 项目文档](https://hcnohkzwsogo.feishu.cn/docx/HyhsdpRUgomhknxEgCvcApgungd)，revision 为 `31`，已回读确认 v1.8.0 章节、Release 链接、内部证据和信息图资源。
 - 回退点：`9a6b63599ba1f7451304d1a784f621b6c354f03d`；需要恢复时重新部署该已验证提交，并复查服务状态。
-- 报告收口提交：`071d054b0eec8183cbce6641124838efd2c84d29` 已随本轮部署发布；产品 Release 仍指向产品目标提交 `2d8f70b3b10fcb3f196ee3f3a5b989bed7e43f1c`。
+- 报告收口提交：产品发布提交 `e4ff5fb641bc5809957f2102422aafba159182c2` 已随本轮部署发布；本次后续只补充脱敏运行记录；产品 Release 仍指向产品目标提交 `2d8f70b3b10fcb3f196ee3f3a5b989bed7e43f1c`。
 - 当前发布判定：自审通过，v1.8.0 已发布，外部介绍、项目知识库和部署核验均已完成。
 
 ## 遗留风险与下一轮候选
