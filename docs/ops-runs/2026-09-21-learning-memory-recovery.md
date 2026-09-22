@@ -20,7 +20,7 @@
 
 ## 工作区输入与融合清单
 
-- 主工作区 `E:\CodeSense\源代码` 的用户改动已读取并保留：48 个 tracked 文件有未提交改动，另有 `tests/test_question_bank_features.py` 与 `utils/scoring.py` 两个未跟踪文件。改动内容集中在评分范围、题库批量功能、教师快照筛选与相关模板测试。
+- 主工作区 `E:\CodeSense\源代码` 的用户改动已读取并保留：49 个 tracked 文件有未提交改动，另有 `tests/test_question_bank_features.py` 与 `utils/scoring.py` 两个未跟踪文件。改动内容集中在评分范围、题库批量功能、教师快照筛选与相关模板测试。
 - 上述主工作区改动没有复制到本轮候选，也没有执行覆盖、清理、暂存或回退操作。它们仍属于用户候选，待后续独立融合。
 - 候选工作树：`E:\CodeSense\源代码\.worktrees\learning-memory-rebuild-20260921`，基于 `9a6b635` 创建，当前候选提交包含文档、服务、路由、模板、worker 与测试。
 - 运行期间远端 `main` 前进至 `949ba901d270c2b335249fd3fa47b6f969b93353`，包含 Cloudflare 自动化和首页作业查询性能提交。集成工作树已带入这些远端内容，路由修改与本轮学生学习记忆改动完成融合。
