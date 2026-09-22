@@ -472,10 +472,7 @@ def _run_stage3_forum_turn(
     payload = result.to_public_dict()
     payload['user_goal'] = _stage3_user_goal(ts.id)
     payload['forum_state'] = _stage3_forum_state(ts.id)
-    payload['session_lifecycle'] = session_lifecycle_payload(
-        ts,
-        last_activity_at=latest_session_activity([ts.id]).get(ts.id),
-    )
+    payload['session_lifecycle'] = session_lifecycle_payload(ts)
     return ts, target_role, payload
 
 
@@ -665,10 +662,7 @@ def _stage3_payload_with_goal(payload, thinking_session, runtime=None):
     result = dict(payload or {})
     getter = getattr(runtime, 'public_user_goal', None)
     result['user_goal'] = getter() if callable(getter) else _stage3_user_goal(thinking_session.id)
-    result['session_lifecycle'] = session_lifecycle_payload(
-        thinking_session,
-        last_activity_at=latest_session_activity([thinking_session.id]).get(thinking_session.id),
-    )
+    result['session_lifecycle'] = session_lifecycle_payload(thinking_session)
     return result
 
 
@@ -979,10 +973,7 @@ def start_session():
         if existing:
             if _ensure_stage3_initial_prompt(existing, assignment, preset):
                 db.session.commit()
-            lifecycle = session_lifecycle_payload(
-                existing,
-                last_activity_at=latest_session_activity([existing.id]).get(existing.id),
-            )
+            lifecycle = session_lifecycle_payload(existing)
             forum_history = _stage3_forum_history(existing.id)
             forum_state = _stage3_forum_state(existing.id)
             
@@ -1111,10 +1102,7 @@ def start_session():
 
         # 记录日志
         _log_event(new_session.id, 1, 'session_start', 'student', '开始引导式学习')
-        lifecycle = session_lifecycle_payload(
-            new_session,
-            last_activity_at=new_session.started_at,
-        )
+        lifecycle = session_lifecycle_payload(new_session)
 
         return jsonify({
             'success': True,
@@ -2348,10 +2336,7 @@ def get_session_status(session_id):
         # this new endpoint does not reveal that a session id exists.
         return jsonify({'error': '会话不存在或无权访问'}), 403
 
-    lifecycle = session_lifecycle_payload(
-        thinking_session,
-        last_activity_at=latest_session_activity([thinking_session.id]).get(thinking_session.id),
-    )
+    lifecycle = session_lifecycle_payload(thinking_session)
     return jsonify({'success': True, 'session': lifecycle})
 
 @thinking.route('/api/session/<int:session_id>/log')

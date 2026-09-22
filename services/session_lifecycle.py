@@ -15,6 +15,11 @@ SESSION_IDLE_AFTER_SECONDS = 30 * 60
 LIFECYCLE_STATUSES = ("active", "idle", "completed", "abandoned")
 TERMINAL_STATUSES = {"completed", "abandoned"}
 
+# 区分“调用者省略 last_activity_at”（payload 自查一次最近活动）与
+# “显式传入 None”（批量查询未命中的会话，保留回退 started_at 的既有
+# 行为且不执行查询，避免教师概览等列表产生 N+1）。
+_LAST_ACTIVITY_UNSET = object()
+
 
 def _utc_now(value=None) -> datetime:
     value = value or datetime.utcnow()
@@ -186,9 +191,21 @@ def _stage_progress(session, lifecycle_status):
     }
 
 
-def session_lifecycle_payload(session, *, now=None, last_activity_at=None):
-    """Build a safe, content-free lifecycle payload for UI and teacher views."""
+def session_lifecycle_payload(session, *, now=None, last_activity_at=_LAST_ACTIVITY_UNSET):
+    """Build a safe, content-free lifecycle payload for UI and teacher views.
+
+    ``last_activity_at`` 通常由批量场景的调用者一次性查出再传入（未命中的
+    会话显式传 None，保留回退 started_at 的既有行为，不触发查询，避免
+    N+1）；单 session 调用者省略该参数时，函数内部基于 ``session.id``
+    自查一次最近活动时间，调用者不必在每个调用点重复写
+    ``last_activity_at=latest_session_activity([id]).get(id)``，也不会因为
+    漏传而退化成用 started_at 判 idle（刚活动的会话被误判空闲）。
+    """
     current_time = _utc_now(now)
+    if last_activity_at is _LAST_ACTIVITY_UNSET:
+        session_id = getattr(session, "id", None)
+        if session_id is not None:
+            last_activity_at = latest_session_activity([session_id]).get(session_id)
     lifecycle_status = session_lifecycle_status(
         session,
         now=current_time,
