@@ -27,22 +27,22 @@
 
 ## 独立交付项
 
-1. 学生学习索引无变化短路。用户价值：重复刷新不会改变 revision，也不会造成无意义的重新计算。受影响端：学生首页、提交后的索引更新服务。变更文件：`services/student_vector_store.py`、`tests/test_student_vector_store.py`。融合入口：`rebuild_student_vector_index()`。验收证据：`test_rebuild_keeps_revision_when_sources_are_unchanged`，主流程测试组通过。必要性：高频提交路径需要幂等刷新。发布状态：候选完成，等待集成。回退方式：恢复索引服务的旧构建分支。
-2. 学习索引有限次重试。用户价值：短暂 embedding 或数据库错误不会立即中断学习记忆更新。受影响端：学生首页重建路由、提交 worker。变更文件：`services/student_vector_store.py`、`routes/main.py`、`tasks/submission_tasks.py`。融合入口：`rebuild_student_vector_index_with_retry()`。验收证据：`test_retry_entrypoint_retries_after_a_build_failure`、`test_student_rebuild_route_uses_bounded_retry_entrypoint`。必要性：学生和 worker 共用同一更新边界。发布状态：候选完成，等待集成。回退方式：恢复单次构建调用。
-3. 失败重建保留上一版 active revision。用户价值：索引更新失败时，学生仍可获得上一版个人学习记录。受影响端：向量服务、AI 问答。变更文件：`services/student_vector_store.py`、`tests/test_student_vector_store.py`、`tests/test_knowledge_rag.py`。融合入口：`search_student_learning_vectors()` 与 `project_student_learning_evidence()`。验收证据：`test_failed_rebuild_keeps_previous_active_revision_and_can_retry`。必要性：避免一次更新失败造成学习上下文完全中断。发布状态：候选完成，等待集成。回退方式：恢复旧状态写入逻辑，保留现有表数据。
-4. 撤回来源过期治理。用户价值：过期来源保留审计信息，同时永久退出 AI 查询。受影响端：学生来源管理、向量查询。变更文件：`services/student_vector_store.py`、`templates/components/student_learning_memory.html`、`tests/test_student_vector_store.py`。融合入口：`rebuild_student_vector_index()` 与学生来源投影。验收证据：`test_rebuild_marks_old_revoked_rows_expired_without_querying_them`。必要性：撤回后的来源需要长期可审计，查询需要保持清晰边界。发布状态：候选完成，等待集成。回退方式：恢复 `revoked` 查询排除逻辑并保留数据库记录。
-5. 用户撤回状态跨版本保留。用户价值：学生撤回的记录不会因来源版本变化重新进入个人检索。受影响端：学生来源管理、提交更新。变更文件：`services/student_vector_store.py`、`tests/test_student_vector_store.py`。融合入口：来源键与 `user_revoked` 标记。验收证据：`test_user_revocation_survives_source_version_change`。必要性：保护学生对个人学习记录的控制。发布状态：候选完成，等待集成。回退方式：恢复来源版本比较前的状态逻辑。
-6. 学生首页显示失败、过期和重试状态。用户价值：学生能知道当前回答使用上一版记录，也能找到重试入口。受影响端：学生首页、键盘操作和辅助技术状态提示。变更文件：`templates/components/student_learning_memory.html`、`tests/test_student_vector_store.py`。融合入口：学生首页索引状态卡与来源列表。验收证据：`test_student_home_explains_expired_sources_without_offering_revoke` 及渲染 HTML 检查。必要性：状态信息需要回到学生可执行的动作。发布状态：候选完成，等待集成。回退方式：恢复旧状态文案与按钮渲染。
-7. 提交评测接入同一重建入口。用户价值：提交完成后学生学习记忆使用与首页相同的重试和事务边界。受影响端：提交 worker、学生历史和后续 AI 辅导。变更文件：`tasks/submission_tasks.py`、`tests/test_submission_worker.py`。融合入口：`refresh_student_learning_index()`。验收证据：`test_formal_worker_updates_submission_in_isolated_database` 和 worker 文件 6 项测试通过。必要性：提交是学习记忆最常见的来源入口。发布状态：候选完成，等待集成。回退方式：恢复 worker 的单次索引更新调用。
-8. worker 复用已有应用上下文。用户价值：RQ worker 提交完成后，外层页面会立即读取到 `evaluated` 状态和 `ready` 索引状态。受影响端：RQ worker、提交详情与学生首页。变更文件：`tasks/submission_tasks.py`。融合入口：`evaluate_submission_async()`。验收证据：完整测试首次发现旧会话读取问题，修复后 `850 passed`，worker 文件 `6 passed`。必要性：避免后台任务提交成功与页面状态不一致。发布状态：候选完成，等待集成。回退方式：恢复应用上下文创建方式，并同步回退 worker 修复提交。
-9. AI JSON 回执传递索引状态。用户价值：学生问答能够分辨当前记录、上一版记录和查询范围。受影响端：学生 AI 问答、学习证据面板。变更文件：`services/student_vector_store.py`、`routes/api.py`、`tests/test_knowledge_rag.py`。融合入口：`/api/ask_question`。验收证据：`test_ask_question_exposes_previous_revision_after_index_failure`。必要性：AI 输出需要可解释的来源状态。发布状态：候选完成，等待集成。回退方式：新增字段可随 API 投影回退，旧回答字段保持兼容。
-10. AI SSE 回执传递索引状态。用户价值：流式辅导与普通 JSON 请求拥有相同的来源和状态说明。受影响端：Code Studio AI、流式问答。变更文件：`services/student_vector_store.py`、`routes/api.py`、`tests/test_knowledge_rag.py`、`tests/test_code_advice_knowledge.py`。融合入口：AI SSE `done` 事件。验收证据：`test_ask_question_sse_exposes_previous_revision_after_index_failure` 与跨协议测试通过。必要性：流式入口不能丢失个人记录状态。发布状态：候选完成，等待集成。回退方式：移除新增投影字段，保留原有事件结构。
-11. 教师班级学习记录汇总。用户价值：教师从一个入口看到管理班级内 ready、stale、failed 和未构建数量。受影响端：教师首页、班级知识覆盖。变更文件：`services/student_vector_health.py`、`routes/main.py`、`templates/teacher_home.html`、`tests/test_student_vector_health.py`。融合入口：教师首页 `班级学习记录索引` 面板。验收证据：`test_teacher_learning_memory_health_uses_managed_class_aggregate`、`test_teacher_dashboard_renders_learning_memory_health_and_scope`。必要性：教师需要行动优先级，页面只提供聚合数字。发布状态：候选完成，等待集成。回退方式：移除教师首页聚合上下文与面板。
-12. 教师与管理员作用域隔离。用户价值：教师只看到管理班级汇总，管理员首页不会意外获得教师专用数据。受影响端：教师首页、管理员首页、权限过滤。变更文件：`services/student_vector_health.py`、`routes/main.py`、`templates/teacher_home.html`、`tests/test_student_vector_health.py`、`tests/test_learning_graph.py`。融合入口：managed class 查询与 dashboard 角色分支。验收证据：`test_teacher_dashboard_renders_learning_memory_health_and_scope`、`test_admin_dashboard_does_not_receive_teacher_learning_memory_panel`。必要性：学生私有来源不能跨角色展示。发布状态：候选完成，等待集成。回退方式：恢复教师页面原有上下文。
-13. 学生向量离线检索评测。用户价值：每次重建和查询规则变化都能复现召回与作用域安全结果。受影响端：向量服务、发布复审。变更文件：`services/student_vector_eval.py`、`tests/test_student_vector_eval.py`。融合入口：离线 fixture 评测命令。验收证据：`1 passed`；5 条来源中 active 3、revoked 1、expired 1，4 次查询 `recall_at_1=0.75`、`recall_at_k=1.0`、跨作用域命中 0、撤回命中 0、状态不匹配 0。必要性：向量检索结果需要可重复检查。发布状态：候选完成，等待集成。回退方式：保留评测 fixture，回退查询实现后重新比较指标。
-14. demo 测试数据库隔离。用户价值：学生、教师和公开体验路径的测试使用独立临时库，避免共享测试库状态影响发布判断。受影响端：学生 demo 登录、教师 demo 登录、公开提交体验的回归验证。变更文件：`tests/demo_test_utils.py`。融合入口：`create_test_app()` 与 `destroy_test_app()`。验收证据：demo 登录、会话绑定和提交隔离组合 `10 passed`；完整集成套件 `850 passed`。必要性：角色走查证据必须可重复，临时数据库需要在应用创建前绑定并在清理时释放连接池。发布状态：候选完成，等待集成。回退方式：恢复旧测试工具；不改变生产代码和用户数据。
+1. 学生学习索引无变化短路。用户价值：重复刷新不会改变 revision，也不会造成无意义的重新计算。受影响端：学生首页、提交后的索引更新服务。变更文件：`services/student_vector_store.py`、`tests/test_student_vector_store.py`。融合入口：`rebuild_student_vector_index()`。验收证据：`test_rebuild_keeps_revision_when_sources_are_unchanged`，主流程测试组通过。必要性：高频提交路径需要幂等刷新。发布状态：已发布到线上。回退方式：恢复索引服务的旧构建分支。
+2. 学习索引有限次重试。用户价值：短暂 embedding 或数据库错误不会立即中断学习记忆更新。受影响端：学生首页重建路由、提交 worker。变更文件：`services/student_vector_store.py`、`routes/main.py`、`tasks/submission_tasks.py`。融合入口：`rebuild_student_vector_index_with_retry()`。验收证据：`test_retry_entrypoint_retries_after_a_build_failure`、`test_student_rebuild_route_uses_bounded_retry_entrypoint`。必要性：学生和 worker 共用同一更新边界。发布状态：已发布到线上。回退方式：恢复单次构建调用。
+3. 失败重建保留上一版 active revision。用户价值：索引更新失败时，学生仍可获得上一版个人学习记录。受影响端：向量服务、AI 问答。变更文件：`services/student_vector_store.py`、`tests/test_student_vector_store.py`、`tests/test_knowledge_rag.py`。融合入口：`search_student_learning_vectors()` 与 `project_student_learning_evidence()`。验收证据：`test_failed_rebuild_keeps_previous_active_revision_and_can_retry`。必要性：避免一次更新失败造成学习上下文完全中断。发布状态：已发布到线上。回退方式：恢复旧状态写入逻辑，保留现有表数据。
+4. 撤回来源过期治理。用户价值：过期来源保留审计信息，同时永久退出 AI 查询。受影响端：学生来源管理、向量查询。变更文件：`services/student_vector_store.py`、`templates/components/student_learning_memory.html`、`tests/test_student_vector_store.py`。融合入口：`rebuild_student_vector_index()` 与学生来源投影。验收证据：`test_rebuild_marks_old_revoked_rows_expired_without_querying_them`。必要性：撤回后的来源需要长期可审计，查询需要保持清晰边界。发布状态：已发布到线上。回退方式：恢复 `revoked` 查询排除逻辑并保留数据库记录。
+5. 用户撤回状态跨版本保留。用户价值：学生撤回的记录不会因来源版本变化重新进入个人检索。受影响端：学生来源管理、提交更新。变更文件：`services/student_vector_store.py`、`tests/test_student_vector_store.py`。融合入口：来源键与 `user_revoked` 标记。验收证据：`test_user_revocation_survives_source_version_change`。必要性：保护学生对个人学习记录的控制。发布状态：已发布到线上。回退方式：恢复来源版本比较前的状态逻辑。
+6. 学生首页显示失败、过期和重试状态。用户价值：学生能知道当前回答使用上一版记录，也能找到重试入口。受影响端：学生首页、键盘操作和辅助技术状态提示。变更文件：`templates/components/student_learning_memory.html`、`tests/test_student_vector_store.py`。融合入口：学生首页索引状态卡与来源列表。验收证据：`test_student_home_explains_expired_sources_without_offering_revoke` 及渲染 HTML 检查。必要性：状态信息需要回到学生可执行的动作。发布状态：已发布到线上。回退方式：恢复旧状态文案与按钮渲染。
+7. 提交评测接入同一重建入口。用户价值：提交完成后学生学习记忆使用与首页相同的重试和事务边界。受影响端：提交 worker、学生历史和后续 AI 辅导。变更文件：`tasks/submission_tasks.py`、`tests/test_submission_worker.py`。融合入口：`refresh_student_learning_index()`。验收证据：`test_formal_worker_updates_submission_in_isolated_database` 和 worker 文件 6 项测试通过。必要性：提交是学习记忆最常见的来源入口。发布状态：已发布到线上。回退方式：恢复 worker 的单次索引更新调用。
+8. worker 复用已有应用上下文。用户价值：RQ worker 提交完成后，外层页面会立即读取到 `evaluated` 状态和 `ready` 索引状态。受影响端：RQ worker、提交详情与学生首页。变更文件：`tasks/submission_tasks.py`。融合入口：`evaluate_submission_async()`。验收证据：完整测试首次发现旧会话读取问题，修复后 `850 passed`，worker 文件 `6 passed`。必要性：避免后台任务提交成功与页面状态不一致。发布状态：已发布到线上。回退方式：恢复应用上下文创建方式，并同步回退 worker 修复提交。
+9. AI JSON 回执传递索引状态。用户价值：学生问答能够分辨当前记录、上一版记录和查询范围。受影响端：学生 AI 问答、学习证据面板。变更文件：`services/student_vector_store.py`、`routes/api.py`、`tests/test_knowledge_rag.py`。融合入口：`/api/ask_question`。验收证据：`test_ask_question_exposes_previous_revision_after_index_failure`。必要性：AI 输出需要可解释的来源状态。发布状态：已发布到线上。回退方式：新增字段可随 API 投影回退，旧回答字段保持兼容。
+10. AI SSE 回执传递索引状态。用户价值：流式辅导与普通 JSON 请求拥有相同的来源和状态说明。受影响端：Code Studio AI、流式问答。变更文件：`services/student_vector_store.py`、`routes/api.py`、`tests/test_knowledge_rag.py`、`tests/test_code_advice_knowledge.py`。融合入口：AI SSE `done` 事件。验收证据：`test_ask_question_sse_exposes_previous_revision_after_index_failure` 与跨协议测试通过。必要性：流式入口不能丢失个人记录状态。发布状态：已发布到线上。回退方式：移除新增投影字段，保留原有事件结构。
+11. 教师班级学习记录汇总。用户价值：教师从一个入口看到管理班级内 ready、stale、failed 和未构建数量。受影响端：教师首页、班级知识覆盖。变更文件：`services/student_vector_health.py`、`routes/main.py`、`templates/teacher_home.html`、`tests/test_student_vector_health.py`。融合入口：教师首页 `班级学习记录索引` 面板。验收证据：`test_teacher_learning_memory_health_uses_managed_class_aggregate`、`test_teacher_dashboard_renders_learning_memory_health_and_scope`。必要性：教师需要行动优先级，页面只提供聚合数字。发布状态：已发布到线上。回退方式：移除教师首页聚合上下文与面板。
+12. 教师与管理员作用域隔离。用户价值：教师只看到管理班级汇总，管理员首页不会意外获得教师专用数据。受影响端：教师首页、管理员首页、权限过滤。变更文件：`services/student_vector_health.py`、`routes/main.py`、`templates/teacher_home.html`、`tests/test_student_vector_health.py`、`tests/test_learning_graph.py`。融合入口：managed class 查询与 dashboard 角色分支。验收证据：`test_teacher_dashboard_renders_learning_memory_health_and_scope`、`test_admin_dashboard_does_not_receive_teacher_learning_memory_panel`。必要性：学生私有来源不能跨角色展示。发布状态：已发布到线上。回退方式：恢复教师页面原有上下文。
+13. 学生向量离线检索评测。用户价值：每次重建和查询规则变化都能复现召回与作用域安全结果。受影响端：向量服务、发布复审。变更文件：`services/student_vector_eval.py`、`tests/test_student_vector_eval.py`。融合入口：离线 fixture 评测命令。验收证据：`1 passed`；5 条来源中 active 3、revoked 1、expired 1，4 次查询 `recall_at_1=0.75`、`recall_at_k=1.0`、跨作用域命中 0、撤回命中 0、状态不匹配 0。必要性：向量检索结果需要可重复检查。发布状态：已发布到线上。回退方式：保留评测 fixture，回退查询实现后重新比较指标。
+14. demo 测试数据库隔离。用户价值：学生、教师和公开体验路径的测试使用独立临时库，避免共享测试库状态影响发布判断。受影响端：学生 demo 登录、教师 demo 登录、公开提交体验的回归验证。变更文件：`tests/demo_test_utils.py`。融合入口：`create_test_app()` 与 `destroy_test_app()`。验收证据：demo 登录、会话绑定和提交隔离组合 `10 passed`；完整集成套件 `850 passed`。必要性：角色走查证据必须可重复，临时数据库需要在应用创建前绑定并在清理时释放连接池。发布状态：已发布到线上。回退方式：恢复旧测试工具；不改变生产代码和用户数据。
 
-- 当前状态修订：第 1–14 项均已在最新远端集成工作树复验，发布状态统一为“集成完成，等待生产门禁”。
+- 当前状态修订：第 1–14 项均已在最新远端集成工作树复验，产品代码已发布到生产环境，报告收口提交随本轮部署完成。
 
 ## 三条主流程闭环
 
@@ -81,12 +81,15 @@
 ## 发布、部署与外部同步
 
 - 远端基线：`origin/main=949ba901d270c2b335249fd3fa47b6f969b93353`，集成工作树已从该提交融合候选。
-- 生产目标：已通过 Workbench 列出 `cn-heyuan` 的 `i-f8zbujornnh55dsydozz`，实例状态为 `Running`；部署目录固定为 `/var/www/codesense`。
-- 预部署只读检查、`update.sh`、线上 commit、应用与 worker 状态、`/healthz`、`/readyz`、公开探针：待集成提交完成后执行并记录结果。
-- GitHub Release：待部署核验通过后创建 `v1.8.0`，正文只描述学生、教师和 AI 辅导收到的用户收益。
-- 飞书消息：待部署核验通过后，用“小牛顿”对应机器人身份向当前项目群与 CoDeBuGo 总群发送同版用户介绍和信息图；发送前重新解析群成员与群身份。
-- 项目知识库：待部署核验通过后写入版本、更新说明、最终信息图、GitHub Release 链接和内部部署证据，并回读核对。
-- 当前发布判定：候选代码与本地测试通过，集成、生产部署、Release、飞书和知识库仍未完成，不能宣称已上线。
+- 生产目标：已通过 Workbench 核对 `cn-heyuan`、`i-f8zbujornnh55dsydozz`、`/var/www/codesense`，实例状态为 `Running`。
+- 产品目标提交：`2d8f70b3b10fcb3f196ee3f3a5b989bed7e43f1c`；预部署检查确认服务器工作区干净、服务 active、`update.sh` 文件与远端一致。
+- `update.sh` 结果：首次执行期间连接因服务重启关闭，Workbench 原始调用没有返回正常退出码；随后只读核验确认脚本已完成，线上 HEAD 已到达产品目标提交，工作区干净。
+- 部署后核验：`codesense.service`、`codesense-submission-worker.service`、`codesense-ability-worker.service` 均 active；服务器本机 HTTPS 的 `/healthz`、`/readyz`、`/login` 均返回 200，`/readyz` 数据库检查为 ok。
+- GitHub Release：已创建 [v1.8.0](https://github.com/XiaoCow666/CodeSense/releases/tag/v1.8.0)，目标提交为 `2d8f70b3b10fcb3f196ee3f3a5b989bed7e43f1c`，信息图资源 SHA-256 为 `8ae80184b29c8e198b5efc3be12f80d09782edca79bfde46348931c773ee40f8`。
+- 飞书消息：机器人“牛顿不讲理·CodeX”已确认在两个目标群内；CodeSense 研发协作消息为 `om_x100b6416ad1e18b4c343e44d48940d5`，CoDeBuGo 总群消息为 `om_x100b6416ad1ec48cc3801e2bb7020a3`，两条消息使用同一版用户说明和信息图。
+- 项目知识库：已更新 [CodeSense 项目文档](https://hcnohkzwsogo.feishu.cn/docx/HyhsdpRUgomhknxEgCvcApgungd)，revision 为 `27`，已回读确认 v1.8.0 章节、Release 链接、内部证据和信息图资源。
+- 报告收口提交：本文件所在提交随本轮部署发布，完整 SHA 写入自动化记忆；产品 Release 仍指向上述产品目标提交。
+- 当前发布判定：自审通过，v1.8.0 已发布，外部介绍、项目知识库和部署核验均已完成。
 
 ## 遗留风险与下一轮候选
 
