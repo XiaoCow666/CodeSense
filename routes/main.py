@@ -171,13 +171,19 @@ def home():
             assigned_assignments_query = assigned_assignments_query.filter(db.false())
         
         # 首页只需要作业 ID 和少量近期记录，不要把所有作业/代码正文
-        # 一次性加载进 ORM identity map。
-        all_assigned_ids = [row[0] for row in assigned_assignments_query.with_entities(Assignment.id).all()]
+        # 一次性加载进 ORM identity map。一次查出 (id, due_date)，
+        # 全部 id 与未截止 id 都在 Python 里派生，避免对同一批作业
+        # 发两次查询（原来 active 过滤又走了一次 round-trip）。
+        assigned_rows = assigned_assignments_query.with_entities(
+            Assignment.id, Assignment.due_date,
+        ).all()
+        all_assigned_ids = [row[0] for row in assigned_rows]
 
-        # 过滤出当前有效的作业（未过截止日期的或无截至日期的）
-        active_assignment_ids = [row[0] for row in assigned_assignments_query.filter(
-            (Assignment.due_date >= now) | (Assignment.due_date.is_(None))
-        ).with_entities(Assignment.id).all()]
+        # 过滤出当前有效的作业（未过截止日期的或无截止日期的）
+        active_assignment_ids = [
+            row[0] for row in assigned_rows
+            if row[1] is None or row[1] >= now
+        ]
 
         # 2. 首页统计保留历史作业，避免截止日期过滤让学生误以为数据被清空。
         # 当前有效作业仍单独保留，供页面展示“当前未截止”信息。
