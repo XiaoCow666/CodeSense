@@ -187,6 +187,10 @@
 
                         <!-- 核心区域 -->
                         <div class="card-body p-4">
+                            {% set teacher_learning_actions = item['learning_actions'] %}
+                            {% set teacher_learning_actions_title = '依据与下一步' %}
+                            {% include 'components/teacher_learning_actions.html' with context %}
+
                             <!-- 状态容器 -->
                             <div class="status-container-{{ cls.id }} d-none p-5 text-center" role="status" aria-live="polite" aria-atomic="true" aria-busy="true">
                                 <div class="spinner-border text-primary fs-3 mb-3 spin" role="status" aria-label="正在生成 AI 教学建议" style="width: 3rem; height: 3rem;"></div>

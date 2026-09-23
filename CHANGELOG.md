@@ -10,6 +10,12 @@ This file records release-level information for users and maintainers. Versions 
 
 Future unreleased changes will be listed here.
 
+### Added
+
+- 教师首页、班级详情和 AI 教学建议页增加可执行教学动作，动作依据班级聚合知识图谱和学习记录索引状态生成，并保留作业知识点来源版本。
+- 教师可以向当前班级中需要更新个人学习记忆的学生发送每日幂等的站内提醒；提醒只进入学生自己的行动中心，不改变作业分数。
+- 教师知识覆盖图谱补充作业到知识点的直接覆盖关系，学生撤回学习来源后继续从真实索引查询中排除该来源。
+
 ## [1.8.0] - 2026-09-21
 
 ### Added

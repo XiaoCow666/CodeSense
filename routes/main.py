@@ -29,6 +29,11 @@ from services.learning_graph import (
     build_teacher_knowledge_coverage,
 )
 from services.student_vector_health import build_teacher_learning_memory_health
+from services.teacher_learning_actions import (
+    TeacherLearningActionAccessError,
+    build_teacher_learning_actions,
+    send_learning_memory_refresh_reminders,
+)
 from services.demo_database import current_demo_run_id
 from services.feedback import (
     FEEDBACK_CATEGORIES,
@@ -651,6 +656,7 @@ def teacher_dashboard():
         learning_graph = _learning_graph_fallback('teacher_class')
 
     learning_memory_health = build_teacher_learning_memory_health(teacher)
+    teacher_learning_actions = build_teacher_learning_actions(teacher, limit=12)
     
     from models import TeacherAISuggestion
     ai_suggestions = {sug.class_id: sug for sug in TeacherAISuggestion.query.filter_by(teacher_id=teacher.student_id).all()}
@@ -670,8 +676,36 @@ def teacher_dashboard():
                            chart_data=dashboard['chart_data'],
                            learning_graph=learning_graph,
                            learning_memory_health=learning_memory_health,
+                           teacher_learning_actions=teacher_learning_actions,
                            ai_suggestions=ai_suggestions,
                            open_review_count=open_review_count)
+
+
+@main.route('/teacher/classes/<int:class_id>/learning-memory-reminder', methods=['POST'])
+@login_required
+def teacher_learning_memory_reminder(class_id):
+    """向指定班级中需要更新索引的学生发送站内提醒。"""
+
+    if not current_user.is_teacher:
+        abort(403)
+
+    try:
+        result = send_learning_memory_refresh_reminders(
+            current_user,
+            class_id,
+            url=url_for('main.home') + '#student-learning-memory-title',
+        )
+    except TeacherLearningActionAccessError:
+        abort(403)
+
+    flash(
+        f"已提醒 {result['notification_count']} 位学生更新学习记忆。",
+        'success',
+    )
+    return redirect(_safe_next_url(
+        request.form.get('next') or request.args.get('next'),
+        url_for('main.teacher_dashboard'),
+    ))
 
 
 @main.route('/teacher/knowledge-focus/<string:knowledge_point>')
@@ -732,7 +766,12 @@ def teacher_ai_suggestions():
         class_suggestions.append({
             'class': cls,
             'suggestion': sug,
-            'details': sug.get_suggestion_dict()
+            'details': sug.get_suggestion_dict(),
+            'learning_actions': build_teacher_learning_actions(
+                teacher,
+                class_id=cls.id,
+                limit=6,
+            ),
         })
         
     return render_template('teacher_ai_suggestions.html',

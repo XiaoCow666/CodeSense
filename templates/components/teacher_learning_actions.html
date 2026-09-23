@@ -1,0 +1,45 @@
+<section class="dashboard-section teacher-learning-actions" data-teacher-learning-actions aria-labelledby="teacher-learning-actions-title">
+    <div class="section-title mb-2">
+        <span id="teacher-learning-actions-title">
+            <i class="bi bi-signpost-split text-primary me-2" aria-hidden="true"></i>
+            {{ teacher_learning_actions_title or '可执行教学动作' }}
+        </span>
+    </div>
+    <p class="text-muted mb-3">
+        动作依据班级聚合知识覆盖和学习记录索引状态生成；页面不展示学生个人学习记忆。
+    </p>
+    {% set actions = (teacher_learning_actions or {}).get('actions', []) %}
+    {% if actions %}
+    <div class="teacher-learning-actions-list">
+        {% for action in actions %}
+        <article class="teacher-learning-action-card" data-action-kind="{{ action.kind }}">
+            <div>
+                <h3 class="h6 mb-1">{{ action.title }}</h3>
+                <p class="text-muted small mb-2">{{ action.summary }}</p>
+                <span class="badge bg-light text-dark border">班级聚合</span>
+                {% if action.kind == 'knowledge_practice' and action.source_versions %}
+                <span class="text-muted small ms-2">来源版本：{{ action.source_versions|join(', ') }}</span>
+                {% endif %}
+            </div>
+            {% if action.kind == 'knowledge_practice' %}
+            <a class="btn btn-sm btn-outline-primary" href="{{ action.href }}">
+                查看知识点练习
+            </a>
+            {% elif action.kind == 'learning_memory_refresh' %}
+            <form method="POST" action="{{ action.action_url }}" class="teacher-learning-action-form">
+                {% if csrf_token is defined %}{{ csrf_token() }}{% endif %}
+                <input type="hidden" name="next" value="{{ request.full_path }}">
+                <button class="btn btn-sm btn-primary" type="submit">
+                    提醒学生更新学习记忆
+                </button>
+            </form>
+            {% endif %}
+        </article>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="teacher-learning-actions-empty" role="status">
+        当前没有需要处理的教学动作。班级数据更新后，系统会重新检查知识覆盖和学习记录状态。
+    </div>
+    {% endif %}
+</section>

@@ -150,6 +150,8 @@ v1.8.0 让学生学习记忆在更新失败时继续保留上一版可用记录�
 
 教师首页增加班级学习记录索引汇总，只展示管理班级的人数与状态数量，并连接到已有的班级知识覆盖。学生撤回或过期的来源继续排除查询，教师页面不会展示学生私有来源内容。
 
+当前待发布候选把两类信号连接成教师可执行动作：教师可以从班级知识覆盖直接进入针对性练习，也可以向需要更新个人学习记忆的学生发送站内提醒；学生会在行动中心看到提醒，并回到自己的学习记忆更新入口。
+
 v1.7.0 把知识图谱和学生学习记忆接入学生辅导与教师干预流程。学生提问和 Code Studio 的完成响应会返回带有作用域、来源引用和来源版本的图谱投影；没有图谱数据时会明确显示无结果状态，个人记录只在当前学生范围内使用。
 
 教师知识点提醒展示班级聚合掌握度、样本数和需要加强的人数，并可直接创建预先关联知识点、预先选择班级的练习作业，创建后进入已有班级布置流程。学生向量检索先在数据库中执行学生与作业范围过滤，再计算相似度；离线评测同时记录召回、作用域过滤和查询延迟指标。
@@ -421,6 +423,7 @@ gunicorn -c gunicorn_config.py wsgi:application
 | <code>/student/rebuild-learning-memory</code> | <code>POST</code> | 更新当前学生的私有学习记忆 |
 | <code>/student/learning-memory/revoke</code> | <code>POST</code> | 撤回当前学生的一条学习记忆来源 |
 | <code>/teacher/knowledge-focus/&lt;knowledge_point&gt;</code> | <code>GET</code> | 查看教师可管理的针对性练习 |
+| <code>/teacher/classes/&lt;class_id&gt;/learning-memory-reminder</code> | <code>POST</code> | 向指定班级中需要更新学习记忆的学生发送站内提醒 |
 | <code>/api/get_programming_guidance</code> | <code>POST</code> | 获取编程引导 |
 | <code>/api/stream/ability-analysis</code> | <code>GET</code> | 流式获取能力分析 |
 | <code>/forgot-password</code> | <code>GET/POST</code> | 申请密码重置链接 |

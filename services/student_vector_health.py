@@ -7,11 +7,13 @@ from services.student_vector_store import INDEX_STALE_AFTER_DAYS
 from utils.access import class_student_filter, managed_classes
 
 
-def build_teacher_learning_memory_health(teacher, *, now=None):
+def build_teacher_learning_memory_health(teacher, *, class_id=None, now=None):
     """返回教师所管理班级的学生学习索引聚合状态。"""
 
     current_time = now or dt.utcnow()
     classrooms = managed_classes(teacher)
+    if class_id is not None:
+        classrooms = [classroom for classroom in classrooms if classroom.id == class_id]
     if not classrooms:
         return {
             "scope": "teacher_managed_classes",
@@ -82,6 +84,8 @@ def build_teacher_learning_memory_health(teacher, *, now=None):
 
     return {
         "scope": "teacher_managed_classes",
+        "class_id": class_id,
+        "class_name": classrooms[0].name if len(classrooms) == 1 else None,
         "stale_after_days": INDEX_STALE_AFTER_DAYS,
         "student_count": len(student_ids),
         **counts,
