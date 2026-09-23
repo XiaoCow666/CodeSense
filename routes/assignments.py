@@ -62,6 +62,7 @@ import json
 from datetime import datetime
 from utils.sse import sse_event, sse_response, wants_sse
 from utils.export_safety import safe_export_cell
+from utils.submission_stats import submission_score_stats
 
 assignments = Blueprint('assignments', __name__)
 
@@ -1404,9 +1405,10 @@ def submission_history(assignment_id):
     
     # 计算提交统计信息
     total_submissions = len(submissions)
-    average_score = sum(s.score or 0 for s in submissions) / total_submissions if total_submissions > 0 else 0
-    best_submission = max(submissions, key=lambda s: s.score or 0) if submissions else None
-    best_score = best_submission.score if best_submission else 0
+    # 口径与同文件其他平均分（仅统计已评分提交）及官方统计保持一致：
+    # 未评分提交不进分子也不进分母，无已评分提交时回退 0；
+    # best_score 同时由该纯函数给出，避免全未评分时泄漏 None。
+    average_score, best_score = submission_score_stats(submissions)
     
     # 按时间分组的提交
     submissions_by_date = {}
