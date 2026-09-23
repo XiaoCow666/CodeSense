@@ -10,6 +10,11 @@ from services.demo_database import activate_demo_run, is_active_demo_run
 from utils.sse import sse_event, stream_text_chunks
 from utils.timezone import format_display_datetime
 from utils.access import class_student_filter
+from utils.teacher_advice_prompt import (
+    RISK_TAG_CALIBER_INSTRUCTION,
+    format_attention_student_line,
+    format_risk_reason,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -145,7 +150,8 @@ def generate_class_suggestions(class_id, teacher_id, demo_run_id=None):
                         'student_id': row['student'].student_id,
                         'name': row['student'].full_name or row['student'].username,
                         'risk_tags': row['risk_tags'],
-                        'latest_score': row['latest_score']
+                        'latest_score': row['latest_score'],
+                        'historical_score': row['student'].user_ascore
                     })
 
         # 2. 获取弱势知识点 (班级平均分最低的前3个)
@@ -211,7 +217,7 @@ def generate_class_suggestions(class_id, teacher_id, demo_run_id=None):
                 {
                     'student_id': s['student_id'],
                     'name': s['name'],
-                    'risk_reason': f"存在{'/'.join(s['risk_tags'])}风险，最近得分 {s['latest_score'] if s['latest_score'] is not None else '无'}"
+                    'risk_reason': format_risk_reason(s)
                 } for s in attention_students
             ],
             'weak_knowledge_points': [
@@ -236,7 +242,7 @@ def generate_class_suggestions(class_id, teacher_id, demo_run_id=None):
         if llm.is_available():
             try:
                 attention_details_str = "\n".join([
-                    f"- {s['name']} ({s['student_id']}): 风险标签 {s['risk_tags']}, 最近得分 {s['latest_score']}" 
+                    format_attention_student_line(s)
                     for s in attention_students
                 ]) if attention_students else "暂无高风险学生"
 
@@ -255,6 +261,7 @@ def generate_class_suggestions(class_id, teacher_id, demo_run_id=None):
                         "role": "system",
                         "content": (
                             "你是一个专业的编程教育专家，擅长从班级学生成绩、提交活跃度、弱点概念等多维度给出点对点的教学建议。\n"
+                            + RISK_TAG_CALIBER_INSTRUCTION + "\n"
                             "请用简洁专业的中文直接输出分析内容，并在正文结束后，输出一行由 `===JSON===` 分隔的 JSON 字符串，包含系统结构。"
                         )
                     },
@@ -500,7 +507,8 @@ def _generate_class_suggestions_stream(class_id, teacher_id, demo_run_id=None, *
                     'student_id': row['student'].student_id,
                     'name': row['student'].full_name or row['student'].username,
                     'risk_tags': row['risk_tags'],
-                    'latest_score': row['latest_score']
+                    'latest_score': row['latest_score'],
+                    'historical_score': row['student'].user_ascore
                 })
 
     yield sse_event({'type': 'status', 'message': '正在聚合知识点雷达掌握度...'})
@@ -564,7 +572,7 @@ def _generate_class_suggestions_stream(class_id, teacher_id, demo_run_id=None, *
             {
                 'student_id': s['student_id'],
                 'name': s['name'],
-                'risk_reason': f"存在{'/'.join(s['risk_tags'])}风险，最近得分 {s['latest_score'] if s['latest_score'] is not None else '无'}"
+                'risk_reason': format_risk_reason(s)
             } for s in attention_students
         ],
         'weak_knowledge_points': [
@@ -593,7 +601,7 @@ def _generate_class_suggestions_stream(class_id, teacher_id, demo_run_id=None, *
     if llm.is_available():
         try:
             attention_details_str = "\n".join([
-                f"- {s['name']} ({s['student_id']}): 风险标签 {s['risk_tags']}, 最近得分 {s['latest_score']}" 
+                format_attention_student_line(s)
                 for s in attention_students
             ]) if attention_students else "暂无高风险学生"
 
@@ -612,6 +620,7 @@ def _generate_class_suggestions_stream(class_id, teacher_id, demo_run_id=None, *
                     "role": "system",
                     "content": (
                         "你是一个专业的编程教育专家，擅长从班级 student 分数、提交活跃度、弱点概念等多维度给出建议。\n"
+                        + RISK_TAG_CALIBER_INSTRUCTION + "\n"
                         "请用学术严谨且易懂的中文直接输出 Markdown 格式的分析正文。只输出正文，不要输出 JSON、分隔符或额外说明。左侧结构化卡片由系统根据班级数据生成。"
                     )
                 },
