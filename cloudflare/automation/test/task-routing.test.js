@@ -15,8 +15,16 @@ import {
   selectPreviouslyLinkedTaskRecord,
   selectTaskForMergedPullRequestFallback,
   mergedPullRequestTaskSyncCandidate,
+  isSafeMergedPullRequestAssociation,
   taskRecordSnapshot,
 } from "../src/task-board.js";
+
+test("历史补漏仅接受任务直连或已保存动作的 PR 关联", () => {
+  assert.equal(isSafeMergedPullRequestAssociation("task_link"), true);
+  assert.equal(isSafeMergedPullRequestAssociation("saved_action"), true);
+  assert.equal(isSafeMergedPullRequestAssociation("github_identity"), false);
+  assert.equal(isSafeMergedPullRequestAssociation(null), false);
+});
 
 test("PR 链接被清空后仍可按已保存的任务关联找回记录", () => {
   const record = { record_id: "rec_stage_2", fields: { "GitHub PR / Issue": null } };

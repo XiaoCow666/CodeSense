@@ -542,6 +542,10 @@ function selectLinkedTaskRecord(records, prUrl, number) {
   };
 }
 
+export function isSafeMergedPullRequestAssociation(association) {
+  return association === "task_link" || association === "saved_action";
+}
+
 export function selectPreviouslyLinkedTaskRecord(records, responses) {
   const recordIds = [...new Set((Array.isArray(responses) ? responses : [])
     .filter((response) => response?.matched === true && response.record_id)
@@ -566,7 +570,7 @@ async function previouslyLinkedTaskRecord(env, project, records, outcome) {
   return { record, ambiguous: !record };
 }
 
-async function findTaskRecordForOutcome(env, project, records, outcome, prUrl, { requireExplicitStage = false } = {}) {
+async function findTaskRecordForOutcome(env, project, records, outcome, prUrl, { requireExplicitStage = false, allowGithubIdentityFallback = true } = {}) {
   const linked = selectLinkedTaskRecord(records, prUrl, outcome.number);
   if (linked.ambiguous) return { record: null, linkedAutomatically: false, association: null, ambiguous: true };
   let record = linked.record;
@@ -580,7 +584,7 @@ async function findTaskRecordForOutcome(env, project, records, outcome, prUrl, {
     if (record) association = "saved_action";
   }
   const githubLogin = String(outcome.author_login || "").trim();
-  if (!record && githubLogin) {
+  if (!record && githubLogin && allowGithubIdentityFallback) {
     const identity = await lookupGithubMember(env, project.repository, githubLogin);
     const candidate = identity
       ? requireExplicitStage
@@ -609,8 +613,8 @@ export async function mergedPullRequestTaskSyncCandidate(env, project, records, 
     headRefName: pullRequest.head?.ref || "",
     title: pullRequest.title || "",
   };
-  const { record, association } = await findTaskRecordForOutcome(env, project, records, outcome, prUrl, { requireExplicitStage: true });
-  if (!record) return null;
+  const { record, association } = await findTaskRecordForOutcome(env, project, records, outcome, prUrl, { requireExplicitStage: true, allowGithubIdentityFallback: false });
+  if (!record || !isSafeMergedPullRequestAssociation(association)) return null;
   const snapshot = taskRecordSnapshot(record);
   if (snapshot.status === "已完成" && !nextStageEligibility(records, snapshot).eligible) return null;
   return { record_id: record.record_id, association };
@@ -640,7 +644,7 @@ export async function applyGithubOutcome(env, outcome) {
     records,
     outcome,
     prUrl,
-    { requireExplicitStage: outcome.task_sync === true },
+    { requireExplicitStage: outcome.task_sync === true, allowGithubIdentityFallback: outcome.task_sync !== true },
   );
   if (!record) return { matched: false, reason: stageConflict ? "task_stage_conflict" : ambiguous ? "task_association_ambiguous" : "task_not_linked", project: project.key };
   const assignee = assigneeId(record);
