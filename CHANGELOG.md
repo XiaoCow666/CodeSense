@@ -10,6 +10,16 @@ This file records release-level information for users and maintainers. Versions 
 
 Future unreleased changes will be listed here.
 
+## [1.9.0] - 2026-09-24
+
+### Added
+
+- 教师首页、班级详情和 AI 教学建议页提供可直接使用的班级教学动作，教师可从知识覆盖进入针对性练习。
+- 教师可提醒需要更新学习记忆的学生；学生在行动中心查看提醒并返回个人学习记忆入口。
+- 知识图谱关系保留作业来源与版本；教师只查看管理班级的汇总信息，学生撤回的来源不会进入个人辅导检索。
+
+[1.9.0]: https://github.com/XiaoCow666/CodeSense/releases/tag/v1.9.0
+
 ### Added
 
 - 教师首页、班级详情和 AI 教学建议页增加可执行教学动作，动作依据班级聚合知识图谱和学习记录索引状态生成，并保留作业知识点来源版本。
@@ -112,7 +122,7 @@ CodeSense 标准版首个正式版本。
 
 First formal release of the CodeSense Standard Edition.
 
-[Unreleased]: https://github.com/XiaoCow666/CodeSense/compare/v1.8.0...HEAD
+[Unreleased]: https://github.com/XiaoCow666/CodeSense/compare/v1.9.0...HEAD
 [1.5.0]: https://github.com/XiaoCow666/CodeSense/releases/tag/v1.5.0
 [1.4.0]: https://github.com/XiaoCow666/CodeSense/releases/tag/v1.4.0
 [1.3.0]: https://github.com/XiaoCow666/CodeSense/releases/tag/v1.3.0
