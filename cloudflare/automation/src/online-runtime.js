@@ -1,10 +1,11 @@
 import { listChatMembers, sendFeishuText, formatMemberOnboarding } from "./feishu.js";
-import { listOpenPullRequests, listRecentlyMergedPullRequests } from "./github.js";
+import { listMergedPullRequests, listOpenPullRequests } from "./github.js";
 import {
   ensureNextStageTask,
   ensureStageOneTask,
   listProjectRecords,
   projectForRepository,
+  shouldReconcileMergedPullRequest,
   taskRecordSnapshot,
 } from "./task-board.js";
 import { formatDailyReport } from "./online.js";
@@ -36,6 +37,23 @@ function reconciliationBucket() {
   return Math.floor(Date.now() / (10 * 60 * 1000));
 }
 
+function shanghaiDateKey(date) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date).map(({ type, value }) => [type, value]));
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+export function mergedPullRequestSyncKey(repository, pullRequest, date = new Date()) {
+  const number = Number(pullRequest?.number);
+  const mergeId = String(pullRequest?.merge_commit_sha || pullRequest?.head?.sha || pullRequest?.merged_at || "").trim();
+  if (!Number.isInteger(number) || number < 1 || !mergeId) throw new Error("合并 PR 的编号或提交标识缺失");
+  return `merged-pr-task-sync:${repository}#${number}:${mergeId}:${shanghaiDateKey(date)}`;
+}
+
 async function enqueueReviewForOpenPullRequest({ env, project, pullRequest, enqueueEvent, runAction, eventId }) {
   const number = Number(pullRequest.number);
   const headSha = String(pullRequest.head?.sha || "");
@@ -53,6 +71,24 @@ async function enqueueReviewForOpenPullRequest({ env, project, pullRequest, enqu
       delivery_id: `online-review:${project.repository}#${number}:${headSha}`,
       payload: { repository: project.repository, number },
     }).then(() => ({ queued: true, repository: project.repository, number, head_sha: headSha })),
+  );
+}
+
+async function enqueueMergedPullRequestTaskSync({ env, project, pullRequest, enqueueEvent, runAction, eventId, date }) {
+  const number = Number(pullRequest.number);
+  const actionKey = mergedPullRequestSyncKey(project.repository, pullRequest, date);
+  return runAction(
+    env,
+    eventForCron(eventId),
+    "merged_pr_task_sync_enqueue",
+    actionKey,
+    () => enqueueEvent({
+      event_id: actionKey,
+      source: "internal",
+      event_type: "reconcile",
+      delivery_id: `merged-pr:${project.repository}#${number}:${pullRequest.merge_commit_sha || pullRequest.head?.sha || pullRequest.merged_at}`,
+      payload: { repository: project.repository, number },
+    }).then(() => ({ queued: true, repository: project.repository, number })),
   );
 }
 
@@ -127,7 +163,7 @@ async function continueCompletedTasks({ env, project, records, runAction, eventI
 export async function runOnlineReconciliation({ env, enqueueEvent, runAction } = {}) {
   if (typeof enqueueEvent !== "function" || typeof runAction !== "function") throw new Error("online reconciliation dependencies are missing");
   const eventId = `cron-reconcile:${reconciliationBucket()}`;
-  const summary = { projects: 0, members: 0, stageOneTasks: 0, nextStageTasks: 0, nextStageSkipped: {}, messages: 0, reviewsQueued: 0, openPullRequests: 0, mergedPullRequests: 0 };
+  const summary = { projects: 0, members: 0, stageOneTasks: 0, nextStageTasks: 0, nextStageSkipped: {}, messages: 0, reviewsQueued: 0, openPullRequests: 0, mergedPullRequests: 0, mergedTaskSyncQueued: 0 };
   for (const repository of PROJECT_REPOSITORIES) {
     const project = projectForRepository(env, repository);
     if (!project) throw new Error(`project is not configured: ${repository}`);
@@ -153,12 +189,26 @@ export async function runOnlineReconciliation({ env, enqueueEvent, runAction } =
       const result = await enqueueReviewForOpenPullRequest({ env, project, pullRequest, enqueueEvent, runAction, eventId });
       if (result.queued) summary.reviewsQueued += 1;
     }
-    const recentMerges = await listRecentlyMergedPullRequests(env, project.repository, new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
-    summary.mergedPullRequests += recentMerges.length;
-    for (const pullRequest of recentMerges) {
-      const result = await enqueueReviewForOpenPullRequest({ env, project, pullRequest: { ...pullRequest, head: { sha: pullRequest.head?.sha || pullRequest.merge_commit_sha || pullRequest.merged_at } }, enqueueEvent, runAction, eventId });
-      if (result.queued) summary.reviewsQueued += 1;
-    }
+    const syncDate = new Date();
+    const syncDay = shanghaiDateKey(syncDate);
+    const mergedScan = await runAction(
+      env,
+      eventForCron(eventId),
+      "online_merged_pr_scan",
+      `online-merged-pr-scan:${project.key}:${syncDay}`,
+      async () => {
+        const mergedPullRequests = await listMergedPullRequests(env, project.repository);
+        let queued = 0;
+        for (const pullRequest of mergedPullRequests) {
+          if (!await shouldReconcileMergedPullRequest(env, project, records, pullRequest)) continue;
+          const result = await enqueueMergedPullRequestTaskSync({ env, project, pullRequest, enqueueEvent, runAction, eventId, date: syncDate });
+          if (result.queued) queued += 1;
+        }
+        return { mergedPullRequests: mergedPullRequests.length, queued };
+      },
+    );
+    summary.mergedPullRequests += Number(mergedScan.mergedPullRequests || 0);
+    summary.mergedTaskSyncQueued += Number(mergedScan.queued || 0);
     summary.projects += 1;
   }
   return summary;

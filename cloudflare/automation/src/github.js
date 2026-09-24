@@ -120,12 +120,18 @@ export function isMergedPullRequest(pullRequest) {
   return pullRequest?.merged === true || Boolean(pullRequest?.merged_at);
 }
 
-export async function listRecentlyMergedPullRequests(env, repository, since) {
+export async function listMergedPullRequests(env, repository, since) {
   const normalizedRepository = repositoryName(repository);
   const [owner, repo] = normalizedRepository.split("/");
-  const value = await githubApi(env, "GET", `/repos/${encodeSegment(owner)}/${encodeSegment(repo)}/pulls?state=closed&per_page=100&sort=updated&direction=desc`);
+  const pullRequests = [];
+  for (let page = 1; ; page += 1) {
+    const value = await githubApi(env, "GET", `/repos/${encodeSegment(owner)}/${encodeSegment(repo)}/pulls?state=closed&per_page=100&sort=updated&direction=desc&page=${page}`);
+    if (!Array.isArray(value)) throw new Error("GitHub 已关闭 PR 列表格式无效");
+    pullRequests.push(...value);
+    if (value.length < 100) break;
+  }
   const sinceTime = Date.parse(String(since || ""));
-  return (Array.isArray(value) ? value : []).filter((pullRequest) => isMergedPullRequest(pullRequest)
+  return pullRequests.filter((pullRequest) => isMergedPullRequest(pullRequest)
     && (!Number.isFinite(sinceTime) || Date.parse(String(pullRequest.merged_at || "")) >= sinceTime));
 }
 

@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mergedPullRequestSyncKey } from "../src/online-runtime.js";
 import {
   extractPullRequestReference,
   actionCanBeReclaimed,
@@ -9,6 +10,22 @@ import {
   scheduledActionKey,
   scheduledMode,
 } from "../src/online.js";
+
+test("合并 PR 的任务同步标识在同一个中国日期内保持稳定", () => {
+  const pullRequest = { number: 28, merge_commit_sha: "merge-sha" };
+  assert.equal(
+    mergedPullRequestSyncKey("XiaoCow666/CodeSense", pullRequest, new Date("2026-09-24T00:00:00Z")),
+    "merged-pr-task-sync:XiaoCow666/CodeSense#28:merge-sha:2026-09-24",
+  );
+  assert.equal(
+    mergedPullRequestSyncKey("XiaoCow666/CodeSense", pullRequest, new Date("2026-09-24T15:59:59Z")),
+    "merged-pr-task-sync:XiaoCow666/CodeSense#28:merge-sha:2026-09-24",
+  );
+  assert.equal(
+    mergedPullRequestSyncKey("XiaoCow666/CodeSense", pullRequest, new Date("2026-09-24T16:00:00Z")),
+    "merged-pr-task-sync:XiaoCow666/CodeSense#28:merge-sha:2026-09-25",
+  );
+});
 
 test("Cloudflare cron keeps reconciliation and the daily report separate", () => {
   assert.equal(scheduledMode("*/10 * * * *"), "reconcile");

@@ -12,8 +12,55 @@ import {
   stageTaskContent,
   selectTaskForGithubIdentity,
   ensureNextStageTask,
+  selectPreviouslyLinkedTaskRecord,
+  shouldReconcileMergedPullRequest,
   taskRecordSnapshot,
 } from "../src/task-board.js";
+
+test("PR 链接被清空后仍可按已保存的任务关联找回记录", () => {
+  const record = { record_id: "rec_stage_2", fields: { "GitHub PR / Issue": null } };
+  assert.equal(
+    selectPreviouslyLinkedTaskRecord([record], [{ matched: true, record_id: "rec_stage_2" }]),
+    record,
+  );
+  assert.equal(
+    selectPreviouslyLinkedTaskRecord([record], [
+      { matched: true, record_id: "rec_stage_2" },
+      { matched: true, record_id: "rec_other" },
+    ]),
+    null,
+  );
+});
+
+test("合并 PR 只为未完成任务或缺少下一阶段的任务重新排队", async () => {
+  const stageTwo = {
+    record_id: "rec_stage_2",
+    fields: {
+      "任务名称": "阶段二：修复问题（张诗若）",
+      "状态": ["进行中"],
+      "负责人": [{ id: "ou_member", name: "张诗若" }],
+      "任务模式": ["阶段任务"],
+      "GitHub PR / Issue": "https://github.com/XiaoCow666/CodeSense/pull/28",
+    },
+  };
+  const project = { repository: "XiaoCow666/CodeSense" };
+  const pullRequest = { number: 28, merged: true, user: { login: "zhang" } };
+  assert.equal(await shouldReconcileMergedPullRequest({}, project, [stageTwo], pullRequest), true);
+
+  const completedStageTwo = { ...stageTwo, fields: { ...stageTwo.fields, "状态": ["已完成"] } };
+  assert.equal(await shouldReconcileMergedPullRequest({}, project, [completedStageTwo], pullRequest), true);
+  const stageThree = {
+    record_id: "rec_stage_3",
+    fields: {
+      "任务名称": "阶段三：追到问题根因（张诗若）",
+      "状态": ["待开始"],
+      "负责人": [{ id: "ou_member", name: "张诗若" }],
+      "任务模式": ["阶段任务"],
+      "GitHub PR / Issue": null,
+    },
+  };
+  assert.equal(await shouldReconcileMergedPullRequest({}, project, [completedStageTwo, stageThree], pullRequest), false);
+});
 
 test("stage parsing supports Arabic and Chinese stage names", () => {
   assert.equal(parseStageNumber("阶段 8：真实问题"), 8);
