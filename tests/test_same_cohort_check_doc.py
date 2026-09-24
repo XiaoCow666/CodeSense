@@ -41,3 +41,20 @@ def test_guide_validates_method_with_new_func_avg_example():
     # 必须给出可核验的明确判定，而不是只把例子摆出来
     assert "安全" in text
     assert "忽略" in text  # SQL AVG 忽略 NULL 是判定理由
+
+
+def test_guide_adds_business_definition_verification_and_default_rules():
+    """阶段十三升级：防止新手机械套用模式误报，文档必须包含：
+
+    - 判定前核实业务定义 / 对照口径的步骤；
+    - 默认值与中性态选择规则；
+    - 带教案例（含新手第一轮表现与复现结果）。
+    """
+    text = _read()
+    assert "业务定义" in text
+    assert "对照口径" in text
+    assert "孤立替换" in text
+    assert "中性" in text
+    # 带教案例引用了提取出的纯函数
+    assert "submission_score_stats" in text
+    assert "复现结果" in text
