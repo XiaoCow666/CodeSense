@@ -31,3 +31,19 @@ test("an earlier unlinked task update gets a bounded retry key", () => {
     "task-pr:XiaoCow666/CodeSense#61:abc123:approve:pull_request_not_mergeable:link-retry:100",
   );
 });
+
+test("merged PR reconciliation uses a fresh task update key", () => {
+  const outcome = {
+    repository: "XiaoCow666/CodeSense",
+    number: 28,
+    headSha: "merge-sha",
+    merged: true,
+  };
+  const normalKey = taskUpdateActionKey(outcome);
+  const reconciliationKey = taskUpdateActionKey(outcome, null, undefined, "merged-pr-task-sync:v2:2026-09-24");
+  assert.notEqual(reconciliationKey, normalKey);
+  assert.equal(
+    reconciliationKey,
+    `${normalKey}:reconcile:merged-pr-task-sync:v2:2026-09-24`,
+  );
+});

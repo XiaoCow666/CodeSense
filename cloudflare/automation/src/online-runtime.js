@@ -4,8 +4,8 @@ import {
   ensureNextStageTask,
   ensureStageOneTask,
   listProjectRecords,
+  mergedPullRequestTaskSyncCandidate,
   projectForRepository,
-  shouldReconcileMergedPullRequest,
   taskRecordSnapshot,
 } from "./task-board.js";
 import { formatDailyReport } from "./online.js";
@@ -51,7 +51,31 @@ export function mergedPullRequestSyncKey(repository, pullRequest, date = new Dat
   const number = Number(pullRequest?.number);
   const mergeId = String(pullRequest?.merge_commit_sha || pullRequest?.head?.sha || pullRequest?.merged_at || "").trim();
   if (!Number.isInteger(number) || number < 1 || !mergeId) throw new Error("合并 PR 的编号或提交标识缺失");
-  return `merged-pr-task-sync:${repository}#${number}:${mergeId}:${shanghaiDateKey(date)}`;
+  return `merged-pr-task-sync:v2:${repository}#${number}:${mergeId}:${shanghaiDateKey(date)}`;
+}
+
+export function mergedPullRequestScanActionKey(projectKey, date = new Date()) {
+  return `online-merged-pr-scan:v2:${projectKey}:${shanghaiDateKey(date)}`;
+}
+
+export function selectUnambiguousMergedPullRequestCandidates(candidates) {
+  const groups = new Map();
+  for (const candidate of Array.isArray(candidates) ? candidates : []) {
+    if (!candidate?.record_id || !candidate?.pullRequest) continue;
+    const group = groups.get(candidate.record_id) || [];
+    group.push(candidate);
+    groups.set(candidate.record_id, group);
+  }
+  const selected = [];
+  for (const group of groups.values()) {
+    if (group.length === 1) {
+      selected.push(group[0]);
+      continue;
+    }
+    const explicitlyLinked = group.filter((candidate) => candidate.association !== "github_identity");
+    if (explicitlyLinked.length === 1) selected.push(explicitlyLinked[0]);
+  }
+  return selected;
 }
 
 async function enqueueReviewForOpenPullRequest({ env, project, pullRequest, enqueueEvent, runAction, eventId }) {
@@ -87,7 +111,7 @@ async function enqueueMergedPullRequestTaskSync({ env, project, pullRequest, enq
       source: "internal",
       event_type: "reconcile",
       delivery_id: `merged-pr:${project.repository}#${number}:${pullRequest.merge_commit_sha || pullRequest.head?.sha || pullRequest.merged_at}`,
-      payload: { repository: project.repository, number },
+      payload: { repository: project.repository, number, task_sync: true },
     }).then(() => ({ queued: true, repository: project.repository, number })),
   );
 }
@@ -163,7 +187,7 @@ async function continueCompletedTasks({ env, project, records, runAction, eventI
 export async function runOnlineReconciliation({ env, enqueueEvent, runAction } = {}) {
   if (typeof enqueueEvent !== "function" || typeof runAction !== "function") throw new Error("online reconciliation dependencies are missing");
   const eventId = `cron-reconcile:${reconciliationBucket()}`;
-  const summary = { projects: 0, members: 0, stageOneTasks: 0, nextStageTasks: 0, nextStageSkipped: {}, messages: 0, reviewsQueued: 0, openPullRequests: 0, mergedPullRequests: 0, mergedTaskSyncQueued: 0 };
+  const summary = { projects: 0, members: 0, stageOneTasks: 0, nextStageTasks: 0, nextStageSkipped: {}, messages: 0, reviewsQueued: 0, openPullRequests: 0, mergedPullRequests: 0, mergedTaskSyncQueued: 0, mergedTaskSyncAmbiguous: 0 };
   for (const repository of PROJECT_REPOSITORIES) {
     const project = projectForRepository(env, repository);
     if (!project) throw new Error(`project is not configured: ${repository}`);
@@ -190,25 +214,30 @@ export async function runOnlineReconciliation({ env, enqueueEvent, runAction } =
       if (result.queued) summary.reviewsQueued += 1;
     }
     const syncDate = new Date();
-    const syncDay = shanghaiDateKey(syncDate);
     const mergedScan = await runAction(
       env,
       eventForCron(eventId),
       "online_merged_pr_scan",
-      `online-merged-pr-scan:${project.key}:${syncDay}`,
+      mergedPullRequestScanActionKey(project.key, syncDate),
       async () => {
         const mergedPullRequests = await listMergedPullRequests(env, project.repository);
-        let queued = 0;
+        const candidates = [];
         for (const pullRequest of mergedPullRequests) {
-          if (!await shouldReconcileMergedPullRequest(env, project, records, pullRequest)) continue;
+          const candidate = await mergedPullRequestTaskSyncCandidate(env, project, records, pullRequest);
+          if (candidate) candidates.push({ ...candidate, pullRequest });
+        }
+        const selectedCandidates = selectUnambiguousMergedPullRequestCandidates(candidates);
+        let queued = 0;
+        for (const { pullRequest } of selectedCandidates) {
           const result = await enqueueMergedPullRequestTaskSync({ env, project, pullRequest, enqueueEvent, runAction, eventId, date: syncDate });
           if (result.queued) queued += 1;
         }
-        return { mergedPullRequests: mergedPullRequests.length, queued };
+        return { mergedPullRequests: mergedPullRequests.length, queued, ambiguous: candidates.length - selectedCandidates.length };
       },
     );
     summary.mergedPullRequests += Number(mergedScan.mergedPullRequests || 0);
     summary.mergedTaskSyncQueued += Number(mergedScan.queued || 0);
+    summary.mergedTaskSyncAmbiguous += Number(mergedScan.ambiguous || 0);
     summary.projects += 1;
   }
   return summary;

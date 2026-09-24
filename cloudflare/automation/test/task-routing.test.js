@@ -13,7 +13,8 @@ import {
   selectTaskForGithubIdentity,
   ensureNextStageTask,
   selectPreviouslyLinkedTaskRecord,
-  shouldReconcileMergedPullRequest,
+  selectTaskForMergedPullRequestFallback,
+  mergedPullRequestTaskSyncCandidate,
   taskRecordSnapshot,
 } from "../src/task-board.js";
 
@@ -32,6 +33,32 @@ test("PR 链接被清空后仍可按已保存的任务关联找回记录", () =>
   );
 });
 
+test("历史合并 PR 只有明确阶段与任务阶段相同才允许按作者找回任务", () => {
+  const stageTwo = {
+    record_id: "rec_stage_2",
+    fields: {
+      "任务名称": "阶段二：修复问题（张诗若）",
+      "状态": ["进行中"],
+      "负责人": [{ id: "ou_member", name: "张诗若" }],
+      "任务模式": ["阶段任务"],
+      "GitHub PR / Issue": null,
+    },
+  };
+  const records = [stageTwo];
+  assert.equal(
+    selectTaskForMergedPullRequestFallback(records, "ou_member", { headRefName: "codex/stage2-fix", title: "Stage 2 fix" }),
+    stageTwo,
+  );
+  assert.equal(
+    selectTaskForMergedPullRequestFallback(records, "ou_member", { headRefName: "codex/bug-fix", title: "Improve validation" }),
+    null,
+  );
+  assert.equal(
+    selectTaskForMergedPullRequestFallback(records, "ou_member", { headRefName: "codex/stage3-fix", title: "Stage 3 fix" }),
+    null,
+  );
+});
+
 test("合并 PR 只为未完成任务或缺少下一阶段的任务重新排队", async () => {
   const stageTwo = {
     record_id: "rec_stage_2",
@@ -45,10 +72,16 @@ test("合并 PR 只为未完成任务或缺少下一阶段的任务重新排队"
   };
   const project = { repository: "XiaoCow666/CodeSense" };
   const pullRequest = { number: 28, merged: true, user: { login: "zhang" } };
-  assert.equal(await shouldReconcileMergedPullRequest({}, project, [stageTwo], pullRequest), true);
+  assert.deepEqual(await mergedPullRequestTaskSyncCandidate({}, project, [stageTwo], pullRequest), {
+    record_id: "rec_stage_2",
+    association: "task_link",
+  });
 
   const completedStageTwo = { ...stageTwo, fields: { ...stageTwo.fields, "状态": ["已完成"] } };
-  assert.equal(await shouldReconcileMergedPullRequest({}, project, [completedStageTwo], pullRequest), true);
+  assert.deepEqual(await mergedPullRequestTaskSyncCandidate({}, project, [completedStageTwo], pullRequest), {
+    record_id: "rec_stage_2",
+    association: "task_link",
+  });
   const stageThree = {
     record_id: "rec_stage_3",
     fields: {
@@ -59,7 +92,7 @@ test("合并 PR 只为未完成任务或缺少下一阶段的任务重新排队"
       "GitHub PR / Issue": null,
     },
   };
-  assert.equal(await shouldReconcileMergedPullRequest({}, project, [completedStageTwo, stageThree], pullRequest), false);
+  assert.equal(await mergedPullRequestTaskSyncCandidate({}, project, [completedStageTwo, stageThree], pullRequest), null);
 });
 
 test("stage parsing supports Arabic and Chinese stage names", () => {

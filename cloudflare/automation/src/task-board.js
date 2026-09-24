@@ -182,6 +182,17 @@ export function selectTaskForGithubIdentity(records, assigneeOpenId) {
   return candidates.length === 1 ? candidates[0] : null;
 }
 
+export function selectTaskForMergedPullRequestFallback(records, assigneeOpenId, outcome) {
+  const reference = [outcome?.headRefName, outcome?.title].filter(Boolean).join(" ");
+  const pullRequestStage = parsePullRequestStage(reference);
+  if (!pullRequestStage) return null;
+  const candidate = selectTaskForGithubIdentity(records, assigneeOpenId);
+  if (!candidate) return null;
+  return parseStageNumber(valueText(candidate.fields[FIELD_NAMES.title])) === pullRequestStage
+    ? candidate
+    : null;
+}
+
 export function memberTaskPlan(records, memberOpenId) {
   const memberRecords = (Array.isArray(records) ? records : [])
     .map((record) => ({ record, snapshot: taskRecordSnapshot(record) }))
@@ -537,28 +548,35 @@ async function previouslyLinkedTaskRecord(env, project, records, outcome) {
   return selectPreviouslyLinkedTaskRecord(records, responses);
 }
 
-async function findTaskRecordForOutcome(env, project, records, outcome, prUrl) {
+async function findTaskRecordForOutcome(env, project, records, outcome, prUrl, { requireExplicitStage = false } = {}) {
   let record = selectLinkedTaskRecord(records, prUrl, outcome.number);
   let linkedAutomatically = false;
+  let association = record ? "task_link" : null;
   if (!record) {
     record = await previouslyLinkedTaskRecord(env, project, records, outcome);
     linkedAutomatically = Boolean(record);
+    if (record) association = "saved_action";
   }
   const githubLogin = String(outcome.author_login || "").trim();
   if (!record && githubLogin) {
     const identity = await lookupGithubMember(env, project.repository, githubLogin);
-    const candidate = identity ? selectTaskForGithubIdentity(records, identity.assignee_open_id) : null;
+    const candidate = identity
+      ? requireExplicitStage
+        ? selectTaskForMergedPullRequestFallback(records, identity.assignee_open_id, outcome)
+        : selectTaskForGithubIdentity(records, identity.assignee_open_id)
+      : null;
     if (candidate && pullRequestStageMatchesTask(valueText(candidate.fields[FIELD_NAMES.title]), outcome)) {
       record = candidate;
       linkedAutomatically = true;
+      association = "github_identity";
     }
   }
-  return { record, linkedAutomatically };
+  return { record, linkedAutomatically, association };
 }
 
-export async function shouldReconcileMergedPullRequest(env, project, records, pullRequest) {
+export async function mergedPullRequestTaskSyncCandidate(env, project, records, pullRequest) {
   const number = Number(pullRequest?.number);
-  if (!Number.isInteger(number) || number < 1) return false;
+  if (!Number.isInteger(number) || number < 1) return null;
   const prUrl = `https://github.com/${project.repository}/pull/${number}`;
   const outcome = {
     number,
@@ -566,11 +584,11 @@ export async function shouldReconcileMergedPullRequest(env, project, records, pu
     headRefName: pullRequest.head?.ref || "",
     title: pullRequest.title || "",
   };
-  const { record } = await findTaskRecordForOutcome(env, project, records, outcome, prUrl);
-  if (!record) return false;
+  const { record, association } = await findTaskRecordForOutcome(env, project, records, outcome, prUrl, { requireExplicitStage: true });
+  if (!record) return null;
   const snapshot = taskRecordSnapshot(record);
-  if (snapshot.status !== "已完成") return true;
-  return nextStageEligibility(records, snapshot).eligible;
+  if (snapshot.status === "已完成" && !nextStageEligibility(records, snapshot).eligible) return null;
+  return { record_id: record.record_id, association };
 }
 
 function outcomeText(outcome) {
@@ -591,7 +609,14 @@ export async function applyGithubOutcome(env, outcome) {
   const records = await listRecords(env, project);
   const prUrl = `https://github.com/${project.repository}/pull/${Number(outcome.number)}`;
   const githubLogin = String(outcome.author_login || "").trim();
-  const { record, linkedAutomatically } = await findTaskRecordForOutcome(env, project, records, outcome, prUrl);
+  const { record, linkedAutomatically } = await findTaskRecordForOutcome(
+    env,
+    project,
+    records,
+    outcome,
+    prUrl,
+    { requireExplicitStage: outcome.task_sync === true },
+  );
   if (!record) return { matched: false, reason: "task_not_linked", project: project.key };
   const assignee = assigneeId(record);
   const assigneeName = valueText(record.fields[FIELD_NAMES.assignee]) || "成员";

@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mergedPullRequestSyncKey } from "../src/online-runtime.js";
+import {
+  mergedPullRequestSyncKey,
+  mergedPullRequestScanActionKey,
+  selectUnambiguousMergedPullRequestCandidates,
+} from "../src/online-runtime.js";
 import {
   extractPullRequestReference,
   actionCanBeReclaimed,
@@ -15,15 +19,45 @@ test("合并 PR 的任务同步标识在同一个中国日期内保持稳定", (
   const pullRequest = { number: 28, merge_commit_sha: "merge-sha" };
   assert.equal(
     mergedPullRequestSyncKey("XiaoCow666/CodeSense", pullRequest, new Date("2026-09-24T00:00:00Z")),
-    "merged-pr-task-sync:XiaoCow666/CodeSense#28:merge-sha:2026-09-24",
+    "merged-pr-task-sync:v2:XiaoCow666/CodeSense#28:merge-sha:2026-09-24",
   );
   assert.equal(
     mergedPullRequestSyncKey("XiaoCow666/CodeSense", pullRequest, new Date("2026-09-24T15:59:59Z")),
-    "merged-pr-task-sync:XiaoCow666/CodeSense#28:merge-sha:2026-09-24",
+    "merged-pr-task-sync:v2:XiaoCow666/CodeSense#28:merge-sha:2026-09-24",
   );
   assert.equal(
     mergedPullRequestSyncKey("XiaoCow666/CodeSense", pullRequest, new Date("2026-09-24T16:00:00Z")),
-    "merged-pr-task-sync:XiaoCow666/CodeSense#28:merge-sha:2026-09-25",
+    "merged-pr-task-sync:v2:XiaoCow666/CodeSense#28:merge-sha:2026-09-25",
+  );
+});
+
+test("合并 PR 扫描标识可让修正版在当天重新运行", () => {
+  assert.equal(
+    mergedPullRequestScanActionKey("codesense", new Date("2026-09-24T00:00:00Z")),
+    "online-merged-pr-scan:v2:codesense:2026-09-24",
+  );
+});
+
+test("同一任务有多个历史 PR 时只保留唯一的明确关联", () => {
+  const direct = { record_id: "rec_stage_2", association: "task_link", pullRequest: { number: 28 } };
+  const inferred = { record_id: "rec_stage_2", association: "github_identity", pullRequest: { number: 29 } };
+  assert.deepEqual(
+    selectUnambiguousMergedPullRequestCandidates([direct, inferred]),
+    [direct],
+  );
+  assert.deepEqual(
+    selectUnambiguousMergedPullRequestCandidates([
+      inferred,
+      { ...inferred, pullRequest: { number: 30 } },
+    ]),
+    [],
+  );
+  assert.deepEqual(
+    selectUnambiguousMergedPullRequestCandidates([
+      direct,
+      { ...direct, pullRequest: { number: 31 } },
+    ]),
+    [],
   );
 });
 

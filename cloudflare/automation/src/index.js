@@ -165,13 +165,15 @@ export function taskCompletionState(outcome) {
   return outcome?.review?.decision === "approve" ? "已完成" : "进行中";
 }
 
-export function taskUpdateActionKey(outcome, previousResponse = null, retryBucket = Math.floor(Date.now() / (10 * 60 * 1000))) {
+export function taskUpdateActionKey(outcome, previousResponse = null, retryBucket = Math.floor(Date.now() / (10 * 60 * 1000)), reconciliationId = "") {
   const baseKey = `task-pr:${outcome.repository}#${outcome.number}:${outcome.headSha || "closed"}:${outcomeStateKey(outcome)}`;
+  if (reconciliationId) return `${baseKey}:reconcile:${reconciliationId}`;
   if (previousResponse?.matched === false && previousResponse.reason === "task_not_linked") return `${baseKey}:link-retry:${retryBucket}`;
   return baseKey;
 }
 
-async function taskUpdateActionKeyForEvent(env, outcome) {
+async function taskUpdateActionKeyForEvent(env, outcome, reconciliationId = "") {
+  if (reconciliationId) return taskUpdateActionKey(outcome, null, undefined, reconciliationId);
   const baseKey = taskUpdateActionKey(outcome);
   const existing = await env.STATE_DB.prepare("SELECT status, response_json FROM action_log WHERE action_key = ?").bind(baseKey).first();
   const previousResponse = existing?.status === "completed" && existing.response_json ? JSON.parse(existing.response_json) : null;
@@ -342,7 +344,7 @@ async function processGithubClosed(env, event) {
   const reference = pullRequestReference(event);
   const payload = eventPayload(event);
   if (!reference || payload.pull_request?.merged !== true) return { handled: false, reason: "pull_request_not_merged" };
-  return { handled: true, repository: reference.repository, number: reference.number, url: `https://github.com/${reference.repository}/pull/${reference.number}`, title: payload.pull_request.title || `PR #${reference.number}`, author_login: payload.pull_request.user?.login || null, headSha: payload.pull_request.merge_commit_sha || payload.pull_request.head?.sha || null, review: { summary: "GitHub 已确认该 PR 合并。", decision: "approve", blocking_findings: [], requested_changes: [], non_blocking_findings: [], test_evidence: [] }, merge: { merged: true, sha: payload.pull_request.merge_commit_sha || null } };
+  return { handled: true, repository: reference.repository, number: reference.number, url: `https://github.com/${reference.repository}/pull/${reference.number}`, title: payload.pull_request.title || `PR #${reference.number}`, author_login: payload.pull_request.user?.login || null, headRefName: payload.pull_request.head?.ref || null, headSha: payload.pull_request.merge_commit_sha || payload.pull_request.head?.sha || null, task_sync: payload.task_sync === true, review: { summary: "GitHub 已确认该 PR 合并。", decision: "approve", blocking_findings: [], requested_changes: [], non_blocking_findings: [], test_evidence: [] }, merge: { merged: true, sha: payload.pull_request.merge_commit_sha || null } };
 }
 
 function pushRecord(event) {
@@ -365,7 +367,8 @@ async function processGithubEffects(env, event, reviewResult) {
   if (event.event_type === "pull_request" && githubAction(event) === "closed") {
     const closed = await processGithubClosed(env, event);
     if (!closed.handled) return closed;
-    const task = await runAction(env, event, "task_update", await taskUpdateActionKeyForEvent(env, closed), () => applyGithubOutcome(env, closed));
+    const reconciliationId = event.payload?.task_sync === true ? event.event_id : "";
+    const task = await runAction(env, event, "task_update", await taskUpdateActionKeyForEvent(env, closed, reconciliationId), () => applyGithubOutcome(env, closed));
     return { ...closed, task };
   }
   if (!reviewResult) return null;
@@ -503,6 +506,7 @@ async function processInternalReconcile(env, event) {
       repository: { full_name: repository },
       pull_request: merged ? { ...fresh, merged: true } : fresh,
       force_review: event.payload.force_review === true,
+      task_sync: merged,
     },
   };
   if (merged) return processGithubEffects(env, synthetic, null);
