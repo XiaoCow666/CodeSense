@@ -33,6 +33,21 @@ test("PR 链接被清空后仍可按已保存的任务关联找回记录", () =>
   );
 });
 
+test("一百条重复历史后仍能发现另一条任务关联", () => {
+  const responses = Array.from({ length: 100 }, () => ({ matched: true, record_id: "rec_stage_2" }));
+  responses.push({ matched: true, record_id: "rec_stage_3" });
+  assert.equal(
+    selectPreviouslyLinkedTaskRecord(
+      [
+        { record_id: "rec_stage_2", fields: {} },
+        { record_id: "rec_stage_3", fields: {} },
+      ],
+      responses,
+    ),
+    null,
+  );
+});
+
 test("历史合并 PR 只有明确阶段与任务阶段相同才允许按作者找回任务", () => {
   const stageTwo = {
     record_id: "rec_stage_2",
@@ -55,6 +70,81 @@ test("历史合并 PR 只有明确阶段与任务阶段相同才允许按作者�
   );
   assert.equal(
     selectTaskForMergedPullRequestFallback(records, "ou_member", { headRefName: "codex/stage3-fix", title: "Stage 3 fix" }),
+    null,
+  );
+});
+
+test("PR 标题与分支标明不同阶段时不按作者关联任务", () => {
+  const stageThree = {
+    record_id: "rec_stage_3",
+    fields: {
+      "任务名称": "阶段三：追到根因（张诗若）",
+      "状态": ["进行中"],
+      "负责人": [{ id: "ou_member", name: "张诗若" }],
+      "任务模式": ["阶段任务"],
+      "GitHub PR / Issue": null,
+    },
+  };
+  assert.equal(
+    selectTaskForMergedPullRequestFallback([stageThree], "ou_member", {
+      headRefName: "codex/stage3-root-cause",
+      title: "Stage 2: root cause",
+    }),
+    null,
+  );
+});
+
+test("同一 PR 关联多条任务记录时不选择其中一条", async () => {
+  const stageTwo = {
+    record_id: "rec_stage_2",
+    fields: {
+      "任务名称": "阶段二：修复问题（张诗若）",
+      "状态": ["待评审"],
+      "负责人": [{ id: "ou_member", name: "张诗若" }],
+      "任务模式": ["阶段任务"],
+      "GitHub PR / Issue": "https://github.com/XiaoCow666/CodeSense/pull/28",
+    },
+  };
+  const stageThree = {
+    ...stageTwo,
+    record_id: "rec_stage_3",
+    fields: { ...stageTwo.fields, "任务名称": "阶段三：追到根因（张诗若）" },
+  };
+  assert.equal(
+    await mergedPullRequestTaskSyncCandidate(
+      {},
+      { repository: "XiaoCow666/CodeSense" },
+      [stageTwo, stageThree],
+      { number: 28, user: { login: "zhang" }, merged: true },
+    ),
+    null,
+  );
+});
+
+test("明确关联的 PR 阶段与分支或标题冲突时不推进任务", async () => {
+  const stageThree = {
+    record_id: "rec_stage_3",
+    fields: {
+      "任务名称": "阶段三：追到根因（张诗若）",
+      "状态": ["待评审"],
+      "负责人": [{ id: "ou_member", name: "张诗若" }],
+      "任务模式": ["阶段任务"],
+      "GitHub PR / Issue": "https://github.com/XiaoCow666/CodeSense/pull/28",
+    },
+  };
+  assert.equal(
+    await mergedPullRequestTaskSyncCandidate(
+      {},
+      { repository: "XiaoCow666/CodeSense" },
+      [stageThree],
+      {
+        number: 28,
+        title: "Stage 2: root cause",
+        head: { ref: "codex/stage3-root-cause" },
+        user: { login: "zhang" },
+        merged: true,
+      },
+    ),
     null,
   );
 });
