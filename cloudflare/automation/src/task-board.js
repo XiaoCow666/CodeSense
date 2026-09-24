@@ -517,6 +517,62 @@ function selectLinkedTaskRecord(records, prUrl, number) {
     })[0] || null;
 }
 
+export function selectPreviouslyLinkedTaskRecord(records, responses) {
+  const recordIds = [...new Set((Array.isArray(responses) ? responses : [])
+    .filter((response) => response?.matched === true && response.record_id)
+    .map((response) => String(response.record_id)))];
+  if (recordIds.length !== 1) return null;
+  return (Array.isArray(records) ? records : [])
+    .find((record) => record?.record_id === recordIds[0]) || null;
+}
+
+async function previouslyLinkedTaskRecord(env, project, records, outcome) {
+  const number = Number(outcome?.number);
+  if (!env.STATE_DB || !Number.isInteger(number) || number < 1) return null;
+  const prefix = `task-pr:${project.repository}#${number}:%`;
+  const result = await env.STATE_DB.prepare(
+    "SELECT response_json FROM action_log WHERE action_type = 'task_update' AND status = 'completed' AND action_key LIKE ? ORDER BY updated_at DESC LIMIT 100",
+  ).bind(prefix).all();
+  const responses = (result.results || []).map((row) => JSON.parse(row.response_json || "{}"));
+  return selectPreviouslyLinkedTaskRecord(records, responses);
+}
+
+async function findTaskRecordForOutcome(env, project, records, outcome, prUrl) {
+  let record = selectLinkedTaskRecord(records, prUrl, outcome.number);
+  let linkedAutomatically = false;
+  if (!record) {
+    record = await previouslyLinkedTaskRecord(env, project, records, outcome);
+    linkedAutomatically = Boolean(record);
+  }
+  const githubLogin = String(outcome.author_login || "").trim();
+  if (!record && githubLogin) {
+    const identity = await lookupGithubMember(env, project.repository, githubLogin);
+    const candidate = identity ? selectTaskForGithubIdentity(records, identity.assignee_open_id) : null;
+    if (candidate && pullRequestStageMatchesTask(valueText(candidate.fields[FIELD_NAMES.title]), outcome)) {
+      record = candidate;
+      linkedAutomatically = true;
+    }
+  }
+  return { record, linkedAutomatically };
+}
+
+export async function shouldReconcileMergedPullRequest(env, project, records, pullRequest) {
+  const number = Number(pullRequest?.number);
+  if (!Number.isInteger(number) || number < 1) return false;
+  const prUrl = `https://github.com/${project.repository}/pull/${number}`;
+  const outcome = {
+    number,
+    author_login: pullRequest.user?.login || pullRequest.author_login || "",
+    headRefName: pullRequest.head?.ref || "",
+    title: pullRequest.title || "",
+  };
+  const { record } = await findTaskRecordForOutcome(env, project, records, outcome, prUrl);
+  if (!record) return false;
+  const snapshot = taskRecordSnapshot(record);
+  if (snapshot.status !== "已完成") return true;
+  return nextStageEligibility(records, snapshot).eligible;
+}
+
 function outcomeText(outcome) {
   const review = outcome.review || {};
   const merged = outcome.merged === true || outcome.merge?.merged === true;
@@ -535,17 +591,7 @@ export async function applyGithubOutcome(env, outcome) {
   const records = await listRecords(env, project);
   const prUrl = `https://github.com/${project.repository}/pull/${Number(outcome.number)}`;
   const githubLogin = String(outcome.author_login || "").trim();
-  let record = selectLinkedTaskRecord(records, prUrl, outcome.number);
-  let linkedAutomatically = false;
-  if (!record && githubLogin) {
-    const identity = await lookupGithubMember(env, project.repository, githubLogin);
-    const candidate = identity ? selectTaskForGithubIdentity(records, identity.assignee_open_id) : null;
-    if (candidate && pullRequestStageMatchesTask(valueText(candidate.fields[FIELD_NAMES.title]), outcome)) {
-      await updateRecord(env, project, candidate.record_id, { [FIELD_NAMES.pr]: prUrl });
-      record = { ...candidate, fields: { ...candidate.fields, [FIELD_NAMES.pr]: prUrl } };
-      linkedAutomatically = true;
-    }
-  }
+  const { record, linkedAutomatically } = await findTaskRecordForOutcome(env, project, records, outcome, prUrl);
   if (!record) return { matched: false, reason: "task_not_linked", project: project.key };
   const assignee = assigneeId(record);
   const assigneeName = valueText(record.fields[FIELD_NAMES.assignee]) || "成员";
@@ -553,6 +599,7 @@ export async function applyGithubOutcome(env, outcome) {
   const merged = outcome.merged === true || outcome.merge?.merged === true;
   const completed = merged || outcome.review?.decision === "approve";
   const updateFields = { [FIELD_NAMES.status]: completed ? ["已完成"] : ["进行中"], [FIELD_NAMES.verification]: outcomeText(outcome), [FIELD_NAMES.blocked]: null };
+  if (linkedAutomatically) updateFields[FIELD_NAMES.pr] = prUrl;
   if (env.FEISHU_BOT_OPEN_ID) updateFields[FIELD_NAMES.reviewer] = [{ id: env.FEISHU_BOT_OPEN_ID }];
   await updateRecord(env, project, record.record_id, updateFields);
   let nextTask = null;
