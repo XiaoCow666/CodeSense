@@ -560,7 +560,7 @@ async function previouslyLinkedTaskRecord(env, project, records, outcome) {
   if (!env.STATE_DB || !Number.isInteger(number) || number < 1) return { record: null, ambiguous: false };
   const prefix = `task-pr:${project.repository}#${number}:`;
   const result = await env.STATE_DB.prepare(
-    "SELECT DISTINCT json_extract(response_json, '$.record_id') AS record_id FROM action_log WHERE action_key >= ? AND action_key < ? AND action_type = 'task_update' AND status = 'completed' AND response_json IS NOT NULL AND json_extract(response_json, '$.matched') = 1 AND json_extract(response_json, '$.record_id') IS NOT NULL LIMIT 2",
+    "SELECT DISTINCT json_extract(response_json, '$.record_id') AS record_id FROM action_log WHERE action_type = 'task_update' AND status = 'completed' AND action_key COLLATE NOCASE >= ? AND action_key COLLATE NOCASE < ? AND response_json IS NOT NULL AND json_extract(response_json, '$.matched') = 1 AND json_extract(response_json, '$.record_id') IS NOT NULL LIMIT 2",
   ).bind(prefix, `${prefix}\uffff`).all();
   const recordIds = (result.results || []).map((row) => String(row.record_id));
   if (recordIds.length > 1) return { record: null, ambiguous: true };
