@@ -247,6 +247,11 @@
         </div>
     </div>
 
+    {% if current_user.is_teacher and teacher_learning_actions %}
+    {% set teacher_learning_actions_title = '本班可执行教学动作' %}
+    {% include 'components/teacher_learning_actions.html' with context %}
+    {% endif %}
+
     <!-- 统计数据 -->
     <div class="stats-grid">
         <div class="stat-card">

@@ -307,14 +307,17 @@ def _read_notifications(actor, *, source_limit=ACTION_CENTER_SOURCE_LIMIT) -> li
         unread_only=True,
         limit=_safe_source_limit(source_limit),
     ):
+        is_learning_memory_refresh = (
+            notification.get("kind") == "learning_memory_refresh"
+        )
         items.append(_item(
             item_id=_opaque_id("notification", notification.get("id")),
-            kind="notification",
-            priority="info",
+            kind=("learning_memory_refresh" if is_learning_memory_refresh else "notification"),
+            priority="next" if is_learning_memory_refresh else "info",
             title=notification.get("title", "站内通知"),
             summary=notification.get("message", "打开通知查看详情。"),
             status="unread",
-            status_label="未读",
+            status_label="需要更新" if is_learning_memory_refresh else "未读",
             href=notification.get("url") or _route("main.notifications", "/notifications"),
             source="notifications",
             occurred_at=notification.get("created_at"),

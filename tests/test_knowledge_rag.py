@@ -9,13 +9,18 @@ from models import (
     AssignmentKnowledgePoint,
     KnowledgePointScore,
     Submission,
+    StudentVectorIndexState,
     User,
     db,
 )
 from routes import api as api_routes
 from services import knowledge_rag
 from services.knowledge_rag import retrieve_assignment_knowledge
-from services.student_vector_store import rebuild_student_vector_index
+from services.student_vector_store import (
+    project_student_learning_evidence,
+    rebuild_student_vector_index,
+    render_student_learning_receipt,
+)
 
 
 @pytest.fixture
@@ -132,6 +137,102 @@ def test_ask_question_uses_current_student_learning_memory_with_receipt(
     assert graph["scope"] == "student_private"
     assert "上次提交请继续检查数组边界" in captured["knowledge_context"]
     assert "参考我的学习记录" in data["answer"]
+
+
+def test_ask_question_exposes_previous_revision_after_index_failure(
+    knowledge_context, monkeypatch
+):
+    app, client, assignment_id = knowledge_context
+    with app.app_context():
+        db.session.add(
+            Submission(
+                student_id="rag-student",
+                assignment_id=assignment_id,
+                code="int main(){return 0;}",
+                score=68,
+                status="evaluated",
+                feedback="上次提交请继续检查数组边界。",
+            )
+        )
+        db.session.commit()
+        rebuild_student_vector_index("rag-student")
+        state = StudentVectorIndexState.query.filter_by(
+            student_id="rag-student"
+        ).one()
+        state.status = "failed"
+        state.failure_code = "EMBEDDING_FAILED"
+        db.session.commit()
+
+    monkeypatch.setattr(
+        api_routes,
+        "generate_answer_to_question",
+        lambda **_: "请先手动追踪边界输入。",
+    )
+    response = client.post(
+        "/api/ask_question",
+        json={
+            "assignment_id": assignment_id,
+            "code": "int main(){return 0;}",
+            "question": "我上次的数组边界问题怎么继续检查？",
+        },
+    )
+
+    assert response.status_code == 200
+    evidence = response.json["data"]["student_learning_evidence"]
+    assert evidence["index_status"] == "failed"
+    assert evidence["freshness_status"] == "previous_revision"
+    assert "上一版" in response.json["data"]["answer"]
+
+
+def test_ask_question_sse_exposes_previous_revision_after_index_failure(
+    knowledge_context, monkeypatch
+):
+    app, client, assignment_id = knowledge_context
+    with app.app_context():
+        db.session.add(
+            Submission(
+                student_id="rag-student",
+                assignment_id=assignment_id,
+                code="int main(){return 0;}",
+                score=68,
+                status="evaluated",
+                feedback="上次提交请继续检查数组边界。",
+            )
+        )
+        db.session.commit()
+        rebuild_student_vector_index("rag-student")
+        state = StudentVectorIndexState.query.filter_by(
+            student_id="rag-student"
+        ).one()
+        state.status = "failed"
+        state.failure_code = "EMBEDDING_FAILED"
+        db.session.commit()
+
+    monkeypatch.setattr(
+        api_routes,
+        "generate_answer_to_question_stream",
+        lambda **_: iter(["请先手动追踪边界输入。"]),
+    )
+    response = client.post(
+        "/api/ask_question",
+        json={
+            "assignment_id": assignment_id,
+            "code": "int main(){return 0;}",
+            "question": "我上次的数组边界问题怎么继续检查？",
+        },
+        headers={"Accept": "text/event-stream"},
+    )
+    events = [
+        json.loads(line[6:])
+        for line in response.data.decode("utf-8").splitlines()
+        if line.startswith("data: ")
+    ]
+
+    assert response.status_code == 200
+    done = events[-1]
+    assert done["student_learning_evidence"]["index_status"] == "failed"
+    assert done["student_learning_evidence"]["freshness_status"] == "previous_revision"
+    assert "上一版" in done["answer"]
 
 
 def test_ask_question_returns_scoped_citations_and_metrics(knowledge_context, monkeypatch):
@@ -454,3 +555,36 @@ def test_ask_question_continues_with_answer_only_when_knowledge_source_is_unavai
     assert retrieval["fallback"]["code"] == "KNOWLEDGE_RETRIEVAL_UNAVAILABLE"
     assert retrieval["metrics"]["retrieval_error_fallback"] is True
     assert "知识证据暂时不可用" in response.json["data"]["answer"]
+
+
+def test_failed_previous_revision_is_visible_in_student_learning_receipt():
+    retrieval = {
+        "status": "grounded",
+        "evidence": [
+            {
+                "citation": "[L1]",
+                "title": "递归边界",
+                "content": "请继续检查递归终止条件。",
+                "assignment_id": 7,
+                "scope": "student_private",
+                "source_type": "submission_feedback",
+                "source_version": "version-1234567890",
+                "index_revision": 3,
+            }
+        ],
+        "metrics": {
+            "index_revision": 3,
+            "index_status": "failed",
+            "freshness_status": "previous_revision",
+            "retrieval_mode": "vector",
+        },
+        "fallback": None,
+    }
+
+    projection = project_student_learning_evidence(retrieval)
+    receipt = render_student_learning_receipt(retrieval)
+
+    assert projection["index_status"] == "failed"
+    assert projection["freshness_status"] == "previous_revision"
+    assert "上一版" in receipt
+    assert "首页" in receipt

@@ -32,8 +32,11 @@ MIN_SIMILARITY = 0.2
 MAX_SOURCE_PROJECTION = 100
 SOURCE_VERSION_DISPLAY_LENGTH = 12
 INDEX_STALE_AFTER_DAYS = 30
+REVOKED_SOURCE_RETENTION_DAYS = 30
+REBUILD_MAX_ATTEMPTS = 2
 ACTIVE = "active"
 REVOKED = "revoked"
+EXPIRED = "expired"
 STUDENT_SCOPE = "student_private"
 
 
@@ -191,6 +194,21 @@ def _source_key(source_type, source_id, source_version):
     return source_type, source_id, source_version
 
 
+def _mark_expired_sources(rows, *, now, retention_days):
+    cutoff = now - timedelta(days=retention_days)
+    expired_count = 0
+    for row in rows:
+        if (
+            row.status == REVOKED
+            and row.revoked_at is not None
+            and row.revoked_at <= cutoff
+        ):
+            row.status = EXPIRED
+            row.updated_at = now
+            expired_count += 1
+    return expired_count
+
+
 def _mark_rebuild_failed(student_id: str, error: Exception) -> None:
     state = StudentVectorIndexState.query.filter_by(student_id=student_id).first()
     if state is None:
@@ -206,17 +224,23 @@ def rebuild_student_vector_index(student_id, *, embedder=None):
     """从学生自己的历史来源构建一个新的可检索 revision。"""
 
     normalized_student_id = _student_id(student_id)
+    provided_embedder = embedder is not None
     embedder = embedder or NgramCountEmbedder()
     sources = _build_sources(normalized_student_id)
     try:
         state = StudentVectorIndexState.query.filter_by(
             student_id=normalized_student_id
         ).first()
-        next_revision = (state.revision if state else 0) + 1
         existing_rows = StudentLearningVector.query.filter_by(
             student_id=normalized_student_id,
             scope_type=STUDENT_SCOPE,
         ).all()
+        now = dt.utcnow()
+        _mark_expired_sources(
+            existing_rows,
+            now=now,
+            retention_days=REVOKED_SOURCE_RETENTION_DAYS,
+        )
         existing_by_key = {
             _source_key(row.source_type, row.source_id, row.source_version): row
             for row in existing_rows
@@ -224,9 +248,38 @@ def rebuild_student_vector_index(student_id, *, embedder=None):
         revoked_source_keys = {
             (row.source_type, row.source_id)
             for row in existing_rows
-            if row.status == REVOKED and row.revoke_reason == "user_revoked"
+            if row.status in {REVOKED, EXPIRED}
+            and row.revoke_reason == "user_revoked"
         }
-        current_keys = set()
+        current_keys = {
+            _source_key(source.source_type, source.source_id, source.source_version)
+            for source in sources
+        }
+        expected_active_keys = {
+            key
+            for key in current_keys
+            if (key[0], key[1]) not in revoked_source_keys
+        }
+        active_keys = {
+            _source_key(row.source_type, row.source_id, row.source_version)
+            for row in existing_rows
+            if row.status == ACTIVE
+        }
+        if (
+            state is not None
+            and state.status in {"ready", "empty"}
+            and not _index_is_stale(state, now=now)
+            and active_keys == expected_active_keys
+            and not provided_embedder
+        ):
+            state.status = "ready" if sources else "empty"
+            state.source_count = len(active_keys)
+            state.updated_at = now
+            state.failure_code = None
+            db.session.commit()
+            return get_student_vector_snapshot(normalized_student_id)
+
+        next_revision = (state.revision if state else 0) + 1
 
         for source in sources:
             key = _source_key(
@@ -234,7 +287,6 @@ def rebuild_student_vector_index(student_id, *, embedder=None):
                 source.source_id,
                 source.source_version,
             )
-            current_keys.add(key)
             if (source.source_type, source.source_id) in revoked_source_keys:
                 continue
             row = existing_by_key.get(key)
@@ -282,9 +334,9 @@ def rebuild_student_vector_index(student_id, *, embedder=None):
             scope_type=STUDENT_SCOPE,
             status=ACTIVE,
         ).count()
-        state.last_built_at = dt.utcnow()
+        state.last_built_at = now
         state.failure_code = None
-        state.updated_at = dt.utcnow()
+        state.updated_at = now
         db.session.commit()
     except Exception as error:
         db.session.rollback()
@@ -292,6 +344,24 @@ def rebuild_student_vector_index(student_id, *, embedder=None):
         raise StudentVectorRebuildError("student vector rebuild failed") from error
 
     return get_student_vector_snapshot(normalized_student_id)
+
+
+def rebuild_student_vector_index_with_retry(
+    student_id,
+    *,
+    embedder=None,
+    max_attempts=REBUILD_MAX_ATTEMPTS,
+):
+    """执行有限次索引更新，最终失败时保留原有异常。"""
+
+    bounded_attempts = max(1, min(int(max_attempts), REBUILD_MAX_ATTEMPTS))
+    for attempt in range(bounded_attempts):
+        try:
+            return rebuild_student_vector_index(student_id, embedder=embedder)
+        except StudentVectorRebuildError:
+            if attempt + 1 == bounded_attempts:
+                raise
+    raise RuntimeError("student vector rebuild retry did not finish")
 
 
 def _cosine_similarity(left, right) -> float:
@@ -401,6 +471,7 @@ def search_student_learning_vectors(
                 "retrieval_mode": "not_built" if state is None else "unavailable",
                 "index_revision": revision,
                 "freshness_status": "unknown",
+                "index_status": state.status if state else "not_built",
                 "revoked_count": 0,
                 "scope_filter": "assignment" if assignment_id is not None else "student",
             },
@@ -489,9 +560,11 @@ def search_student_learning_vectors(
             "hit_count": len(evidence),
             "retrieval_mode": "vector" if evidence else "no_result",
             "index_revision": revision,
-            "freshness_status": "fresh",
-            "revoked_count": revoked_count,
+            "freshness_status": (
+                "previous_revision" if state.status == "failed" else "fresh"
+            ),
             "index_status": state.status,
+            "revoked_count": revoked_count,
             "scope_filter": "assignment" if assignment_filter_applied else "student",
         },
         "fallback": None
@@ -588,10 +661,12 @@ def get_student_vector_snapshot(student_id):
             "source_count": 0,
             "active_count": 0,
             "revoked_count": 0,
+            "expired_count": 0,
             "freshness_status": "unknown",
             "source_types": {},
             "last_built_at": None,
             "failure_code": None,
+            "has_usable_previous_revision": False,
         }
     active_rows = StudentLearningVector.query.filter_by(
         student_id=normalized_student_id,
@@ -603,6 +678,11 @@ def get_student_vector_snapshot(student_id):
         scope_type=STUDENT_SCOPE,
         status=REVOKED,
     ).count()
+    expired_count = StudentLearningVector.query.filter_by(
+        student_id=normalized_student_id,
+        scope_type=STUDENT_SCOPE,
+        status=EXPIRED,
+    ).count()
     source_types = {}
     for row in active_rows:
         source_types[row.source_type] = source_types.get(row.source_type, 0) + 1
@@ -613,10 +693,18 @@ def get_student_vector_snapshot(student_id):
         "source_count": int(state.source_count or 0),
         "active_count": len(active_rows),
         "revoked_count": revoked_count,
-        "freshness_status": "stale" if effective_status == "stale" else "fresh",
+        "freshness_status": (
+            "stale"
+            if effective_status == "stale"
+            else "previous_revision"
+            if state.status == "failed" and active_rows
+            else "fresh"
+        ),
         "source_types": dict(sorted(source_types.items())),
         "last_built_at": state.last_built_at.isoformat() if state.last_built_at else None,
         "failure_code": state.failure_code,
+        "expired_count": expired_count,
+        "has_usable_previous_revision": bool(state.revision and active_rows),
     }
 
 
@@ -640,6 +728,8 @@ def build_student_learning_prompt_context(retrieval):
 def project_student_learning_evidence(retrieval):
     """把个人检索结果投影为学生可读的有限收据。"""
 
+    metrics = retrieval.get("metrics") or {}
+
     return {
         "status": retrieval.get("status", "unavailable"),
         "has_evidence": bool(retrieval.get("evidence")),
@@ -647,6 +737,8 @@ def project_student_learning_evidence(retrieval):
             "retrieval_mode", "unavailable"
         ),
         "index_revision": (retrieval.get("metrics") or {}).get("index_revision", 0),
+        "index_status": metrics.get("index_status", "unknown"),
+        "freshness_status": metrics.get("freshness_status", "unknown"),
         "fallback": retrieval.get("fallback"),
         "evidence": [
             {
@@ -673,6 +765,7 @@ def render_student_learning_receipt(retrieval):
         )
     if retrieval.get("status") != "grounded":
         return ""
+    metrics = retrieval.get("metrics") or {}
     lines = ["\n\n### 参考我的学习记录"]
     for item in retrieval.get("evidence", []):
         version = str(item.get("source_version") or "")[:12]
@@ -681,4 +774,6 @@ def render_student_learning_receipt(retrieval):
             f"（来源：{item.get('source_type')}；作用域：仅当前学生；"
             f"版本：{version}；索引版本：{item.get('index_revision', 0)}）"
         )
+    if metrics.get("index_status") == "failed":
+        lines.append("- 本次使用上一版可用的个人学习记录；更新失败，请回到首页重试。")
     return "\n".join(lines)

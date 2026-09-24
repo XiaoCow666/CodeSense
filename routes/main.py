@@ -28,6 +28,12 @@ from services.learning_graph import (
     build_teacher_knowledge_focus,
     build_teacher_knowledge_coverage,
 )
+from services.student_vector_health import build_teacher_learning_memory_health
+from services.teacher_learning_actions import (
+    TeacherLearningActionAccessError,
+    build_teacher_learning_actions,
+    send_learning_memory_refresh_reminders,
+)
 from services.demo_database import current_demo_run_id
 from services.feedback import (
     FEEDBACK_CATEGORIES,
@@ -56,7 +62,7 @@ from services.student_vector_store import (
     StudentVectorRebuildError,
     get_student_vector_snapshot,
     list_student_learning_sources,
-    rebuild_student_vector_index,
+    rebuild_student_vector_index_with_retry,
     revoke_student_vector_source,
 )
 from utils.auth import admin_required
@@ -175,13 +181,19 @@ def home():
             assigned_assignments_query = assigned_assignments_query.filter(db.false())
         
         # 首页只需要作业 ID 和少量近期记录，不要把所有作业/代码正文
-        # 一次性加载进 ORM identity map。
-        all_assigned_ids = [row[0] for row in assigned_assignments_query.with_entities(Assignment.id).all()]
+        # 一次性加载进 ORM identity map。一次查出 (id, due_date)，
+        # 全部 id 与未截止 id 都在 Python 里派生，避免对同一批作业
+        # 发两次查询（原来 active 过滤又走了一次 round-trip）。
+        assigned_rows = assigned_assignments_query.with_entities(
+            Assignment.id, Assignment.due_date,
+        ).all()
+        all_assigned_ids = [row[0] for row in assigned_rows]
 
-        # 过滤出当前有效的作业（未过截止日期的或无截至日期的）
-        active_assignment_ids = [row[0] for row in assigned_assignments_query.filter(
-            (Assignment.due_date >= now) | (Assignment.due_date.is_(None))
-        ).with_entities(Assignment.id).all()]
+        # 过滤出当前有效的作业（未过截止日期的或无截止日期的）
+        active_assignment_ids = [
+            row[0] for row in assigned_rows
+            if row[1] is None or row[1] >= now
+        ]
 
         # 2. 首页统计保留历史作业，避免截止日期过滤让学生误以为数据被清空。
         # 当前有效作业仍单独保留，供页面展示“当前未截止”信息。
@@ -569,7 +581,7 @@ def rebuild_student_learning_memory():
         return redirect(url_for('main.home'))
 
     try:
-        snapshot = rebuild_student_vector_index(current_user.student_id)
+        snapshot = rebuild_student_vector_index_with_retry(current_user.student_id)
     except StudentVectorRebuildError:
         flash('学习记忆更新失败，原有记录仍然保留，请稍后重试。', 'danger')
     else:
@@ -642,6 +654,9 @@ def teacher_dashboard():
             getattr(g, 'codesense_request_id', None),
         )
         learning_graph = _learning_graph_fallback('teacher_class')
+
+    learning_memory_health = build_teacher_learning_memory_health(teacher)
+    teacher_learning_actions = build_teacher_learning_actions(teacher, limit=12)
     
     from models import TeacherAISuggestion
     ai_suggestions = {sug.class_id: sug for sug in TeacherAISuggestion.query.filter_by(teacher_id=teacher.student_id).all()}
@@ -660,8 +675,37 @@ def teacher_dashboard():
                            attention=dashboard['attention'],
                            chart_data=dashboard['chart_data'],
                            learning_graph=learning_graph,
+                           learning_memory_health=learning_memory_health,
+                           teacher_learning_actions=teacher_learning_actions,
                            ai_suggestions=ai_suggestions,
                            open_review_count=open_review_count)
+
+
+@main.route('/teacher/classes/<int:class_id>/learning-memory-reminder', methods=['POST'])
+@login_required
+def teacher_learning_memory_reminder(class_id):
+    """向指定班级中需要更新索引的学生发送站内提醒。"""
+
+    if not current_user.is_teacher:
+        abort(403)
+
+    try:
+        result = send_learning_memory_refresh_reminders(
+            current_user,
+            class_id,
+            url=url_for('main.home') + '#student-learning-memory-title',
+        )
+    except TeacherLearningActionAccessError:
+        abort(403)
+
+    flash(
+        f"已提醒 {result['notification_count']} 位学生更新学习记忆。",
+        'success',
+    )
+    return redirect(_safe_next_url(
+        request.form.get('next') or request.args.get('next'),
+        url_for('main.teacher_dashboard'),
+    ))
 
 
 @main.route('/teacher/knowledge-focus/<string:knowledge_point>')
@@ -722,7 +766,12 @@ def teacher_ai_suggestions():
         class_suggestions.append({
             'class': cls,
             'suggestion': sug,
-            'details': sug.get_suggestion_dict()
+            'details': sug.get_suggestion_dict(),
+            'learning_actions': build_teacher_learning_actions(
+                teacher,
+                class_id=cls.id,
+                limit=6,
+            ),
         })
         
     return render_template('teacher_ai_suggestions.html',

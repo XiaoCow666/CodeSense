@@ -8,6 +8,8 @@ import pandas as pd
 from models import db, Class, StudentRoster, User, Assignment, Submission
 from services.demo_experience import seed_legacy_demo_experience
 from services.teacher_analytics import build_assignment_completion_matrix, build_class_learning_rows
+from services.student_vector_health import build_teacher_learning_memory_health
+from services.teacher_learning_actions import build_teacher_learning_actions
 from utils.auth import admin_required, admin_or_teacher_required
 from utils.access import (
     assignment_target_class_names,
@@ -481,6 +483,18 @@ def class_detail(class_id):
     )
     learning_rows = build_class_learning_rows(cls, students=students.items)
     assignment_matrix = build_assignment_completion_matrix(cls, students=students.items, assignment_limit=5)
+    learning_memory_health = None
+    teacher_learning_actions = None
+    if current_user.is_teacher:
+        learning_memory_health = build_teacher_learning_memory_health(
+            current_user,
+            class_id=cls.id,
+        )
+        teacher_learning_actions = build_teacher_learning_actions(
+            current_user,
+            class_id=cls.id,
+            limit=6,
+        )
     
     # 获取作业进度 (支持分页)
     assign_page = request.args.get('assign_page', 1, type=int)
@@ -492,6 +506,8 @@ def class_detail(class_id):
                          students=students,
                          learning_rows=learning_rows,
                          assignment_matrix=assignment_matrix,
+                         learning_memory_health=learning_memory_health,
+                         teacher_learning_actions=teacher_learning_actions,
                          assignment_progress=assignment_progress['items'],
                          assignment_pagination=assignment_progress['pagination'],
                          roster_total=roster_total,

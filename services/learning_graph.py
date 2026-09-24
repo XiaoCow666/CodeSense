@@ -663,7 +663,24 @@ def build_teacher_knowledge_coverage(*, viewer_id, class_id=None, limit=DEFAULT_
         }
         for assignment_id, knowledge in grouped.items()
     }
-    edges = _co_occurrence_edges(filtered_grouped, scope="teacher_class")
+    edges = []
+    for assignment_id, knowledge in filtered_grouped.items():
+        for code, detail in sorted(knowledge.items()):
+            edges.append(
+                {
+                    "source": _assignment_id(assignment_id),
+                    "target": _knowledge_id(code),
+                    "relation_type": "covers",
+                    "provenance": "assignment_knowledge_point",
+                    "scope": "teacher_class",
+                    "is_inferred": False,
+                    "weight": detail["weight"],
+                    "difficulty": detail["difficulty"],
+                    "source_refs": detail["source_refs"],
+                    "source_version": detail["source_versions"][0],
+                }
+            )
+    edges.extend(_co_occurrence_edges(filtered_grouped, scope="teacher_class"))
     return {
         "nodes": nodes,
         "edges": edges,

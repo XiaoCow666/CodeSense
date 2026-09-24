@@ -429,6 +429,47 @@
     {% set graph = learning_graph %}
     {% include 'components/learning_graph_panel.html' with context %}
 
+    {% set memory_health = learning_memory_health or {} %}
+    <section class="dashboard-section" aria-labelledby="teacher-learning-memory-health-title">
+        <div class="section-title mb-2">
+            <span id="teacher-learning-memory-health-title">
+                <i class="bi bi-database-check text-primary me-2" aria-hidden="true"></i>
+                班级学习记录索引
+            </span>
+            <a class="btn btn-sm btn-outline-primary" href="#teacher-knowledge-coverage">
+                查看班级知识覆盖
+            </a>
+        </div>
+        <p class="text-muted mb-3">
+            仅统计当前管理班级的数量和状态，不展示任何学生的个人记录内容。
+        </p>
+        <div class="metric-row" role="status" aria-label="班级学习记录索引状态">
+            <div>
+                <strong>{{ memory_health.get('ready_count', 0) }}</strong>
+                <span>当前可用</span>
+            </div>
+            <div>
+                <strong>{{ memory_health.get('previous_revision_count', 0) }}</strong>
+                <span>保留上一版</span>
+            </div>
+            <div>
+                <strong>{{ memory_health.get('student_count', 0) }}</strong>
+                <span>班级学生</span>
+            </div>
+        </div>
+        {% if memory_health.get('failed_count', 0) or memory_health.get('stale_count', 0) or memory_health.get('not_built_count', 0) %}
+        <div class="alert alert-warning mt-3 mb-0" role="alert">
+            <strong>需要更新：</strong>
+            {{ memory_health.get('failed_count', 0) }} 人更新失败，
+            {{ memory_health.get('stale_count', 0) }} 人超过更新时间窗口，
+            {{ memory_health.get('not_built_count', 0) }} 人尚未建立索引。
+        </div>
+        {% endif %}
+    </section>
+
+    {% set teacher_learning_actions_title = '可执行教学动作' %}
+    {% include 'components/teacher_learning_actions.html' with context %}
+
     <!-- 可视化图表区 -->
     <div class="dashboard-section">
         <div class="trend-toolbar">
