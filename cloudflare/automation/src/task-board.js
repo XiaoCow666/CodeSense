@@ -182,6 +182,16 @@ export function selectTaskForGithubIdentity(records, assigneeOpenId) {
   return candidates.length === 1 ? candidates[0] : null;
 }
 
+export function selectTaskForMergedPullRequestFallback(records, assigneeOpenId, outcome) {
+  const { stage, conflict } = pullRequestStageEvidence(outcome);
+  if (conflict || !stage) return null;
+  const candidate = selectTaskForGithubIdentity(records, assigneeOpenId);
+  if (!candidate) return null;
+  return parseStageNumber(valueText(candidate.fields[FIELD_NAMES.title])) === stage
+    ? candidate
+    : null;
+}
+
 export function memberTaskPlan(records, memberOpenId) {
   const memberRecords = (Array.isArray(records) ? records : [])
     .map((record) => ({ record, snapshot: taskRecordSnapshot(record) }))
@@ -233,14 +243,30 @@ export function parseStageNumber(title) {
   return digits[chinese[1]] ?? null;
 }
 
+function pullRequestStageValues(value) {
+  const pattern = /(?:阶段\s*(\d+|[零一二三四五六七八九十百]+)|\bstage[\s_-]*(\d+))/gi;
+  const stages = [...String(value || "").matchAll(pattern)]
+    .map((match) => match[2] ? Number(match[2]) : parseStageNumber(`阶段${match[1]}`))
+    .filter((stage) => Number.isInteger(stage) && stage > 0);
+  return [...new Set(stages)];
+}
+
 export function parsePullRequestStage(value) {
-  const match = String(value || "").match(/(?:阶段|stage)[\s_-]*(\d+)/i);
-  return match ? Number(match[1]) : null;
+  const stages = pullRequestStageValues(value);
+  return stages.length === 1 ? stages[0] : null;
+}
+
+function pullRequestStageEvidence(outcome) {
+  const sources = [outcome?.headRefName, outcome?.title].map(pullRequestStageValues);
+  const stages = [...new Set(sources.flat())];
+  const conflict = sources.some((values) => values.length > 1) || stages.length > 1;
+  return { stage: !conflict && stages.length === 1 ? stages[0] : null, conflict };
 }
 
 export function pullRequestStageMatchesTask(taskTitle, outcome) {
   const taskStage = parseStageNumber(taskTitle);
-  const pullRequestStage = parsePullRequestStage([outcome?.headRefName, outcome?.title].filter(Boolean).join(" "));
+  const { stage: pullRequestStage, conflict } = pullRequestStageEvidence(outcome);
+  if (conflict) return false;
   return !pullRequestStage || !taskStage || pullRequestStage === taskStage;
 }
 
@@ -508,13 +534,16 @@ export async function ensureNextStageTask(env, project, record, records = []) {
 }
 
 function selectLinkedTaskRecord(records, prUrl, number) {
-  return (Array.isArray(records) ? records : [])
-    .filter((record) => prMatches(record, prUrl, number))
-    .sort((left, right) => {
-      const leftStage = parseStageNumber(valueText(left.fields?.[FIELD_NAMES.title])) || Number.MAX_SAFE_INTEGER;
-      const rightStage = parseStageNumber(valueText(right.fields?.[FIELD_NAMES.title])) || Number.MAX_SAFE_INTEGER;
-      return leftStage - rightStage || String(left.record_id).localeCompare(String(right.record_id));
-    })[0] || null;
+  const matches = (Array.isArray(records) ? records : [])
+    .filter((record) => prMatches(record, prUrl, number));
+  return {
+    record: matches.length === 1 ? matches[0] : null,
+    ambiguous: matches.length > 1,
+  };
+}
+
+export function isSafeMergedPullRequestAssociation(association) {
+  return association === "task_link" || association === "saved_action";
 }
 
 export function selectPreviouslyLinkedTaskRecord(records, responses) {
@@ -528,37 +557,55 @@ export function selectPreviouslyLinkedTaskRecord(records, responses) {
 
 async function previouslyLinkedTaskRecord(env, project, records, outcome) {
   const number = Number(outcome?.number);
-  if (!env.STATE_DB || !Number.isInteger(number) || number < 1) return null;
-  const prefix = `task-pr:${project.repository}#${number}:%`;
+  if (!env.STATE_DB || !Number.isInteger(number) || number < 1) return { record: null, ambiguous: false };
+  const prefix = `task-pr:${project.repository}#${number}:`;
   const result = await env.STATE_DB.prepare(
-    "SELECT response_json FROM action_log WHERE action_type = 'task_update' AND status = 'completed' AND action_key LIKE ? ORDER BY updated_at DESC LIMIT 100",
-  ).bind(prefix).all();
-  const responses = (result.results || []).map((row) => JSON.parse(row.response_json || "{}"));
-  return selectPreviouslyLinkedTaskRecord(records, responses);
+    "SELECT DISTINCT json_extract(response_json, '$.record_id') AS record_id FROM action_log WHERE action_type = 'task_update' AND status = 'completed' AND action_key COLLATE NOCASE >= ? AND action_key COLLATE NOCASE < ? AND response_json IS NOT NULL AND json_extract(response_json, '$.matched') = 1 AND json_extract(response_json, '$.record_id') IS NOT NULL LIMIT 2",
+  ).bind(prefix, `${prefix}\uffff`).all();
+  const recordIds = (result.results || []).map((row) => String(row.record_id));
+  if (recordIds.length > 1) return { record: null, ambiguous: true };
+  if (!recordIds.length) return { record: null, ambiguous: false };
+  const record = (Array.isArray(records) ? records : [])
+    .find((item) => item?.record_id === recordIds[0]) || null;
+  return { record, ambiguous: !record };
 }
 
-async function findTaskRecordForOutcome(env, project, records, outcome, prUrl) {
-  let record = selectLinkedTaskRecord(records, prUrl, outcome.number);
+async function findTaskRecordForOutcome(env, project, records, outcome, prUrl, { requireExplicitStage = false, allowGithubIdentityFallback = true } = {}) {
+  const linked = selectLinkedTaskRecord(records, prUrl, outcome.number);
+  if (linked.ambiguous) return { record: null, linkedAutomatically: false, association: null, ambiguous: true };
+  let record = linked.record;
   let linkedAutomatically = false;
+  let association = record ? "task_link" : null;
   if (!record) {
-    record = await previouslyLinkedTaskRecord(env, project, records, outcome);
+    const previous = await previouslyLinkedTaskRecord(env, project, records, outcome);
+    if (previous.ambiguous) return { record: null, linkedAutomatically: false, association: null, ambiguous: true };
+    record = previous.record;
     linkedAutomatically = Boolean(record);
+    if (record) association = "saved_action";
   }
   const githubLogin = String(outcome.author_login || "").trim();
-  if (!record && githubLogin) {
+  if (!record && githubLogin && allowGithubIdentityFallback) {
     const identity = await lookupGithubMember(env, project.repository, githubLogin);
-    const candidate = identity ? selectTaskForGithubIdentity(records, identity.assignee_open_id) : null;
+    const candidate = identity
+      ? requireExplicitStage
+        ? selectTaskForMergedPullRequestFallback(records, identity.assignee_open_id, outcome)
+        : selectTaskForGithubIdentity(records, identity.assignee_open_id)
+      : null;
     if (candidate && pullRequestStageMatchesTask(valueText(candidate.fields[FIELD_NAMES.title]), outcome)) {
       record = candidate;
       linkedAutomatically = true;
+      association = "github_identity";
     }
   }
-  return { record, linkedAutomatically };
+  if (record && !pullRequestStageMatchesTask(valueText(record.fields[FIELD_NAMES.title]), outcome)) {
+    return { record: null, linkedAutomatically: false, association: null, ambiguous: false, stageConflict: true };
+  }
+  return { record, linkedAutomatically, association, ambiguous: false, stageConflict: false };
 }
 
-export async function shouldReconcileMergedPullRequest(env, project, records, pullRequest) {
+export async function mergedPullRequestTaskSyncCandidate(env, project, records, pullRequest) {
   const number = Number(pullRequest?.number);
-  if (!Number.isInteger(number) || number < 1) return false;
+  if (!Number.isInteger(number) || number < 1) return null;
   const prUrl = `https://github.com/${project.repository}/pull/${number}`;
   const outcome = {
     number,
@@ -566,11 +613,11 @@ export async function shouldReconcileMergedPullRequest(env, project, records, pu
     headRefName: pullRequest.head?.ref || "",
     title: pullRequest.title || "",
   };
-  const { record } = await findTaskRecordForOutcome(env, project, records, outcome, prUrl);
-  if (!record) return false;
+  const { record, association } = await findTaskRecordForOutcome(env, project, records, outcome, prUrl, { requireExplicitStage: true, allowGithubIdentityFallback: false });
+  if (!record || !isSafeMergedPullRequestAssociation(association)) return null;
   const snapshot = taskRecordSnapshot(record);
-  if (snapshot.status !== "已完成") return true;
-  return nextStageEligibility(records, snapshot).eligible;
+  if (snapshot.status === "已完成" && !nextStageEligibility(records, snapshot).eligible) return null;
+  return { record_id: record.record_id, association };
 }
 
 function outcomeText(outcome) {
@@ -591,8 +638,15 @@ export async function applyGithubOutcome(env, outcome) {
   const records = await listRecords(env, project);
   const prUrl = `https://github.com/${project.repository}/pull/${Number(outcome.number)}`;
   const githubLogin = String(outcome.author_login || "").trim();
-  const { record, linkedAutomatically } = await findTaskRecordForOutcome(env, project, records, outcome, prUrl);
-  if (!record) return { matched: false, reason: "task_not_linked", project: project.key };
+  const { record, linkedAutomatically, ambiguous, stageConflict } = await findTaskRecordForOutcome(
+    env,
+    project,
+    records,
+    outcome,
+    prUrl,
+    { requireExplicitStage: outcome.task_sync === true, allowGithubIdentityFallback: outcome.task_sync !== true },
+  );
+  if (!record) return { matched: false, reason: stageConflict ? "task_stage_conflict" : ambiguous ? "task_association_ambiguous" : "task_not_linked", project: project.key };
   const assignee = assigneeId(record);
   const assigneeName = valueText(record.fields[FIELD_NAMES.assignee]) || "成员";
   if (githubLogin && assignee) await rememberGithubMember(env, project.repository, githubLogin, assignee, assigneeName);
