@@ -417,17 +417,52 @@ def _generate_rule_based_markdown(cls, weak_points, attention_students, suggeste
 
 def generate_class_suggestions_async(class_id, teacher_id, app, demo_run_id=None):
     """
-    异步启动班级AI建议生成任务
+    异步启动班级AI建议生成任务。
+
+    外层兜底：generate_class_suggestions 自身已捕获业务异常并标记 failed，
+    但若线程内发生其保护范围之外的意外错误（如应用上下文异常），异常会
+    直接杀死工作线程，使记录永久停留在 pending、前端轮询无法收口。此处
+    统一捕获并把状态翻成 failed。
     """
     def task():
-        with app.app_context():
-            if demo_run_id and not activate_demo_run(demo_run_id):
-                return
-            generate_class_suggestions(
+        try:
+            with app.app_context():
+                if demo_run_id and not activate_demo_run(demo_run_id):
+                    return
+                generate_class_suggestions(
+                    class_id,
+                    teacher_id,
+                    demo_run_id=demo_run_id,
+                )
+        except Exception as exc:
+            logger.exception(
+                "教师端学情异步任务意外失败 class_id=%s error_type=%s",
                 class_id,
-                teacher_id,
-                demo_run_id=demo_run_id,
+                type(exc).__name__,
             )
+            try:
+                with app.app_context():
+                    if demo_run_id:
+                        if _demo_database_is_available(demo_run_id):
+                            _mark_demo_suggestion_failed(class_id, teacher_id)
+                        return
+                    suggestion = TeacherAISuggestion.get_or_create(
+                        class_id=class_id,
+                        teacher_id=teacher_id,
+                    )
+                    # 不回退已经完成的结果，只解救卡住的 pending/processing
+                    if (
+                        suggestion is not None
+                        and suggestion.status in ('pending', 'processing')
+                    ):
+                        suggestion.status = 'failed'
+                        suggestion.last_updated = dt.utcnow()
+                        db.session.commit()
+            except Exception:
+                logger.exception(
+                    "教师端学情异步失败状态清理异常 class_id=%s",
+                    class_id,
+                )
 
     thread = threading.Thread(target=task)
     thread.daemon = True
