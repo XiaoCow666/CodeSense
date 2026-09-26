@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import tempfile
 import unittest
 
@@ -73,6 +74,15 @@ class FeedbackLifecycleNotificationsProfileTestCase(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 302)
         return response.headers['Location'].rstrip('/').split('/')[-1]
+
+    def status_options_for(self, page, feedback_id):
+        """Return the status values rendered in one feedback item's form."""
+
+        action = (
+            f'action="/admin/feedback/{feedback_id}/status">'.encode('utf-8')
+        )
+        form = page.data.split(action, 1)[1].split(b'</form>', 1)[0]
+        return re.findall(rb'<option value="([^"]+)"(?:\s|>)', form)
 
     def test_feedback_status_flow_updates_receipt_and_owned_notifications(self):
         self.assertEqual(self.login('lifecycle_student', 'student_password').status_code, 302)
@@ -184,6 +194,111 @@ class FeedbackLifecycleNotificationsProfileTestCase(unittest.TestCase):
             record = list_feedback()[0]
             self.assertEqual(record['status'], 'received')
             self.assertEqual(SystemLog.query.filter_by(log_type='反馈状态更新').count(), 0)
+
+    def test_status_update_preserves_only_valid_admin_filters(self):
+        feedback_id = self.submit_feedback()
+        self.assertEqual(self.login('lifecycle_admin', 'admin_password').status_code, 302)
+
+        preserved = self.client.post(
+            f'/admin/feedback/{feedback_id}/status',
+            data={
+                'status': 'triaged',
+                'return_status': 'triaged',
+                'return_category': 'bug',
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(preserved.status_code, 302)
+        self.assertEqual(
+            preserved.headers['Location'],
+            '/admin/feedback?status=triaged&category=bug',
+        )
+        filtered = self.client.get(preserved.headers['Location'])
+        self.assertEqual(filtered.status_code, 200)
+        self.assertIn('状态变更通知测试'.encode('utf-8'), filtered.data)
+
+        invalid_filter_feedback_id = self.submit_feedback()
+        discarded = self.client.post(
+            f'/admin/feedback/{invalid_filter_feedback_id}/status',
+            data={
+                'status': 'triaged',
+                'return_status': 'not-a-status',
+                'return_category': 'not-a-category',
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(discarded.status_code, 302)
+        self.assertEqual(discarded.headers['Location'], '/admin/feedback')
+
+        valid_status_feedback_id = self.submit_feedback()
+        valid_status_only = self.client.post(
+            f'/admin/feedback/{valid_status_feedback_id}/status',
+            data={
+                'status': 'triaged',
+                'return_status': 'triaged',
+                'return_category': 'not-a-category',
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(valid_status_only.status_code, 302)
+        self.assertEqual(
+            valid_status_only.headers['Location'],
+            '/admin/feedback?status=triaged',
+        )
+
+        valid_category_feedback_id = self.submit_feedback()
+        valid_category_only = self.client.post(
+            f'/admin/feedback/{valid_category_feedback_id}/status',
+            data={
+                'status': 'triaged',
+                'return_status': 'not-a-status',
+                'return_category': 'bug',
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(valid_category_only.status_code, 302)
+        self.assertEqual(
+            valid_category_only.headers['Location'],
+            '/admin/feedback?category=bug',
+        )
+
+    def test_status_selector_offers_only_reachable_transitions(self):
+        feedback_id = self.submit_feedback()
+        self.assertEqual(self.login('lifecycle_admin', 'admin_password').status_code, 302)
+
+        received = self.client.get('/admin/feedback')
+        self.assertEqual(
+            self.status_options_for(received, feedback_id),
+            [b'triaged'],
+        )
+
+        for status, expected_options in (
+            ('triaged', [b'in_progress']),
+            ('in_progress', [b'resolved']),
+            ('resolved', [b'in_progress', b'closed']),
+        ):
+            updated = self.client.post(
+                f'/admin/feedback/{feedback_id}/status',
+                data={'status': status},
+                follow_redirects=False,
+            )
+            self.assertEqual(updated.status_code, 302)
+            review = self.client.get('/admin/feedback')
+            self.assertEqual(
+                self.status_options_for(review, feedback_id),
+                expected_options,
+            )
+
+        closed = self.client.post(
+            f'/admin/feedback/{feedback_id}/status',
+            data={'status': 'closed'},
+            follow_redirects=False,
+        )
+        self.assertEqual(closed.status_code, 302)
+        review_closed = self.client.get('/admin/feedback')
+        status_action = f'action="/admin/feedback/{feedback_id}/status">'.encode('utf-8')
+        self.assertNotIn(status_action, review_closed.data)
+        self.assertIn('该反馈已关闭，不能继续修改状态。'.encode('utf-8'), review_closed.data)
 
     def test_profile_public_scope_is_explicit_and_reversible(self):
         self.assertEqual(self.login('lifecycle_student', 'student_password').status_code, 302)

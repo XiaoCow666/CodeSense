@@ -115,6 +115,12 @@
         text-align: center;
     }
 
+    .feedback-workflow-complete {
+        margin: 1rem 0 0;
+        color: var(--medium);
+        font-size: 0.875rem;
+    }
+
     .feedback-filters,
     .feedback-status-form {
         display: flex;
@@ -251,16 +257,17 @@
                 <li><span>{{ item.status_label }}</span> · <time datetime="{{ item.at }}">{{ item.at }}</time></li>
                 {% endfor %}
             </ol>
+            {% if record.next_statuses %}
             <form class="feedback-status-form" method="POST"
                 action="{{ url_for('main.admin_feedback_status', feedback_id=record.feedback_id) }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="return_status" value="{{ status_filter }}">
                 <input type="hidden" name="return_category" value="{{ category_filter }}">
                 <div class="feedback-status-field">
-                    <label for="feedback-status-{{ record.feedback_id }}">更新状态</label>
-                    <select id="feedback-status-{{ record.feedback_id }}" name="status">
-                        {% for value, label in feedback_statuses %}
-                        <option value="{{ value }}" {% if record.status == value %}selected{% endif %}>{{ label }}</option>
+                    <label for="feedback-status-{{ record.feedback_id }}">推进到下一状态</label>
+                    <select id="feedback-status-{{ record.feedback_id }}" name="status" required>
+                        {% for value, label in record.next_statuses %}
+                        <option value="{{ value }}">{{ label }}</option>
                         {% endfor %}
                     </select>
                 </div>
@@ -269,8 +276,11 @@
                     <textarea id="feedback-note-{{ record.feedback_id }}" name="note" maxlength="500"
                         placeholder="可选：记录分派、复现或解决说明"></textarea>
                 </div>
-                <button class="btn btn-primary" type="submit">保存状态</button>
+                <button class="btn btn-primary" type="submit">推进状态</button>
             </form>
+            {% else %}
+            <p class="feedback-workflow-complete">该反馈已关闭，不能继续修改状态。</p>
+            {% endif %}
         </article>
         {% else %}
         <div class="feedback-empty">还没有收到反馈。</div>
