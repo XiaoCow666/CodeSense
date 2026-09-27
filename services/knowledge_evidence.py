@@ -16,6 +16,7 @@ from typing import Any
 MAX_EVIDENCE = 8
 MAX_CANDIDATES = 64
 MAX_INDEXED_CHUNKS = 64
+MAX_EMBEDDING_CALLS = 128
 MAX_LATENCY_MS = 600_000.0
 MAX_INDEX_REVISION = 1_000_000_000
 
@@ -220,8 +221,8 @@ def build_public_knowledge_retrieval(
     metrics = raw_metrics if isinstance(raw_metrics, Mapping) else {}
     if status == "unknown":
         retrieval_mode = "unknown"
-    elif status == "unavailable":
-        retrieval_mode = "unavailable"
+    elif status in {"unavailable", "timeout", "rate_limited"}:
+        retrieval_mode = status
     else:
         retrieval_mode = _safe_retrieval_mode(metrics.get("retrieval_mode"))
 
@@ -294,6 +295,32 @@ def build_public_knowledge_retrieval(
             "privacy_filtered_count": _safe_nonnegative_int(
                 metrics.get("privacy_filtered_count"),
                 maximum=MAX_CANDIDATES,
+            ),
+            "embedding_provider": _safe_text(
+                metrics.get("embedding_provider"),
+                limit=64,
+            ) or None,
+            "embedding_calls": _safe_nonnegative_int(
+                metrics.get("embedding_calls"),
+                maximum=MAX_EMBEDDING_CALLS,
+            ),
+            "embedding_estimated_cost": _safe_nonnegative_float(
+                metrics.get("embedding_estimated_cost")
+            ),
+            "embedding_budget_exceeded": (
+                bool(metrics.get("embedding_budget_exceeded"))
+                if isinstance(metrics.get("embedding_budget_exceeded"), bool)
+                else False
+            ),
+            "retrieval_timeout_fallback": (
+                bool(metrics.get("retrieval_timeout_fallback"))
+                if isinstance(metrics.get("retrieval_timeout_fallback"), bool)
+                else status == "timeout"
+            ),
+            "rate_limit_fallback": (
+                bool(metrics.get("rate_limit_fallback"))
+                if isinstance(metrics.get("rate_limit_fallback"), bool)
+                else status == "rate_limited"
             ),
         },
         "fallback": fallback,

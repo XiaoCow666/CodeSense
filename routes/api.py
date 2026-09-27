@@ -459,7 +459,9 @@ def _retrieve_knowledge_context(assignment_id, query="", *, limit=MAX_EVIDENCE):
         "citation_completeness=%.3f no_result_fallback=%s "
         "retrieval_error_fallback=%s retrieval_timeout_fallback=%s "
         "rate_limit_fallback=%s retrieval_mode=%s indexed_chunks=%s "
-        "index_revision=%s privacy_filtered_count=%s fallback_code=%s",
+        "index_revision=%s privacy_filtered_count=%s fallback_code=%s "
+        "embedding_provider=%s embedding_calls=%s embedding_cost=%s "
+        "embedding_budget_exceeded=%s",
         retrieval["status"],
         metrics.get("candidate_count", 0),
         metrics.get("hit_count", 0),
@@ -474,6 +476,10 @@ def _retrieve_knowledge_context(assignment_id, query="", *, limit=MAX_EVIDENCE):
         metrics.get("index_revision", 0),
         metrics.get("privacy_filtered_count", 0),
         (retrieval.get("fallback") or {}).get("code"),
+        metrics.get("embedding_provider"),
+        metrics.get("embedding_calls", 0),
+        metrics.get("embedding_estimated_cost", 0.0),
+        metrics.get("embedding_budget_exceeded", False),
     )
     return retrieval
 

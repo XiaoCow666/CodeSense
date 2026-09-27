@@ -1,4 +1,4 @@
-"""Fixed, offline evaluation for the stage 12 knowledge retrieval prototype."""
+"""Fixed, offline evaluation for the knowledge retrieval prototype."""
 
 from __future__ import annotations
 
@@ -80,8 +80,9 @@ def evaluate_fixture(
     path: str | Path = DEFAULT_FIXTURE,
     *,
     clock=time.perf_counter,
+    embedder=None,
 ) -> dict[str, Any]:
-    """Run the fixed query set and report recall, modes, and latency."""
+    """Run the fixed query set with an optional replaceable embedder."""
 
     documents, queries, performance_spec = load_fixture(path)
     by_id = {document.document_id: document for document in documents}
@@ -111,7 +112,7 @@ def evaluate_fixture(
             for document in scoped_documents
             for chunk in chunker.split(document)
         )
-        index = HybridKnowledgeIndex(chunks)
+        index = HybridKnowledgeIndex(chunks, embedder=embedder)
         build_latencies.append((clock() - build_started_at) * 1000.0)
         total_indexed_chunks += index.indexed_chunk_count
         query_started_at = clock()
@@ -154,7 +155,7 @@ def evaluate_fixture(
         for document in performance_documents
         for chunk in chunker.split(document)
     )
-    performance_index = HybridKnowledgeIndex(performance_chunks)
+    performance_index = HybridKnowledgeIndex(performance_chunks, embedder=embedder)
     performance_build_ms = (clock() - performance_build_started_at) * 1000.0
     performance_query_latencies = []
     performance_runs = max(1, int(performance_spec.get("runs", 100)))
@@ -166,7 +167,7 @@ def evaluate_fixture(
         performance_query_latencies.append((clock() - query_started_at) * 1000.0)
     performance_total_ms = (clock() - performance_total_started_at) * 1000.0
 
-    return {
+    result = {
         "query_count": len(queries),
         "relevant_query_count": relevant_case_count,
         "recall_at_1": round(sum(recall_at_1_values) / relevant_case_count, 3)
@@ -206,6 +207,9 @@ def evaluate_fixture(
             ),
         },
     }
+    if embedder is not None and hasattr(embedder, "snapshot"):
+        result["embedding_usage"] = embedder.snapshot()
+    return result
 
 
 def main() -> None:

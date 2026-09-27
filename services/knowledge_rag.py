@@ -11,9 +11,16 @@ answer route.
 from __future__ import annotations
 
 import logging
+import os
 import time
 
 from models import AssignmentKnowledgePoint, KnowledgePointScore, db
+from services.knowledge_optimization import (
+    BudgetedEmbedder,
+    EmbeddingBudgetExceeded,
+    build_default_embedding_registry,
+    default_embedding_max_cost,
+)
 from services.knowledge_pipeline import KnowledgeDocument, build_offline_pipeline
 from services.knowledge_reliability import (
     KnowledgePrivacyFilter,
@@ -31,6 +38,7 @@ MAX_INDEX_DOCUMENTS = 64
 logger = logging.getLogger(__name__)
 knowledge_pipeline = build_offline_pipeline()
 knowledge_vector_embedder = NgramCountEmbedder()
+knowledge_embedding_registry = build_default_embedding_registry()
 NO_KNOWLEDGE_EVIDENCE = {
     "code": "NO_KNOWLEDGE_EVIDENCE",
     "message": "当前作业没有已标注知识点，回答仅基于题目和代码。",
@@ -51,6 +59,35 @@ knowledge_rate_limiter: SlidingWindowRateLimiter = build_default_rate_limiter()
 knowledge_quality_monitor = KnowledgeQualityMonitor()
 
 
+def _request_embedder():
+    """Create a request-scoped, budgeted embedder while preserving the default."""
+
+    configured_name = os.environ.get("KNOWLEDGE_RAG_EMBEDDER", "").strip()
+    max_calls = MAX_INDEX_DOCUMENTS + 1  # at most 64 chunks plus one query
+    max_cost = default_embedding_max_cost()
+    if configured_name:
+        return knowledge_embedding_registry.build(
+            configured_name,
+            max_calls=max_calls,
+            max_estimated_cost=max_cost,
+        )
+    provider_name = (
+        "cjk_ngram"
+        if isinstance(knowledge_vector_embedder, NgramCountEmbedder)
+        else "custom"
+    )
+    return BudgetedEmbedder(
+        knowledge_vector_embedder,
+        provider_name=provider_name,
+        max_calls=max_calls,
+        max_estimated_cost=max_cost,
+    )
+
+
+def _embedding_usage(embedder):
+    return embedder.snapshot() if embedder is not None else None
+
+
 def _created_at_value(record):
     created_at = getattr(record, "created_at", None)
     return created_at.isoformat() if created_at else None
@@ -68,6 +105,7 @@ def _result(
     index_revision=None,
     privacy_filtered_count=0,
     quality_monitor=None,
+    embedding_usage=None,
 ):
     hit_count = len(evidence)
     latency_ms = max(0.0, (time.perf_counter() - started_at) * 1000.0)
@@ -99,6 +137,18 @@ def _result(
         "indexed_chunk_count": int(indexed_chunk_count),
         "index_revision": int(index_revision) if index_revision is not None else None,
         "privacy_filtered_count": int(privacy_filtered_count),
+        "embedding_provider": (
+            embedding_usage.get("provider") if embedding_usage else None
+        ),
+        "embedding_calls": int(embedding_usage.get("calls", 0))
+        if embedding_usage
+        else 0,
+        "embedding_estimated_cost": float(
+            embedding_usage.get("estimated_cost", 0.0)
+        ) if embedding_usage else 0.0,
+        "embedding_budget_exceeded": bool(
+            embedding_usage and embedding_usage.get("budget_exceeded")
+        ),
     }
     (quality_monitor or knowledge_quality_monitor).record(
         status=status,
@@ -236,15 +286,17 @@ def retrieve_assignment_knowledge(
             privacy_filtered_count += 1
         documents.append(document)
 
+    active_embedder = None
     try:
         chunks = tuple(
             chunk
             for document in documents
             for chunk in knowledge_pipeline.chunker.split(document)
         )
+        active_embedder = _request_embedder()
         index = VersionedKnowledgeIndex(
             chunks,
-            embedder=knowledge_vector_embedder,
+            embedder=active_embedder,
             deadline=deadline,
         )
         search_result = index.search(query, top_k=bounded_limit)
@@ -263,6 +315,21 @@ def retrieve_assignment_knowledge(
             retrieval_mode="timeout",
             privacy_filtered_count=privacy_filtered_count,
             quality_monitor=quality_monitor,
+            embedding_usage=_embedding_usage(active_embedder),
+        )
+    except EmbeddingBudgetExceeded:
+        logger.warning("knowledge embedding budget exceeded; using safe fallback")
+        db.session.rollback()
+        return _result(
+            "unavailable",
+            [],
+            len(records),
+            started_at,
+            RETRIEVAL_UNAVAILABLE.copy(),
+            retrieval_mode="unavailable",
+            privacy_filtered_count=privacy_filtered_count,
+            quality_monitor=quality_monitor,
+            embedding_usage=_embedding_usage(active_embedder),
         )
     except Exception:
         db.session.rollback()
@@ -278,6 +345,7 @@ def retrieve_assignment_knowledge(
             retrieval_mode="unavailable",
             privacy_filtered_count=privacy_filtered_count,
             quality_monitor=quality_monitor,
+            embedding_usage=_embedding_usage(active_embedder),
         )
     evidence = [
         {
@@ -303,6 +371,7 @@ def retrieve_assignment_knowledge(
             index_revision=index.revision.number,
             privacy_filtered_count=privacy_filtered_count,
             quality_monitor=quality_monitor,
+            embedding_usage=_embedding_usage(active_embedder),
         )
     return _result(
         "grounded",
@@ -314,6 +383,7 @@ def retrieve_assignment_knowledge(
         index_revision=index.revision.number,
         privacy_filtered_count=privacy_filtered_count,
         quality_monitor=quality_monitor,
+        embedding_usage=_embedding_usage(active_embedder),
     )
 
 
