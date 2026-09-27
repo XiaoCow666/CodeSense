@@ -583,8 +583,12 @@ def rebuild_student_learning_memory():
     try:
         snapshot = rebuild_student_vector_index_with_retry(current_user.student_id)
     except StudentVectorRebuildError:
-        flash('学习记忆更新失败，原有记录仍然保留，请稍后重试。', 'danger')
+        flash('学习记忆更新失败，请稍后重试。', 'danger')
     else:
+        mark_all_notifications_read(
+            current_user.student_id,
+            kind='learning_memory_refresh',
+        )
         flash(
             f"学习记忆已更新，共保留 {snapshot['active_count']} 条本人记录。",
             'success',

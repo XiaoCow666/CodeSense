@@ -10,9 +10,14 @@ from contextlib import nullcontext
 
 from models import Assignment, Submission, SystemLog, TestCase as TC, User, db
 from services.demo_database import activate_demo_run, is_active_demo_run
-from utils.code_evaluator import evaluate_cpp_code, llm_evaluator
+from utils import code_evaluator
+from utils.code_evaluator import evaluate_cpp_code
 from utils.sandbox_runner import run_test_cases
-from utils.scoring import normalize_evaluation_score, normalize_feedback_text
+from utils.scoring import (
+    normalize_evaluation_score,
+    normalize_feedback_text,
+    normalize_structured_feedback_scores,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -55,7 +60,7 @@ def _demo_database_is_available(demo_run_id: str | None) -> bool:
 def _normalise_score(score) -> int:
     """Keep every persisted submission score inside the 0–100 scale."""
 
-    return normalize_evaluation_score(score)
+    return normalize_evaluation_score(score, scale=100)
 
 
 def _refresh_assignment_stats(assignment: Assignment) -> None:
@@ -198,28 +203,17 @@ def evaluate_submission_async(
                     score = _normalise_score(score)
                     feedback = normalize_feedback_text(feedback)
 
-                    if hasattr(llm_evaluator, "_last_structured_data"):
-                        structured_data = llm_evaluator._last_structured_data
-                        if structured_data:
-                            structured_data = dict(structured_data)
-                            for field in (
-                                "overall_score",
-                                "algorithm_score",
-                                "style_score",
-                                "functionality_score",
-                                "efficiency_score",
-                                "readability_score",
-                            ):
-                                if field in structured_data and structured_data[field] is not None:
-                                    structured_data[field] = normalize_evaluation_score(
-                                        structured_data[field]
-                                    )
-                            for field, value in structured_data.items():
-                                if isinstance(value, str):
-                                    structured_data[field] = normalize_feedback_text(value)
-                            submission.ai_feedback = json.dumps(
-                                structured_data, ensure_ascii=False
-                            )
+                    structured_data = code_evaluator.get_last_structured_data()
+                    if structured_data:
+                        structured_data = normalize_structured_feedback_scores(
+                            structured_data
+                        )
+                        for field, value in structured_data.items():
+                            if isinstance(value, str):
+                                structured_data[field] = normalize_feedback_text(value)
+                        submission.ai_feedback = json.dumps(
+                            structured_data, ensure_ascii=False
+                        )
                     elif isinstance(feedback, str) and (
                         "【" in feedback or "改进建议" in feedback
                     ):
@@ -229,12 +223,7 @@ def evaluate_submission_async(
                     submission.feedback = feedback
                 except Exception as ai_error:
                     print(f"AI 评估过程出错: {type(ai_error).__name__}")
-                    if demo_run_id:
-                        raise RuntimeError("AI 评测失败，请稍后重试") from ai_error
-                    # 正式账户保留历史兼容行为；公开体验永远不会走到这条
-                    # 默认分支，避免把失败伪装成成功分数。
-                    submission.score = 20
-                    submission.feedback = "AI 评估过程中出错，请稍后重试。"
+                    raise RuntimeError("AI 评测失败，请稍后重试") from ai_error
 
                 # 2. 沙箱测试用例评判。
                 try:

@@ -10,6 +10,27 @@ This file records release-level information for users and maintainers. Versions 
 
 Future unreleased changes will be listed here.
 
+## [2.0.0] - 2026-09-27
+
+### Added
+
+- 学生可以在行动中心查看知识图谱给出的练习建议，并直接进入本人可访问的作业。
+- 学生尚未建立学习记忆、索引过期或更新失败时，行动中心会提供返回个人记忆面板的入口；提示内容会说明当前是否还有可用记录。
+- 教师可以从班级知识建议进入已有知识焦点页，查看管理班级的平均掌握度、有效样本数和需要加强的人数。
+- 管理员继续使用独立的反馈和系统队列；学生个人学习记录不会进入教师或管理员的行动内容。
+
+### Improved
+
+- 学生知识图谱在数据库查询中先按本人班级和旧版未分班作业限制范围，并限制读取数量。
+- 行动中心的页面和只读接口共用角色范围内的学习建议；顶部数量徽标跳过图谱构建，避免页面导航重复计算。
+- 教师发送的学习记忆提醒在行动中心只出现一次；学生完成更新后，该提醒会自动结束。
+- 行动来源使用清楚的角色可读名称；没有待办时会说明后续练习建议也会出现在行动中心。
+- 新提交的百分制评分在沙箱、AI 反馈和统计中保持一致；教师作业统计与学生个人统计从已评测记录重新计算。
+- 学生提交详情清楚展示 AI 分项建议与评估理由；评测尚未完成时显示当前状态。
+- 历史五分制记录和当前百分制记录分别按记录时间读取，班级能力统计保留真实低分。
+
+[2.0.0]: https://github.com/XiaoCow666/CodeSense/releases/tag/v2.0.0
+
 ## [1.9.0] - 2026-09-24
 
 ### Added
@@ -19,12 +40,6 @@ Future unreleased changes will be listed here.
 - 知识图谱关系保留作业来源与版本；教师只查看管理班级的汇总信息，学生撤回的来源不会进入个人辅导检索。
 
 [1.9.0]: https://github.com/XiaoCow666/CodeSense/releases/tag/v1.9.0
-
-### Added
-
-- 教师首页、班级详情和 AI 教学建议页增加可执行教学动作，动作依据班级聚合知识图谱和学习记录索引状态生成，并保留作业知识点来源版本。
-- 教师可以向当前班级中需要更新个人学习记忆的学生发送每日幂等的站内提醒；提醒只进入学生自己的行动中心，不改变作业分数。
-- 教师知识覆盖图谱补充作业到知识点的直接覆盖关系，学生撤回学习来源后继续从真实索引查询中排除该来源。
 
 ## [1.8.0] - 2026-09-21
 
@@ -122,7 +137,7 @@ CodeSense 标准版首个正式版本。
 
 First formal release of the CodeSense Standard Edition.
 
-[Unreleased]: https://github.com/XiaoCow666/CodeSense/compare/v1.9.0...HEAD
+[Unreleased]: https://github.com/XiaoCow666/CodeSense/compare/v2.0.0...HEAD
 [1.5.0]: https://github.com/XiaoCow666/CodeSense/releases/tag/v1.5.0
 [1.4.0]: https://github.com/XiaoCow666/CodeSense/releases/tag/v1.4.0
 [1.3.0]: https://github.com/XiaoCow666/CodeSense/releases/tag/v1.3.0

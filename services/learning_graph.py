@@ -16,6 +16,8 @@ from __future__ import annotations
 import hashlib
 from itertools import combinations
 
+from sqlalchemy import and_, or_
+
 from models import (
     Assignment,
     AssignmentKnowledgePoint,
@@ -24,6 +26,7 @@ from models import (
     User,
 )
 from utils.access import (
+    authoritative_class_name,
     assignment_target_class_filter,
     can_access_assignment,
     can_access_class,
@@ -186,14 +189,30 @@ def _student_assignments(student, assignment_id=None, limit=DEFAULT_LIMIT):
             raise LearningGraphAccessError("assignment is outside the student's scope")
         return [assignment]
 
-    visible = []
-    assignments = Assignment.query.order_by(Assignment.created_time.desc()).all()
-    for assignment in assignments:
-        if can_access_assignment(assignment, student):
-            visible.append(assignment)
-            if len(visible) >= limit:
-                break
-    return visible
+    class_name = authoritative_class_name(student)
+    unassigned = and_(
+        or_(Assignment.target_classes.is_(None), Assignment.target_classes == ""),
+        or_(
+            Assignment.creator_id.is_(None),
+            Assignment.creator_id == student.student_id,
+        ),
+    )
+    scope_filter = (
+        or_(assignment_target_class_filter(class_name), unassigned)
+        if class_name
+        else unassigned
+    )
+    assignments = (
+        Assignment.query.filter(scope_filter)
+        .order_by(Assignment.created_time.desc(), Assignment.id.desc())
+        .limit(_bounded_limit(limit))
+        .all()
+    )
+    return [
+        assignment
+        for assignment in assignments
+        if can_access_assignment(assignment, student)
+    ]
 
 
 def build_student_learning_graph(*, student_id, assignment_id=None, limit=DEFAULT_LIMIT):
@@ -285,7 +304,7 @@ def build_student_learning_graph(*, student_id, assignment_id=None, limit=DEFAUL
                         "assignment_id": assignment.id,
                         "knowledge_point": code,
                         "label": _knowledge_label(code),
-                        "reason": "尚未形成稳定掌握度" if mastery is None else "最近掌握度偏低",
+                        "reason": "尚未形成稳定掌握度" if mastery is None else "最近掌握度较低",
                         "action": "practice_assignment",
                     }
                 )
@@ -648,10 +667,13 @@ def build_teacher_knowledge_coverage(*, viewer_id, class_id=None, limit=DEFAULT_
                     "code": code,
                     "knowledge_point": code,
                     "label": _knowledge_label(code),
-                    "reason": "班级掌握度偏低，可安排针对性练习"
+                    "reason": "班级掌握度较低，可安排针对性练习"
                     if average < LOW_MASTERY_THRESHOLD
                     else "部分学生掌握不足，可安排分层练习",
                     "action": "review_knowledge_point",
+                    "average_mastery": average,
+                    "student_sample_size": len(values),
+                    "low_mastery_count": low_count,
                 }
             )
 

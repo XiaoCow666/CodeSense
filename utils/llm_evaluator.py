@@ -193,38 +193,21 @@ class LLMEvaluator:
         # 获取基本评估
         score, feedback = self.evaluate_code(code, assignment_title)
         
-        # 基于总分生成各项能力分数
-        # 在教育场景中，各项能力相对均衡，但有一定随机性
-        import random
-        base_score = max(60, min(95, score * 20))  # 转换为60-95分范围
-        
-        # 添加少量随机变化让分数更真实
-        algorithm_score = base_score + random.randint(-5, 5)
-        style_score = base_score + random.randint(-3, 7)
-        functionality_score = base_score + random.randint(-2, 8)
-        efficiency_score = base_score + random.randint(-8, 2)
-        readability_score = base_score + random.randint(-3, 7)
-        
-        # 确保分数在合理范围内
-        algorithm_score = max(50, min(100, algorithm_score))
-        style_score = max(50, min(100, style_score))
-        functionality_score = max(50, min(100, functionality_score))
-        efficiency_score = max(50, min(100, efficiency_score))
-        readability_score = max(50, min(100, readability_score))
+        from services.ai_evaluator import AIEvaluator
+
+        dimensions = AIEvaluator().evaluate_code(
+            code, assignment_title or "编程练习", provider=self.api_type
+        )
         
         structured_data = {
             'overall_score': score,
             'overall_feedback': feedback,
-            'algorithm_score': algorithm_score,
-            'style_score': style_score,
-            'functionality_score': functionality_score,
-            'efficiency_score': efficiency_score,
-            'readability_score': readability_score,
-            'suggestions': [
-                '继续练习提升编程能力',
-                '注意代码风格和规范',
-                '关注算法效率优化'
-            ]
+            'algorithm_score': dimensions['algorithm_score'],
+            'style_score': dimensions['style_score'],
+            'functionality_score': dimensions['functionality_score'],
+            'efficiency_score': dimensions['efficiency_score'],
+            'readability_score': dimensions['readability_score'],
+            'dimension_feedback': dimensions['feedback'],
         }
         
         return score, feedback, structured_data

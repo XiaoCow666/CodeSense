@@ -45,7 +45,7 @@ class StudentVectorAccessError(PermissionError):
 
 
 class StudentVectorRebuildError(RuntimeError):
-    """学生向量重建失败，但上一版索引仍然保留。"""
+    """学生向量索引更新失败。"""
 
 
 @dataclass(frozen=True)
@@ -382,6 +382,35 @@ def _index_is_stale(state, *, now=None):
         return False
     now = now or dt.utcnow()
     return now - state.last_built_at > timedelta(days=INDEX_STALE_AFTER_DAYS)
+
+
+def get_student_vector_action_state(student_id):
+    normalized_student_id = _student_id(student_id)
+    state = StudentVectorIndexState.query.filter_by(
+        student_id=normalized_student_id
+    ).first()
+    if state is None:
+        return {
+            "status": "not_built",
+            "has_usable_previous_revision": False,
+            "updated_at": None,
+        }
+
+    status = "stale" if _index_is_stale(state) else state.status
+    has_previous = False
+    if status == "failed" and state.revision > 0:
+        has_previous = StudentLearningVector.query.with_entities(
+            StudentLearningVector.id
+        ).filter(
+            StudentLearningVector.student_id == normalized_student_id,
+            StudentLearningVector.scope_type == STUDENT_SCOPE,
+            StudentLearningVector.status == ACTIVE,
+        ).first() is not None
+    return {
+        "status": status,
+        "has_usable_previous_revision": has_previous,
+        "updated_at": state.updated_at,
+    }
 
 
 def _student_vector_queries(student_id, assignment_id=None):

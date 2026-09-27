@@ -30,7 +30,11 @@
     {% elif memory.get('status') == 'failed' %}
     <div class="student-learning-memory-panel__state is-warning" role="alert">
         <strong>更新失败</strong>
+        {% if memory.get('has_usable_previous_revision') %}
         <span>原有学习记录仍然保留，AI 辅导会标明当前使用上一版记录；可以再次尝试更新。</span>
+        {% else %}
+        <span>当前尚无可用记录，AI 辅导暂时无法参考个人学习记录；可以再次尝试更新。</span>
+        {% endif %}
     </div>
     {% elif memory.get('status') == 'empty' %}
     <div class="student-learning-memory-panel__state" role="status">

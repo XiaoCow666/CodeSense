@@ -63,6 +63,7 @@ from datetime import datetime
 from utils.sse import sse_event, sse_response, wants_sse
 from utils.export_safety import safe_export_cell
 from utils.submission_stats import submission_score_stats
+from utils.scoring import display_submission_ai_feedback
 
 assignments = Blueprint('assignments', __name__)
 
@@ -1098,6 +1099,10 @@ def view_submission(submission_id):
         )
         review = get_submission_review(submission.id)
         ai_feedback_signal = None
+        ai_feedback_view = (
+            display_submission_ai_feedback(submission.ai_feedback)
+            if submission.ai_feedback else None
+        )
         if (
             submission.ai_feedback
             and current_user.student_id == submission.student_id
@@ -1113,6 +1118,7 @@ def view_submission(submission_id):
             review=review,
             can_access_review=can_access_submission_review(submission, current_user),
             ai_feedback_signal=ai_feedback_signal,
+            ai_feedback_view=ai_feedback_view,
             knowledge_evidence=knowledge_evidence,
         )
     except Exception:

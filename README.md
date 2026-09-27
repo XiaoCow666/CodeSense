@@ -21,12 +21,12 @@
   <a href="https://github.com/XiaoCow666/CodeSense/stargazers"><img src="https://img.shields.io/github/stars/XiaoCow666/CodeSense?style=flat-square&logo=github" alt="GitHub stars"></a>
   <a href="https://github.com/XiaoCow666/CodeSense/network/members"><img src="https://img.shields.io/github/forks/XiaoCow666/CodeSense?style=flat-square&logo=github" alt="GitHub forks"></a>
   <a href="https://github.com/XiaoCow666/CodeSense/blob/main/LICENSE"><img src="https://img.shields.io/github/license/XiaoCow666/CodeSense?style=flat-square" alt="License"></a>
-  <img src="https://img.shields.io/badge/version-v1.9.0-2563eb?style=flat-square" alt="v1.9.0">
+  <img src="https://img.shields.io/badge/version-v2.0.0-2563eb?style=flat-square" alt="v2.0.0">
   <img src="https://img.shields.io/badge/Python-3.8--3.14-3776ab?style=flat-square&logo=python&logoColor=white" alt="Python 3.8–3.14">
   <img src="https://img.shields.io/badge/Flask-2.3.3-000000?style=flat-square&logo=flask&logoColor=white" alt="Flask 2.3.3">
 </p>
 
-> 当前版本：<a href="https://github.com/XiaoCow666/CodeSense/releases/tag/v1.9.0"><code>v1.9.0</code></a>。
+> 当前版本：<a href="https://github.com/XiaoCow666/CodeSense/releases/tag/v2.0.0"><code>v2.0.0</code></a>。
 >
 > 这是 CodeSense Standard Edition 的当前正式版本。发布级变更会记录在 [CHANGELOG.md](CHANGELOG.md)、Git tag 和 GitHub Release 中。
 
@@ -101,6 +101,10 @@
   <img src="docs/assets/codesense-v1.9.0-teacher-student-learning-actions.png" alt="CodeSense v1.9.0 教师教学动作与学生学习记忆信息图" width="100%">
 </p>
 
+<p align="center">
+  <img src="docs/assets/codesense-v2.0.0-learning-action-loop.png" alt="CodeSense v2.0.0 学生学习建议与教师班级教学行动信息图" width="100%">
+</p>
+
 ## 为什么做这个项目
 
 普通 OJ 很擅长判断程序是否通过测试，但学生看到的通常只有 AC 或 WA。他们不一定知道问题出在算法、实现、边界条件还是调试过程。教师面对大量提交记录，也很难手工归纳每个班级反复出现的问题。
@@ -156,6 +160,8 @@ v1.8.0 让学生学习记忆在更新失败时继续保留上一版可用记录�
 
 v1.9.0 把班级知识覆盖和学习记忆状态连接成教师可执行动作。教师可以直接创建针对性练习，也可以提醒需要更新学习记忆的学生；学生会在行动中心看到提醒，并回到自己的个人学习记忆入口。图谱关系保留作业来源和版本，教师只看管理班级的汇总信息；学生撤回的个人来源不会进入辅导检索。
 
+v2.0.0 把学生知识图谱建议、个人学习记忆状态和教师班级建议接入行动中心。学生可以从图谱建议进入本人可访问的作业，也可以从尚未建立、过期或更新失败的记忆提醒返回首页管理自己的学习来源；教师可以从班级汇总建议进入知识焦点和针对性练习，页面只展示本人管理班级的汇总信息。教师发送的记忆提醒只占一个行动项目，学生完成更新后提醒自动结束。新提交继续采用百分制评分，沙箱结果、AI 反馈以及作业和学生统计采用相同的分值范围；提交详情展示有文字依据的 AI 分项参考，评测等待期间显示当前状态。
+
 v1.7.0 把知识图谱和学生学习记忆接入学生辅导与教师干预流程。学生提问和 Code Studio 的完成响应会返回带有作用域、来源引用和来源版本的图谱投影；没有图谱数据时会明确显示无结果状态，个人记录只在当前学生范围内使用。
 
 教师知识点提醒展示班级聚合掌握度、样本数和需要加强的人数，并可直接创建预先关联知识点、预先选择班级的练习作业，创建后进入已有班级布置流程。学生向量检索先在数据库中执行学生与作业范围过滤，再计算相似度；离线评测同时记录召回、作用域过滤和查询延迟指标。
@@ -177,6 +183,8 @@ CodeSense 会把引导式学习过程投影为可解释的会话状态：学生�
 ### 角色化行动中心
 
 v1.2.0 增加统一的行动中心，把学生的继续学习、评测与复核提示，教师的待复核与学情动作，以及管理员的反馈、能力与系统治理入口汇总为角色化队列。页面与只读 API 共用同一份聚合结果，按当前身份隔离数据源、限制条数并标记降级来源；返回内容不包含学生代码正文、姓名或联系方式等敏感字段。入口位于 `/action-center`，接口位于 `/api/action-center`。
+
+v2.0.0 让图谱建议成为行动中心里可直接使用的下一步：学生进入符合本人权限的作业，教师进入知识焦点页查看班级练习；个人学习记忆尚未建立、过期或更新失败时，学生能从行动中心返回更新入口。管理员仍只看到反馈、能力分析和系统队列。
 
 ### 教师端
 
@@ -456,7 +464,7 @@ CodeSense 使用语义化版本号：
 - <code>MINOR</code>：向后兼容的功能增加；
 - <code>PATCH</code>：向后兼容的问题修复和小幅调整。
 
-当前正式版本是 [v1.9.0](https://github.com/XiaoCow666/CodeSense/releases/tag/v1.9.0)。教师可从班级聚合信号选择练习或提醒；学生能在行动中心回到个人学习记忆入口。知识记忆与知识证据用于学习参考，分数由评测流程和教师判断决定。
+当前正式版本是 [v2.0.0](https://github.com/XiaoCow666/CodeSense/releases/tag/v2.0.0)。学生可以从行动中心继续知识点练习或更新个人学习记忆；教师可以根据管理班级的汇总信号安排针对性教学。知识记忆与知识证据用于学习参考，分数由评测流程和教师判断决定。
 
 ## Star History
 

@@ -44,7 +44,7 @@
                 <span class="action-center-item-body">
                     <span class="action-center-item-meta">
                         <span class="action-center-item-priority">{{ item.status_label }}</span>
-                        <span>{{ item.source }}</span>
+                        <span>{{ item.source_label }}</span>
                         {% if item.occurred_at %}<time datetime="{{ item.occurred_at }}">{{ item.occurred_at }}</time>{% endif %}
                     </span>
                     <strong>{{ item.title }}</strong>
@@ -58,7 +58,7 @@
     {% else %}
     <div class="action-center-empty" role="status">
         <strong>现在没有需要处理的行动。</strong>
-        <span>新的提交、复核或通知出现后，会在这里形成下一步。</span>
+        <span>新的练习建议、提交状态、复核或通知出现后，会在这里形成下一步。</span>
     </div>
     {% endif %}
 </section>

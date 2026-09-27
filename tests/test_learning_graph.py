@@ -2,6 +2,7 @@ from datetime import datetime as dt
 
 import pytest
 from flask import template_rendered
+from sqlalchemy import event
 
 from app import create_app
 from config import TestingConfig as _TestingConfig
@@ -202,12 +203,14 @@ def learning_graph_context(tmp_path, monkeypatch):
             "teacher": teacher.student_id,
             "other_teacher": other_teacher.student_id,
             "admin": admin.student_id,
-            "student_one": student_one.student_id,
-            "student_two": student_two.student_id,
-            "outside_student": outside_student.student_id,
-            "empty_student": empty_student.student_id,
-            "class_a": class_a.id,
-            "class_b": class_b.id,
+        "student_one": student_one.student_id,
+        "student_two": student_two.student_id,
+        "outside_student": outside_student.student_id,
+        "empty_student": empty_student.student_id,
+        "class_a": class_a.id,
+        "class_a_name": class_a.name,
+        "class_b": class_b.id,
+        "class_b_name": class_b.name,
             "assignment_one": assignment_one.id,
             "outside_assignment": outside_assignment.id,
         }
@@ -286,6 +289,39 @@ def test_student_graph_has_stable_empty_state(learning_graph_context):
     assert graph["recommendations"] == []
     assert graph["meta"]["scope"] == "student"
     assert graph["meta"]["sample_size"] == 0
+
+
+def test_student_graph_scopes_and_limits_assignments_in_sql(learning_graph_context):
+    app, ids = learning_graph_context
+    statements = []
+
+    def capture_statement(connection, cursor, statement, parameters, context, executemany):
+        statements.append((statement.lower(), parameters))
+
+    with app.app_context():
+        event.listen(db.engine, "before_cursor_execute", capture_statement)
+        try:
+            graph = build_student_learning_graph(
+                student_id=ids["student_one"],
+                limit=1,
+            )
+        finally:
+            event.remove(db.engine, "before_cursor_execute", capture_statement)
+
+    assignment_queries = [
+        (" ".join(statement.split()), parameters)
+        for statement, parameters in statements
+        if "from assignments" in " ".join(statement.split())
+        and "order by assignments.created_time" in " ".join(statement.split())
+    ]
+    assert len(assignment_queries) == 1
+    statement, parameters = assignment_queries[0]
+    assert "assignments.target_classes" in statement
+    assert "assignments.creator_id" in statement
+    assert " limit " in f" {statement} "
+    assert ids["class_a_name"] in repr(parameters)
+    assert ids["class_b_name"] not in repr(parameters)
+    assert graph["meta"]["assignment_count"] == 1
 
 
 def test_teacher_coverage_is_aggregate_and_class_scoped(learning_graph_context):

@@ -5,7 +5,11 @@ import numpy as np
 from models import db, Class, User, Submission
 from sqlalchemy import and_, or_
 from utils.access import authoritative_class_name
-from utils.scoring import normalize_mixed_score
+from utils.scoring import (
+    PERCENT_SCORE_DEPLOYED_AT,
+    normalize_mixed_score,
+    normalize_submission_score,
+)
 from typing import Dict, List
 import logging
 
@@ -96,17 +100,25 @@ class AbilityScorer:
             avg_submissions = total_submissions / len(class_students) if class_students else 1
             
             # 计算班级平均分
+            percent_score = db.case(
+                (
+                    and_(
+                        Submission.submitted_at < PERCENT_SCORE_DEPLOYED_AT,
+                        Submission.score <= 5,
+                    ),
+                    Submission.score * 20,
+                ),
+                else_=Submission.score,
+            )
             all_scores = [row.average_score for row in db.session.query(
                 Submission.student_id,
-                db.func.avg(Submission.score).label('average_score'),
+                db.func.avg(percent_score).label('average_score'),
             ).filter(
                 Submission.student_id.in_([student_id for student_id, _ in class_students]),
                 Submission.score.isnot(None),
             ).group_by(Submission.student_id).all()]
-            
             normalized_scores = [
-                (normalize_mixed_score(score) or 0) / 20
-                for score in all_scores
+                score / 20 for score in all_scores
             ]
             avg_score = sum(normalized_scores) / len(normalized_scores) if normalized_scores else 2.5
             
@@ -149,7 +161,7 @@ class AbilityScorer:
         
         # 计算学生平均分
         scores = [
-            (normalize_mixed_score(s.score) or 0) / 20
+            (normalize_submission_score(s.score, s.submitted_at) or 0) / 20
             for s in submissions
             if s.score is not None
         ]
@@ -179,7 +191,7 @@ class AbilityScorer:
         
         # 计算分数的标准差
         scores = [
-            (normalize_mixed_score(s.score) or 0) / 20
+            (normalize_submission_score(s.score, s.submitted_at) or 0) / 20
             for s in submissions
             if s.score is not None
         ]
@@ -216,10 +228,10 @@ class AbilityScorer:
         last_third = scored_submissions[-n//3:] if n >= 3 else scored_submissions[-1:]
         
         first_avg = sum(
-            (normalize_mixed_score(s.score) or 0) / 20 for s in first_third
+            (normalize_submission_score(s.score, s.submitted_at) or 0) / 20 for s in first_third
         ) / len(first_third)
         last_avg = sum(
-            (normalize_mixed_score(s.score) or 0) / 20 for s in last_third
+            (normalize_submission_score(s.score, s.submitted_at) or 0) / 20 for s in last_third
         ) / len(last_third)
         
         improvement = last_avg - first_avg
@@ -256,6 +268,7 @@ class AbilityScorer:
             all_submissions = list(user.submissions.with_entities(
                 Submission.ai_feedback,
                 Submission.score,
+                Submission.submitted_at,
             ).all())
             if not all_submissions:
                 return {k: 0.0 for k in ['algorithm', 'style', 'functionality', 'efficiency', 'readability']}
@@ -287,7 +300,7 @@ class AbilityScorer:
             # 极速回归补偿：如果所有维度都是 0（可能由于解析失败或旧数据），则采用系统总分
             if sum(avg_scores.values()) == 0:
                 normalized_scores = [
-                    normalize_mixed_score(s.score)
+                    normalize_submission_score(s.score, s.submitted_at)
                     for s in all_submissions
                     if s.score is not None
                 ]

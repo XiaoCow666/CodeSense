@@ -28,9 +28,9 @@ class DemoSubmissionIsolationTestCase(unittest.TestCase):
     def tearDown(self):
         destroy_test_app(self.app)
 
-    def test_submission_score_normalisation_preserves_source_scale(self):
-        self.assertEqual(_normalise_score(4), 80)
-        self.assertEqual(_normalise_score(8), 80)
+    def test_submission_score_normalisation_preserves_percent_scale(self):
+        self.assertEqual(_normalise_score(4), 4)
+        self.assertEqual(_normalise_score(8), 8)
         self.assertEqual(_normalise_score(80), 80)
         self.assertEqual(_normalise_score(100), 100)
 

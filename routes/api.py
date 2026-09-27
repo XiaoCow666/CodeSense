@@ -60,8 +60,12 @@ from services.learning_graph import (
     build_student_learning_graph_context,
     project_student_learning_graph,
 )
-from tasks.submission_tasks import evaluate_submission_async, _normalise_score, _refresh_user_stats
-from utils.scoring import normalize_feedback_text
+from tasks.submission_tasks import (
+    evaluate_submission_async,
+    _refresh_assignment_stats,
+    _refresh_user_stats,
+)
+from utils.scoring import normalize_evaluation_score, normalize_feedback_text
 from tasks.submission_queue import (
     SubmissionQueueUnavailable,
     get_submission_job_status,
@@ -740,7 +744,7 @@ def submit_code():
             feedback = normalize_feedback_text(feedback)
             
             # 更新提交记录
-            submission.score = _normalise_score(score)
+            submission.score = normalize_evaluation_score(score, scale=100)
             submission.feedback = feedback
             submission.status = 'evaluated'
             
@@ -765,10 +769,8 @@ def submit_code():
                 except Exception as e:
                     current_app.logger.warning('处理 AI 反馈失败: %s', type(e).__name__)
             
-            # 更新作业统计信息
-            assignment.total_score += score
-            assignment.count += 1
-            assignment.average_score = assignment.total_score / assignment.count
+            # 两条提交入口使用同一组历史记录重新计算统计结果。
+            _refresh_assignment_stats(assignment)
             _refresh_user_stats(student_id)
             
             db.session.commit()

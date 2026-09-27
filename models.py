@@ -12,7 +12,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from flask_login import UserMixin  # 添加UserMixin导入
 from sqlalchemy import Index, UniqueConstraint, and_, inspect, or_, text
 from sqlalchemy.exc import SQLAlchemyError
-from utils.scoring import normalize_mixed_score
+from utils.scoring import normalize_mixed_score, normalize_submission_score
 
 # 班级默认配置
 DEFAULT_GRADE = '2024'
@@ -429,7 +429,7 @@ class User(db.Model, UserMixin):  # 添加UserMixin继承
             
             # 基于现有提交数据进行简单计算
             normalized_scores = [
-                normalize_mixed_score(s.score)
+                normalize_submission_score(s.score, s.submitted_at)
                 for s in submissions
                 if s.score is not None
             ]
@@ -480,6 +480,7 @@ class User(db.Model, UserMixin):  # 添加UserMixin继承
                 effective_class_name,
                 Submission.ai_feedback,
                 Submission.score,
+                Submission.submitted_at,
             ).join(
                 Submission, Submission.student_id == User.student_id
             ).outerjoin(
@@ -491,14 +492,14 @@ class User(db.Model, UserMixin):  # 添加UserMixin继承
             ).all()
 
             per_student = {}
-            for student_id, class_name, ai_feedback, score in rows:
+            for student_id, class_name, ai_feedback, score, submitted_at in rows:
                 item = per_student.setdefault(
                     student_id,
                     {'class_name': class_name, 'scores': {name: [] for name in dimension_names},
                      'fallback_scores': []},
                 )
                 if score is not None:
-                    normalized_score = normalize_mixed_score(score)
+                    normalized_score = normalize_submission_score(score, submitted_at)
                     if normalized_score is not None:
                         item['fallback_scores'].append(normalized_score)
                 if not ai_feedback:

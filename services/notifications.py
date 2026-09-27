@@ -189,7 +189,7 @@ def mark_notification_read(user_id: str, notification_id: int) -> bool:
     return True
 
 
-def mark_all_notifications_read(user_id: str) -> int:
+def mark_all_notifications_read(user_id: str, *, kind: str | None = None) -> int:
     logs = (
         SystemLog.query.filter_by(log_type=NOTIFICATION_LOG_TYPE, user_id=user_id)
         .order_by(SystemLog.id.desc())
@@ -199,7 +199,9 @@ def mark_all_notifications_read(user_id: str) -> int:
     updated = 0
     for log in logs:
         payload = _parse(log)
-        if payload is None or payload["read"]:
+        if payload is None or payload["read"] or (
+            kind is not None and payload["kind"] != kind
+        ):
             continue
         payload["read"] = True
         payload["read_at"] = _now_iso()

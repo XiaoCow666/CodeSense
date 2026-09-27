@@ -1,7 +1,7 @@
 """成熟度评分计算工具 - 统一处理 φ_avg, φ_freq, φ_std, φ_grad 的计算逻辑"""
 import statistics
 from datetime import datetime
-from utils.scoring import normalize_mixed_score
+from utils.scoring import normalize_submission_score
 
 # 从 code_evaluator 导入权重常量（避免循环导入，直接复制常量定义）
 MATURITY_WEIGHTS = {
@@ -55,7 +55,7 @@ def calculate_maturity_components(all_subs, ability_scores=None, class_averages=
     # 成熟度的历史公式按 0–5 计算，提交分本身统一落库为百分制，
     # 这里仅在公式内部换算，输出仍然是 0–100。
     scores = [
-        (normalize_mixed_score(s.score) or 0) / 20
+        (normalize_submission_score(s.score, s.submitted_at) or 0) / 20
         for s in all_subs
         if s.score is not None
     ]
@@ -76,12 +76,12 @@ def calculate_maturity_components(all_subs, ability_scores=None, class_averages=
         # 两半缺失率不同时会让梯度方向都反掉）。任一半没有可评分提交时，
         # 没有可比较的均值，保持中性默认 50。
         init_scores = [
-            normalize_mixed_score(s.score) / 20
+            normalize_submission_score(s.score, s.submitted_at) / 20
             for s in first_half
             if s.score is not None
         ]
         recent_scores = [
-            normalize_mixed_score(s.score) / 20
+            normalize_submission_score(s.score, s.submitted_at) / 20
             for s in second_half
             if s.score is not None
         ]

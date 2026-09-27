@@ -264,14 +264,20 @@
             <div class="submission-meta-item">
                 <i class="bi bi-award"></i>
                 <span class="submission-meta-label">得分:</span>
+                {% if submission.score is none %}
+                <span class="ms-1 badge bg-secondary fs-6">
+                    {% if submission.status == 'failed' %}评测失败{% else %}评测中{% endif %}
+                </span>
+                {% else %}
                 <span class="ms-1 badge {% if submission.score >= 80 %}bg-success{% elif submission.score >= 60 %}bg-warning text-dark{% else %}bg-danger{% endif %} fs-6">
                     {{ "%.1f"|format(submission.score|float) }}
                 </span>
+                {% endif %}
                 {% if submission.sandbox_status == 'unavailable' %}
                 <span class="ms-2 badge bg-secondary">
                     <i class="bi bi-exclamation-triangle me-1"></i> 测试环境未就绪
                 </span>
-                {% elif submission.sandbox_total is not none %}
+                {% elif submission.sandbox_total and submission.sandbox_total > 0 %}
                 <span
                     class="ms-2 badge {% if submission.sandbox_status == 'passed' %}bg-success{% elif submission.sandbox_status == 'partial' %}bg-warning text-dark{% else %}bg-danger{% endif %}">
                     通过 {{ submission.sandbox_passed or 0 }}/{{ submission.sandbox_total }}
@@ -294,7 +300,22 @@
             <h3 class="mb-0">代码评估建议</h3>
         </div>
 
-        <div class="ai-feedback-content markdown-body cs-markdown" data-markdown="{{ submission.ai_feedback | e }}"></div>
+        {% if ai_feedback_view.overall_feedback %}
+        <div class="ai-feedback-content markdown-body cs-markdown" data-markdown="{{ ai_feedback_view.overall_feedback | e }}"></div>
+        {% endif %}
+        {% if ai_feedback_view.dimension_feedback %}
+        <div class="mt-3">
+            <h4 class="fs-6">AI 分项参考</h4>
+            <ul class="list-inline mb-2" aria-label="AI 分项评分">
+                {% set dimension_labels = {'algorithm': '算法', 'style': '代码风格', 'functionality': '功能实现', 'efficiency': '运行效率', 'readability': '可读性'} %}
+                {% for name, score in ai_feedback_view.dimensions.items() %}
+                <li class="list-inline-item me-3">{{ dimension_labels[name] }} {{ score }}/100</li>
+                {% endfor %}
+            </ul>
+            <div class="ai-feedback-content markdown-body cs-markdown" data-markdown="{{ ai_feedback_view.dimension_feedback | e }}"></div>
+            <p class="small text-muted mt-2">分项建议由 AI 根据本次代码生成；作业成绩以评测结果为准。</p>
+        </div>
+        {% endif %}
 
         <div class="d-flex justify-content-end mt-2">
             <span class="badge ai-badge">
@@ -337,7 +358,7 @@
     {% endif %}
 
     {# ── 沙箱测试用例结果 ── #}
-    {% if submission.sandbox_total is not none or submission.sandbox_status == 'compile_error' %}
+    {% if submission.sandbox_status or (submission.sandbox_total and submission.sandbox_total > 0) %}
     <div class="p-3 border-top">
         <h5 class="mb-3">
             <i class="bi bi-terminal me-2"></i>测试用例评判

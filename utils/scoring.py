@@ -1,18 +1,22 @@
 """统一的百分制评分约定。
 
-提交分、作业平均分、班级平均分和学生综合分统一使用 0–100。
-评测器边界仍兼容历史的 0–5 和 0–10 返回值，避免旧任务把分数写成错误的满分。
+新提交分、作业平均分、班级平均分和学生综合分使用 0–100。
+评测器转换时明确声明来源的分值范围。
 """
 
 from __future__ import annotations
 
 import math
 import re
+import json
+from datetime import datetime
 
 
 SCORE_MAX = 100.0
 LOW_SCORE_THRESHOLD = 60.0
 EXCELLENT_SCORE_THRESHOLD = 80.0
+# submissions.submitted_at 使用 UTC；对应生产环境百分制版本启用时间。
+PERCENT_SCORE_DEPLOYED_AT = datetime(2026, 9, 18, 5, 15, 38)
 _LEGACY_SCORE_TEXT_PATTERN = re.compile(r"(?<!\d)([0-5])分(?!钟)")
 _LEGACY_SCORE_LABEL_PATTERN = re.compile(
     r"((?:分数|评分|得分)\s*[：:]\s*)([0-5])"
@@ -32,8 +36,8 @@ def clamp_percent(value, *, default=0.0):
     return max(0.0, min(SCORE_MAX, number))
 
 
-def normalize_evaluation_score(value) -> int:
-    """把评测器可能返回的 0–5、0–10 或 0–100 统一成整数百分制。"""
+def normalize_evaluation_score(value, *, scale: int) -> int:
+    """按来源的明确分值范围转换为整数百分制。"""
 
     try:
         raw = float(value)
@@ -41,13 +45,29 @@ def normalize_evaluation_score(value) -> int:
         raise ValueError("评测器未返回有效分数")
     if not math.isfinite(raw):
         raise ValueError("评测器未返回有效分数")
+    if scale not in (5, 10, 100) or not 0 <= raw <= scale:
+        raise ValueError("评测器分数超出来源范围")
+    return int(round(raw * SCORE_MAX / scale))
 
-    # 评测器的历史接口使用过 5 分制和 10 分制；百分制值保持原值。
-    if raw <= 5:
-        raw *= 20
-    elif raw <= 10:
-        raw *= 10
-    return int(round(clamp_percent(raw)))
+
+def normalize_structured_feedback_scores(data):
+    """按 LLMEvaluator 返回字段各自的分值范围转换评分。"""
+
+    result = dict(data)
+    if result.get("overall_score") is not None:
+        result["overall_score"] = normalize_evaluation_score(
+            result["overall_score"], scale=5
+        )
+    for field in (
+        "algorithm_score",
+        "style_score",
+        "functionality_score",
+        "efficiency_score",
+        "readability_score",
+    ):
+        if result.get(field) is not None:
+            result[field] = normalize_evaluation_score(result[field], scale=100)
+    return result
 
 
 def legacy_five_to_percent(value):
@@ -57,15 +77,53 @@ def legacy_five_to_percent(value):
 
 
 def normalize_mixed_score(value):
-    """读取仍可能包含旧 0–5 值的历史反馈字段。"""
+    """读取已经使用百分制的结构化反馈字段。"""
 
     try:
         raw = float(value)
     except (TypeError, ValueError):
         return None
-    if raw <= 5:
-        raw *= 20
     return clamp_percent(raw, default=None)
+
+
+def normalize_submission_score(value, submitted_at: datetime):
+    """依据提交时间读取历史五分制和当前百分制记录。"""
+
+    if submitted_at is None:
+        raise ValueError("提交记录缺少时间，无法确定分值范围")
+    score = normalize_mixed_score(value)
+    if score is None:
+        return None
+    if submitted_at < PERCENT_SCORE_DEPLOYED_AT and score <= 5:
+        return score * 20
+    return score
+
+
+def display_submission_ai_feedback(value):
+    """将已保存的评估内容整理为页面可展示的分项。"""
+
+    if not isinstance(value, str):
+        raise ValueError("AI 反馈内容格式错误")
+    if not value.lstrip().startswith("{"):
+        return {"overall_feedback": value, "dimension_feedback": "", "dimensions": {}}
+    data = json.loads(value)
+    if not isinstance(data, dict):
+        raise ValueError("AI 反馈内容格式错误")
+    overall_feedback = data.get("overall_feedback") or data.get("feedback") or ""
+    dimension_feedback = data.get("dimension_feedback") or ""
+    if not isinstance(overall_feedback, str) or not isinstance(dimension_feedback, str):
+        raise ValueError("AI 反馈内容格式错误")
+    dimensions = {}
+    if dimension_feedback:
+        for name in ("algorithm", "style", "functionality", "efficiency", "readability"):
+            score = data.get(f"{name}_score")
+            if score is not None:
+                dimensions[name] = normalize_evaluation_score(score, scale=100)
+    return {
+        "overall_feedback": overall_feedback,
+        "dimension_feedback": dimension_feedback,
+        "dimensions": dimensions,
+    }
 
 
 def normalize_feedback_text(value):

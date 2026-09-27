@@ -13,6 +13,7 @@ from sqlalchemy.orm import joinedload
 
 from models import (
     AbilityTrend,
+    Assignment,
     Class,
     Submission,
     TeacherAISuggestion,
@@ -20,12 +21,17 @@ from models import (
     db,
 )
 from services.feedback import list_feedback
+from services.learning_graph import (
+    build_student_learning_graph,
+    build_teacher_knowledge_coverage,
+)
 from services.notifications import list_notifications
 from services.session_lifecycle import latest_session_activity, session_lifecycle_payload
 from services.submission_reviews import (
     list_review_queue,
     list_student_review_queue,
 )
+from services.student_vector_store import get_student_vector_action_state
 from utils.access import can_access_assignment
 
 
@@ -60,6 +66,18 @@ _ABILITY_STATUS_LABELS = {
     "processing": "分析中",
     "failed": "分析失败",
     "outdated": "等待刷新",
+}
+_ACTION_SOURCE_LABELS = {
+    "submissions": "提交状态",
+    "reviews": "复核进展",
+    "sessions": "学习会话",
+    "learning_memory": "个人学习记录",
+    "learning_graph": "知识图谱",
+    "notifications": "站内通知",
+    "teacher_reviews": "学生复核请求",
+    "teacher_ai": "AI 教学建议",
+    "admin_feedback": "反馈中心",
+    "admin_ability": "能力分析",
 }
 
 
@@ -178,6 +196,7 @@ def _item(
         "status_label": _safe_text(status_label, limit=80, fallback="待处理"),
         "href": _safe_href(href),
         "source": _safe_text(source, limit=40, fallback="action_center"),
+        "source_label": _ACTION_SOURCE_LABELS.get(source, "学习行动"),
         "occurred_at": _iso(occurred_at),
     }
 
@@ -294,6 +313,199 @@ def _read_student_sessions(actor, *, source_limit=ACTION_CENTER_SOURCE_LIMIT) ->
             ),
             source="sessions",
             occurred_at=lifecycle.get("last_activity_at") or lifecycle.get("started_at"),
+        ))
+    return items
+
+
+def _read_student_learning_memory(
+    actor,
+    *,
+    source_limit=ACTION_CENTER_SOURCE_LIMIT,
+) -> list[dict]:
+    del source_limit
+    if _actor_role(actor) != "student":
+        return []
+    state = get_student_vector_action_state(getattr(actor, "student_id", None))
+    status = state["status"]
+    if status not in {"not_built", "stale", "failed"}:
+        return []
+
+    if status == "not_built":
+        title = "建立我的学习记忆"
+        summary = "从你自己的提交反馈和知识点记录建立学习记忆，供 AI 辅导参考。"
+        status_label = "尚未建立"
+    elif status == "failed":
+        title = "更新我的学习记忆"
+        summary = (
+            "更新失败，先前可用记录仍保留；可以回到首页重试。"
+            if state["has_usable_previous_revision"]
+            else "更新失败，当前尚无可用记录；可以回到首页重试。"
+        )
+        status_label = "更新失败"
+    else:
+        title = "更新我的学习记忆"
+        summary = "个人学习记录需要更新，更新后 AI 辅导才能参考最近记录。"
+        status_label = "需要更新"
+    return [_item(
+        item_id=_opaque_id("learning-memory", getattr(actor, "student_id", "")),
+        kind="learning_memory",
+        priority="next",
+        title=title,
+        summary=summary,
+        status=status,
+        status_label=status_label,
+        href="/#student-learning-memory-title",
+        source="learning_memory",
+        occurred_at=state["updated_at"],
+    )]
+
+
+def _read_student_learning_graph(
+    actor,
+    *,
+    source_limit=ACTION_CENTER_SOURCE_LIMIT,
+) -> list[dict]:
+    if _actor_role(actor) != "student":
+        return []
+
+    graph = build_student_learning_graph(
+        student_id=getattr(actor, "student_id", None),
+        limit=_safe_source_limit(source_limit),
+    )
+    assignment_nodes = {
+        node.get("assignment_id"): node
+        for node in graph.get("nodes") or []
+        if node.get("type") == "assignment" and node.get("assignment_id")
+    }
+    recommendations = (graph.get("recommendations") or [])[
+        :_safe_source_limit(source_limit)
+    ]
+    recommendation_assignment_ids = {
+        recommendation.get("assignment_id")
+        for recommendation in recommendations
+        if recommendation.get("assignment_id")
+    }
+    assignments_by_id = {}
+    if recommendation_assignment_ids:
+        assignments_by_id = {
+            assignment.id: assignment
+            for assignment in Assignment.query.filter(
+                Assignment.id.in_(recommendation_assignment_ids)
+            ).all()
+        }
+    items = []
+    seen_knowledge_points = set()
+    for recommendation in recommendations:
+        assignment_id = recommendation.get("assignment_id")
+        knowledge_point = str(
+            recommendation.get("knowledge_point") or recommendation.get("code") or ""
+        ).strip()
+        if (
+            not assignment_id
+            or not knowledge_point
+            or knowledge_point in seen_knowledge_points
+        ):
+            continue
+
+        node = assignment_nodes.get(assignment_id)
+        if node is None:
+            continue
+        assignment = assignments_by_id.get(assignment_id)
+        if assignment is None or not can_access_assignment(assignment, actor):
+            continue
+
+        assignment_title = _safe_text(
+            node.get("title") or assignment.title,
+            limit=100,
+            fallback="当前作业",
+        )
+        label = _safe_text(
+            recommendation.get("label"),
+            limit=80,
+            fallback="当前知识点",
+        )
+        reason = _safe_text(
+            recommendation.get("reason"),
+            limit=120,
+            fallback="可以再练习一次。",
+        )
+        items.append(_item(
+            item_id=_opaque_id("learning-graph", f"student:{assignment_id}:{knowledge_point}"),
+            kind="learning_graph",
+            priority="next",
+            title=f"继续练习：{label}",
+            summary=f"{assignment_title} · {reason}。",
+            status="recommended",
+            status_label="图谱建议",
+            href=_route(
+                "assignments.submit_code",
+                f"/submit/{assignment_id}",
+                assignment_id=assignment_id,
+            ),
+            source="learning_graph",
+        ))
+        seen_knowledge_points.add(knowledge_point)
+    return items
+
+
+def _read_teacher_learning_graph(
+    actor,
+    *,
+    source_limit=ACTION_CENTER_SOURCE_LIMIT,
+) -> list[dict]:
+    if _actor_role(actor) != "teacher":
+        return []
+
+    graph = build_teacher_knowledge_coverage(
+        viewer_id=getattr(actor, "student_id", None),
+        limit=_safe_source_limit(source_limit),
+    )
+    class_count = int((graph.get("meta") or {}).get("class_count") or 0)
+    items = []
+    for recommendation in (graph.get("recommendations") or [])[
+        :_safe_source_limit(source_limit)
+    ]:
+        code = str(
+            recommendation.get("knowledge_point") or recommendation.get("code") or ""
+        ).strip()
+        if not code:
+            continue
+        label = _safe_text(
+            recommendation.get("label"),
+            limit=80,
+            fallback="当前知识点",
+        )
+        reason = _safe_text(
+            recommendation.get("reason"),
+            limit=120,
+            fallback="打开班级知识焦点安排练习。",
+        )
+        sample_size = int(recommendation.get("student_sample_size") or 0)
+        low_count = int(recommendation.get("low_mastery_count") or 0)
+        average_mastery = recommendation.get("average_mastery")
+        average_text = (
+            f"{float(average_mastery):.1f}%"
+            if average_mastery is not None
+            else "暂无"
+        )
+        items.append(_item(
+            item_id=_opaque_id("learning-graph", f"teacher:{code}"),
+            kind="learning_graph",
+            priority="next",
+            title=f"班级知识提醒：{label}",
+            summary=(
+                f"{reason}；根据你管理的 {class_count} 个班级汇总，"
+                f"已有掌握记录的平均掌握度 {average_text}，"
+                f"已有掌握记录的 {sample_size} 名学生中 {low_count} 名低于 60。"
+            ),
+            status="recommended",
+            status_label="图谱建议",
+            href=_route(
+                "main.teacher_knowledge_focus",
+                f"/teacher/knowledge-focus/{code}",
+                knowledge_point=code,
+            ),
+            source="learning_graph",
         ))
     return items
 
@@ -450,20 +662,27 @@ def _read_admin_ability(actor, *, source_limit=ACTION_CENTER_SOURCE_LIMIT) -> li
     return items
 
 
-def _read_sources(role: str, actor):
+def _read_sources(role: str, actor, *, include_learning_graph=True):
     if role == "student":
-        return (
+        sources = (
             ("submissions", _read_student_submissions),
             ("reviews", _read_student_reviews),
             ("sessions", _read_student_sessions),
+            ("learning_memory", _read_student_learning_memory),
             ("notifications", _read_notifications),
         )
+        if include_learning_graph:
+            return sources[:-1] + (("learning_graph", _read_student_learning_graph),) + sources[-1:]
+        return sources
     if role == "teacher":
-        return (
+        sources = (
             ("teacher_reviews", _read_teacher_reviews),
             ("teacher_ai", _read_teacher_ai),
             ("notifications", _read_notifications),
         )
+        if include_learning_graph:
+            return sources[:-1] + (("learning_graph", _read_teacher_learning_graph),) + sources[-1:]
+        return sources
     if role == "admin":
         return (
             ("admin_feedback", _read_admin_feedback),
@@ -480,6 +699,7 @@ def build_action_center(
     limit=20,
     source_limit=ACTION_CENTER_SOURCE_LIMIT,
     emit_log=True,
+    include_learning_graph=True,
 ) -> dict:
     """Build one bounded action payload without mutating application state."""
 
@@ -494,7 +714,11 @@ def build_action_center(
     items = []
     degraded_sources = []
 
-    for source, reader in _read_sources(role, actor):
+    for source, reader in _read_sources(
+        role,
+        actor,
+        include_learning_graph=include_learning_graph,
+    ):
         try:
             items.extend(reader(actor, source_limit=safe_source_limit))
         except Exception as error:
@@ -510,6 +734,26 @@ def build_action_center(
                 _request_id(),
                 type(error).__name__,
             )
+
+    if role == "student" and "learning_memory" not in degraded_sources:
+        has_memory_action = any(item["kind"] == "learning_memory" for item in items)
+        has_teacher_reminder = any(
+            item["kind"] == "learning_memory_refresh" for item in items
+        )
+        if has_memory_action and has_teacher_reminder:
+            visible_items = []
+            reminder_seen = False
+            for item in items:
+                if item["kind"] == "learning_memory":
+                    continue
+                if item["kind"] == "learning_memory_refresh":
+                    if reminder_seen:
+                        continue
+                    reminder_seen = True
+                visible_items.append(item)
+            items = visible_items
+        elif not has_memory_action:
+            items = [item for item in items if item["kind"] != "learning_memory_refresh"]
 
     items.sort(
         key=lambda item: (item.get("occurred_at") or "", item.get("id") or ""),
@@ -566,5 +810,6 @@ def count_action_center_items(actor) -> int:
         limit=ACTION_CENTER_MAX_ITEMS,
         source_limit=ACTION_CENTER_SOURCE_LIMIT,
         emit_log=False,
+        include_learning_graph=False,
     )
     return min(int(payload["counts"].get("total", 0)), 99)

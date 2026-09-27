@@ -6,6 +6,27 @@ import re
 from services.api_keys import api_keys
 
 
+def _parse_code_assessment(content: str) -> Dict:
+    if not content:
+        raise RuntimeError("AI服务未返回有效内容")
+    content = content.strip()
+    if content.startswith('```json\n') and content.endswith('\n```'):
+        content = content[8:-4]
+    result = json.loads(content)
+    if not isinstance(result, dict):
+        raise ValueError("AI评估结果格式错误")
+    for field in (
+        "algorithm_score", "style_score", "functionality_score",
+        "efficiency_score", "readability_score",
+    ):
+        score = result.get(field)
+        if isinstance(score, bool) or not isinstance(score, (int, float)) or not 0 <= score <= 100:
+            raise ValueError(f"AI评估结果缺少有效的 {field}")
+    if not isinstance(result.get("feedback"), str) or not result["feedback"].strip():
+        raise ValueError("AI评估结果缺少理由")
+    return result
+
+
 class AIEvaluator:
     def __init__(self, api_key: str = None):
         """初始化智谱AI评估器"""
@@ -15,7 +36,7 @@ class AIEvaluator:
         else:
             self.api_key = api_keys.get_key('zhipu')
         
-    def evaluate_code(self, code: str, assignment_title: str) -> Dict:
+    def evaluate_code(self, code: str, assignment_title: str, *, provider: str = "zhipu") -> Dict:
         """使用智谱大模型评估代码"""
         prompt = f"""请分析以下代码的编程能力水平，从以下维度进行评估：
 1. 算法能力：评估算法设计、逻辑思维、问题求解能力
@@ -42,30 +63,19 @@ class AIEvaluator:
     5. 确保内容分段清晰，易于阅读。
 """
 
-        try:
-            from services.llm_client import SharedLLMClient
+        from services.llm_client import SharedLLMClient
 
-            content = SharedLLMClient().chat(
-                messages=[
-                    {"role": "system", "content": "你是一个专业的代码评估专家，擅长分析代码质量和编程能力。"},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=0.7,
-                max_tokens=1000,
-                provider="zhipu",
-                model="glm-4.5-flash",
-                request_kind="submission",
-            )
-            if content:
-                return json.loads(content)
-            raise RuntimeError("AI服务未返回有效内容")
-        except Exception as e:
-            print(f"AI评估出错: {type(e).__name__}")
-            return {
-                "algorithm_score": 60, "style_score": 60,
-                "functionality_score": 60, "efficiency_score": 60,
-                "readability_score": 60, "feedback": "评估过程中出现错误，请稍后重试。"
-            }
+        content = SharedLLMClient().chat(
+            messages=[
+                {"role": "system", "content": "你是编程教师。只返回合法 JSON 对象，不添加 Markdown。"},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.1,
+            max_tokens=1000,
+            provider=provider,
+            request_kind="submission",
+        )
+        return _parse_code_assessment(content)
 
     def format_assignment_text(self, raw_text: str) -> Generator[str, None, None]:
         """
