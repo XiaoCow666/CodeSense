@@ -19,8 +19,21 @@ from models import (
     AbilityTrend,
     KnowledgePointScore,
     ThinkingSession,
+    StudentLearningVector,
 )
 from services.teacher_analytics import build_teacher_dashboard_data
+from services.learning_graph import (
+    LearningGraphAccessError,
+    build_student_learning_graph,
+    build_teacher_knowledge_focus,
+    build_teacher_knowledge_coverage,
+)
+from services.student_vector_health import build_teacher_learning_memory_health
+from services.teacher_learning_actions import (
+    TeacherLearningActionAccessError,
+    build_teacher_learning_actions,
+    send_learning_memory_refresh_reminders,
+)
 from services.demo_database import current_demo_run_id
 from services.feedback import (
     FEEDBACK_CATEGORIES,
@@ -45,6 +58,13 @@ from services.submission_reviews import count_open_reviews
 from services.session_lifecycle import latest_session_activity, session_lifecycle_payload
 from services.action_center import build_action_center
 from services.profile import get_profile_settings, PROFILE_VISIBILITY_PUBLIC
+from services.student_vector_store import (
+    StudentVectorRebuildError,
+    get_student_vector_snapshot,
+    list_student_learning_sources,
+    rebuild_student_vector_index_with_retry,
+    revoke_student_vector_source,
+)
 from utils.auth import admin_required
 from utils.access import authoritative_class_name, assignment_target_class_filter, can_access_student
 from utils.export_safety import safe_export_cell
@@ -88,6 +108,21 @@ def _knowledge_profile_rows(profile):
 
 def _analysis_status_label(status):
     return _ANALYSIS_STATUS_LABELS.get(status, '等待分析')
+
+
+def _learning_graph_fallback(scope):
+    return {
+        'nodes': [],
+        'edges': [],
+        'recommendations': [],
+        'meta': {
+            'scope': scope,
+            'sample_size': 0,
+            'assignment_count': 0,
+            'knowledge_point_count': 0,
+            'virtual_nodes': ['student:mastery'] if scope == 'student' else [],
+        },
+    }
 
 # 添加编辑器测试路由
 @main.route('/test_editor')
@@ -146,13 +181,19 @@ def home():
             assigned_assignments_query = assigned_assignments_query.filter(db.false())
         
         # 首页只需要作业 ID 和少量近期记录，不要把所有作业/代码正文
-        # 一次性加载进 ORM identity map。
-        all_assigned_ids = [row[0] for row in assigned_assignments_query.with_entities(Assignment.id).all()]
+        # 一次性加载进 ORM identity map。一次查出 (id, due_date)，
+        # 全部 id 与未截止 id 都在 Python 里派生，避免对同一批作业
+        # 发两次查询（原来 active 过滤又走了一次 round-trip）。
+        assigned_rows = assigned_assignments_query.with_entities(
+            Assignment.id, Assignment.due_date,
+        ).all()
+        all_assigned_ids = [row[0] for row in assigned_rows]
 
-        # 过滤出当前有效的作业（未过截止日期的或无截至日期的）
-        active_assignment_ids = [row[0] for row in assigned_assignments_query.filter(
-            (Assignment.due_date >= now) | (Assignment.due_date.is_(None))
-        ).with_entities(Assignment.id).all()]
+        # 过滤出当前有效的作业（未过截止日期的或无截止日期的）
+        active_assignment_ids = [
+            row[0] for row in assigned_rows
+            if row[1] is None or row[1] >= now
+        ]
 
         # 2. 首页统计保留历史作业，避免截止日期过滤让学生误以为数据被清空。
         # 当前有效作业仍单独保留，供页面展示“当前未截止”信息。
@@ -268,6 +309,26 @@ def home():
         # 这样首屏不会只显示“加载中”，网络较慢时也能看到真实的演示数据。
         knowledge_profile = KnowledgePointScore.get_student_profile(student_id)
         knowledge_profile_rows = _knowledge_profile_rows(knowledge_profile)
+        student_vector_snapshot = get_student_vector_snapshot(student_id)
+        student_learning_sources = list_student_learning_sources(student_id)
+        try:
+            learning_graph = build_student_learning_graph(
+                student_id=student_id,
+                limit=8,
+            )
+        except LearningGraphAccessError:
+            current_app.logger.warning(
+                '学生 %s 的知识路径超出访问范围，使用空状态',
+                student_id,
+            )
+            learning_graph = _learning_graph_fallback('student')
+        except Exception:
+            current_app.logger.exception(
+                '加载学生 %s 的知识路径失败 request_id=%s',
+                student_id,
+                getattr(g, 'codesense_request_id', None),
+            )
+            learning_graph = _learning_graph_fallback('student')
         analysis_status = trend_record.status or 'pending'
         # 1. 通过统一的能力引擎获取雷达图数据
         ability_scores = current_user.get_ability_scores()
@@ -352,6 +413,9 @@ def home():
             'submissions': submissions,
             'knowledge_profile': knowledge_profile,
             'knowledge_profile_rows': knowledge_profile_rows,
+            'student_vector_snapshot': student_vector_snapshot,
+            'student_learning_sources': student_learning_sources,
+            'learning_graph': learning_graph,
             'ability_trend': trend_record,
             'analysis_status': analysis_status,
             'analysis_status_label': _analysis_status_label(analysis_status),
@@ -458,7 +522,7 @@ def admin_dashboard():
             'rgba(255, 159, 64, 0.8)',
             'rgba(255, 99, 132, 0.8)',
         ]
-        score_labels = [f"{row.score}分" for row in score_distribution]
+        score_labels = [f"{row.score}" for row in score_distribution]
         chart_data = {
             'assignments': {
                 'labels': [row.title for row in assignments_data],
@@ -507,6 +571,61 @@ def admin_dashboard():
         )
 
 
+@main.route('/student/rebuild-learning-memory', methods=['POST'])
+@login_required
+def rebuild_student_learning_memory():
+    """Rebuild the current student's private learning index."""
+
+    if getattr(current_user, 'usertype', None) != '学生':
+        flash('只有学生可以更新自己的学习记忆。', 'warning')
+        return redirect(url_for('main.home'))
+
+    try:
+        snapshot = rebuild_student_vector_index_with_retry(current_user.student_id)
+    except StudentVectorRebuildError:
+        flash('学习记忆更新失败，原有记录仍然保留，请稍后重试。', 'danger')
+    else:
+        flash(
+            f"学习记忆已更新，共保留 {snapshot['active_count']} 条本人记录。",
+            'success',
+        )
+    return redirect(url_for('main.home'))
+
+
+@main.route('/student/learning-memory/revoke', methods=['POST'])
+@login_required
+def revoke_student_learning_memory_source():
+    """撤回当前学生的一条学习来源。"""
+
+    if getattr(current_user, 'usertype', None) != '学生':
+        flash('只有学生可以管理自己的学习记忆。', 'warning')
+        return redirect(url_for('main.home'))
+
+    source_type = (request.form.get('source_type') or '').strip()
+    source_id = (request.form.get('source_id') or '').strip()
+    if not source_type or not source_id:
+        flash('请选择要撤回的学习来源。', 'warning')
+        return redirect(url_for('main.home'))
+
+    matching_rows = StudentLearningVector.query.filter_by(
+        student_id=current_user.student_id,
+        source_type=source_type,
+        source_id=source_id,
+        scope_type='student_private',
+    ).all()
+    if not matching_rows or not any(row.status == 'active' for row in matching_rows):
+        flash('学习来源不存在或已经撤回。', 'warning')
+        return redirect(url_for('main.home'))
+
+    revoke_student_vector_source(
+        current_user.student_id,
+        source_type,
+        source_id,
+    )
+    flash('学习来源已撤回，后续学习记忆更新也会保留此选择。', 'success')
+    return redirect(url_for('main.home'))
+
+
 @main.route('/teacher_dashboard')
 @login_required
 def teacher_dashboard():
@@ -517,6 +636,27 @@ def teacher_dashboard():
 
     teacher = current_user
     dashboard = build_teacher_dashboard_data(teacher)
+    try:
+        learning_graph = build_teacher_knowledge_coverage(
+            viewer_id=teacher.student_id,
+            limit=10,
+        )
+    except LearningGraphAccessError:
+        current_app.logger.warning(
+            '教师 %s 的班级知识覆盖超出访问范围，使用空状态',
+            teacher.student_id,
+        )
+        learning_graph = _learning_graph_fallback('teacher_class')
+    except Exception:
+        current_app.logger.exception(
+            '加载教师 %s 的班级知识覆盖失败 request_id=%s',
+            teacher.student_id,
+            getattr(g, 'codesense_request_id', None),
+        )
+        learning_graph = _learning_graph_fallback('teacher_class')
+
+    learning_memory_health = build_teacher_learning_memory_health(teacher)
+    teacher_learning_actions = build_teacher_learning_actions(teacher, limit=12)
     
     from models import TeacherAISuggestion
     ai_suggestions = {sug.class_id: sug for sug in TeacherAISuggestion.query.filter_by(teacher_id=teacher.student_id).all()}
@@ -534,8 +674,67 @@ def teacher_dashboard():
                            class_cards=dashboard['class_cards'],
                            attention=dashboard['attention'],
                            chart_data=dashboard['chart_data'],
+                           learning_graph=learning_graph,
+                           learning_memory_health=learning_memory_health,
+                           teacher_learning_actions=teacher_learning_actions,
                            ai_suggestions=ai_suggestions,
                            open_review_count=open_review_count)
+
+
+@main.route('/teacher/classes/<int:class_id>/learning-memory-reminder', methods=['POST'])
+@login_required
+def teacher_learning_memory_reminder(class_id):
+    """向指定班级中需要更新索引的学生发送站内提醒。"""
+
+    if not current_user.is_teacher:
+        abort(403)
+
+    try:
+        result = send_learning_memory_refresh_reminders(
+            current_user,
+            class_id,
+            url=url_for('main.home') + '#student-learning-memory-title',
+        )
+    except TeacherLearningActionAccessError:
+        abort(403)
+
+    flash(
+        f"已提醒 {result['notification_count']} 位学生更新学习记忆。",
+        'success',
+    )
+    return redirect(_safe_next_url(
+        request.form.get('next') or request.args.get('next'),
+        url_for('main.teacher_dashboard'),
+    ))
+
+
+@main.route('/teacher/knowledge-focus/<string:knowledge_point>')
+@login_required
+def teacher_knowledge_focus(knowledge_point):
+    """Show managed assignments that can address one class knowledge point."""
+
+    if not current_user.is_teacher:
+        flash('您没有权限访问此页面', 'danger')
+        return redirect(url_for('main.home'))
+
+    selected_class_id = request.args.get('class_id', type=int)
+    try:
+        focus = build_teacher_knowledge_focus(
+            viewer_id=current_user.student_id,
+            knowledge_point=knowledge_point,
+            class_id=selected_class_id,
+            limit=20,
+        )
+    except LearningGraphAccessError:
+        abort(403)
+
+    managed_classes = current_user.managed_classes.all()
+    return render_template(
+        'teacher_knowledge_focus.html',
+        focus=focus,
+        managed_classes=managed_classes,
+        selected_class_id=selected_class_id,
+    )
 
 
 @main.route('/teacher/ai_suggestions')
@@ -567,7 +766,12 @@ def teacher_ai_suggestions():
         class_suggestions.append({
             'class': cls,
             'suggestion': sug,
-            'details': sug.get_suggestion_dict()
+            'details': sug.get_suggestion_dict(),
+            'learning_actions': build_teacher_learning_actions(
+                teacher,
+                class_id=cls.id,
+                limit=6,
+            ),
         })
         
     return render_template('teacher_ai_suggestions.html',
@@ -797,7 +1001,7 @@ def user_profile(user_username):
         flash('您没有权限查看该用户信息', 'danger')
         return redirect(url_for('main.home'))
         
-    # 获取瓶颈作业：寻找那些最高分未达到 5 分的题目
+    # 获取瓶颈作业：寻找那些最高分未达到 60 分的题目
     # 我们需要按题目分组，找出每道题的最高分
     all_student_subs = Submission.query.filter_by(student_id=user.student_id).all()
     assignment_stats = {}
@@ -808,8 +1012,8 @@ def user_profile(user_username):
         if aid not in assignment_stats or sub.score > assignment_stats[aid]['max_score']:
             assignment_stats[aid] = {'max_score': sub.score, 'best_sub': sub}
             
-    # 筛选出未满分的瓶颈题目（最高分 < 5）
-    bottleneck_aids = [aid for aid, stats in assignment_stats.items() if stats['max_score'] < 5]
+    # 筛选出需要关注的瓶颈题目（最高分 < 60）
+    bottleneck_aids = [aid for aid, stats in assignment_stats.items() if stats['max_score'] < 60]
     
     # 获取这些瓶颈题目中最新的提交记录，作为“评审精选”展示
     recent_submissions = []
@@ -845,12 +1049,11 @@ def user_profile(user_username):
     }
 
     # 准备真实蜕变轨迹数据 (取最近 10 次提交的分数)
-    # 我们将分数映射到 20-100 的示意高度，或者直接展示原始分 (0-5)
+    # 提交分已经统一为百分制，直接提供给能力进化图表。
     maturity_history = []
     if all_student_subs:
         recent_all = sorted(all_student_subs, key=lambda x: x.submitted_at)[-10:]
-        # 为了让图表好看，我们将 0-5 分映射到 20-100
-        maturity_history = [max(20, (s.score or 0) * 20) for s in recent_all]
+        maturity_history = [max(0, min(100, s.score or 0)) for s in recent_all]
 
     knowledge_profile = KnowledgePointScore.get_student_profile(user.student_id)
     knowledge_profile_rows = _knowledge_profile_rows(knowledge_profile)

@@ -176,7 +176,7 @@
             <div class="col-md-3">
                 <div class="meta-item">
                     <div class="meta-value">{{ "%.1f"|format(overall_avg_score) }}</div>
-                    <div class="meta-label">整体平均提交分（0–5）</div>
+                    <div class="meta-label">整体平均提交分（0–100）</div>
                 </div>
             </div>
         </div>
@@ -248,7 +248,7 @@
                     </div>
                     <div class="meta-item">
                         <div class="meta-value">{{ "%.1f"|format(item.stats.avg_score) }}</div>
-                        <div class="meta-label">班级平均分（0–5）</div>
+                        <div class="meta-label">班级平均分（0–100）</div>
                     </div>
                     <div class="meta-item">
                         <div class="meta-value">{{ item.stats.total_submissions }}</div>
@@ -286,7 +286,7 @@
                             {% for student in item.top_students %}
                             <div class="student-item">
                                 <span>{{ student.full_name }}</span>
-                                <span class="badge badge-primary">{{ "%.1f"|format(student.user_ascore) }}/5</span>
+                                <span class="badge badge-primary">{{ "%.1f"|format(student.user_ascore) }}</span>
                             </div>
                             {% endfor %}
                         </div>

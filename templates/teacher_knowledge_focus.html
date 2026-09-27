@@ -1,0 +1,109 @@
+{% extends "layout.html" %}
+
+{% block title %}{{ focus.meta.knowledge_label }}练习 - 教师工作台{% endblock %}
+
+{% block content %}
+<main class="container py-4 teacher-knowledge-focus" aria-labelledby="teacher-knowledge-focus-title">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+        <div>
+            <p class="text-primary fw-semibold mb-1"><i class="bi bi-diagram-3" aria-hidden="true"></i> 班级知识点干预</p>
+            <h1 id="teacher-knowledge-focus-title" class="h2 mb-2">{{ focus.meta.knowledge_label }}练习</h1>
+            <p class="text-muted mb-0">查看当前管理范围内带有该知识点的作业，再进入已有布置流程。</p>
+        </div>
+        <nav class="d-flex flex-wrap gap-2" aria-label="知识点练习导航">
+            <a href="{{ url_for('main.teacher_dashboard') }}" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left" aria-hidden="true"></i> 返回教师仪表盘
+            </a>
+            <a href="{{ url_for('assignments.teacher_assignments') }}" class="btn btn-outline-primary">
+                <i class="bi bi-journals" aria-hidden="true"></i> 作业列表
+            </a>
+        </nav>
+    </div>
+
+    <section class="card border-0 shadow-sm mb-4" aria-labelledby="teacher-knowledge-focus-filter-title">
+        <div class="card-body">
+            <div class="d-flex flex-wrap justify-content-between align-items-end gap-3">
+                <div>
+                    <h2 id="teacher-knowledge-focus-filter-title" class="h5 mb-1">选择班级范围</h2>
+                    <p class="text-muted small mb-0">页面只读取您可以管理的班级和作业。</p>
+                </div>
+                <form method="get" class="d-flex flex-wrap align-items-end gap-2">
+                    <div>
+                        <label for="knowledge-focus-class" class="form-label small mb-1">班级</label>
+                        <select id="knowledge-focus-class" name="class_id" class="form-select">
+                            <option value="">全部管理班级</option>
+                            {% for classroom in managed_classes %}
+                            <option value="{{ classroom.id }}" {% if selected_class_id == classroom.id %}selected{% endif %}>{{ classroom.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-primary">查看练习</button>
+                </form>
+            </div>
+        </div>
+    </section>
+
+    <section aria-labelledby="teacher-knowledge-focus-list-title">
+        <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
+            <h2 id="teacher-knowledge-focus-list-title" class="h4 mb-0">可用作业</h2>
+            <span class="badge text-bg-light">{{ focus.meta.assignment_count }} 份</span>
+        </div>
+
+        <div class="alert alert-info d-flex flex-wrap justify-content-between align-items-center gap-2" role="status">
+            <div>
+                <strong>{{ focus.meta.knowledge_label }}班级信号：{{ focus.meta.focus_signal.status }}</strong>
+                <span class="small ms-2">
+                    样本 {{ focus.meta.focus_signal.student_sample_size }} 人，
+                    平均掌握度 {{ focus.meta.focus_signal.average_mastery if focus.meta.focus_signal.average_mastery is not none else '暂无' }}，
+                    需要加强 {{ focus.meta.focus_signal.low_mastery_count }} 人
+                </span>
+            </div>
+            <a href="{{ url_for('assignments.add_teacher_assignment', knowledge_point=focus.meta.knowledge_point, class_id=selected_class_id) }}" class="btn btn-primary btn-sm">创建针对性练习</a>
+        </div>
+
+        {% if focus.assignments %}
+        <div class="row g-3">
+            {% for assignment in focus.assignments %}
+            <article class="col-12 col-lg-6">
+                <div class="card h-100 border-0 shadow-sm teacher-knowledge-focus__card">
+                    <div class="card-body d-flex flex-column gap-3">
+                        <div>
+                            <div class="d-flex justify-content-between align-items-start gap-2">
+                                <h3 class="h5 mb-1">{{ assignment.title }}</h3>
+                                <span class="badge text-bg-primary">难度 {{ assignment.difficulty_level }}</span>
+                            </div>
+                            <p class="text-muted small mb-0">{{ assignment.description or '暂无作业描述。' }}</p>
+                        </div>
+                        <div class="small text-muted">
+                            <div><i class="bi bi-bookmark-check" aria-hidden="true"></i> 知识点：{{ assignment.knowledge_label }}</div>
+                            <div><i class="bi bi-people" aria-hidden="true"></i> 当前范围：{{ assignment.target_classes|join('、') }}</div>
+                            <div><i class="bi bi-link-45deg" aria-hidden="true"></i> 标签来源版本：{{ assignment.source_version[:12] }}</div>
+                        </div>
+                        <div class="d-flex flex-wrap gap-2 mt-auto">
+                            <a href="{{ url_for('assignments.view_assignment', assignment_id=assignment.assignment_id) }}" class="btn btn-outline-primary btn-sm">查看作业</a>
+                            {% if assignment.can_manage %}
+                            <a href="{{ url_for('assignments.assign_to_classes', assignment_id=assignment.assignment_id) }}" class="btn btn-primary btn-sm">布置到班级</a>
+                            {% else %}
+                            <span class="text-muted small align-self-center">当前账号无法布置此作业</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </article>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="learning-graph-empty" role="status">
+            <i class="bi bi-journal-plus" aria-hidden="true"></i>
+            <div>
+                <strong>当前范围还没有带有该知识点的作业</strong>
+                <p class="mb-2">可以创建一份针对 {{ focus.meta.knowledge_label }} 的练习，再从作业列表布置给班级。</p>
+                <a href="{{ url_for('assignments.add_teacher_assignment', knowledge_point=focus.meta.knowledge_point, class_id=selected_class_id) }}" class="btn btn-primary btn-sm">创建练习作业</a>
+            </div>
+        </div>
+        {% endif %}
+    </section>
+
+    <p class="text-muted small mt-4 mb-0"><i class="bi bi-shield-check" aria-hidden="true"></i> 本页只显示班级聚合范围和作业知识点标签，不显示学生姓名、个人分数或学生学习记忆。</p>
+</main>
+{% endblock %}

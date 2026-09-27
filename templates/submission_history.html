@@ -70,11 +70,11 @@
         z-index: 1;
     }
     
-    .timeline-dot.score-1 { background-color: #dc3545; }
-    .timeline-dot.score-2 { background-color: #fd7e14; }
-    .timeline-dot.score-3 { background-color: #ffc107; }
-    .timeline-dot.score-4 { background-color: #20c997; }
-    .timeline-dot.score-5 { background-color: #198754; }
+    .timeline-dot.score-fail { background-color: #dc3545; }
+    .timeline-dot.score-basic { background-color: #fd7e14; }
+    .timeline-dot.score-pass { background-color: #ffc107; }
+    .timeline-dot.score-good { background-color: #20c997; }
+    .timeline-dot.score-excellent { background-color: #198754; }
     
     .timeline-time {
         position: absolute;
@@ -110,11 +110,11 @@
         margin-right: 1rem;
     }
     
-    .score-1 { background-color: #dc3545; color: white; }
-    .score-2 { background-color: #fd7e14; color: white; }
-    .score-3 { background-color: #ffc107; color: #212529; }
-    .score-4 { background-color: #20c997; color: white; }
-    .score-5 { background-color: #198754; color: white; }
+    .score-fail { background-color: #dc3545; color: white; }
+    .score-basic { background-color: #fd7e14; color: white; }
+    .score-pass { background-color: #ffc107; color: #212529; }
+    .score-good { background-color: #20c997; color: white; }
+    .score-excellent { background-color: #198754; color: white; }
     
     .progress-title {
         display: flex;
@@ -169,13 +169,13 @@
             </div>
             <div class="col-md-4">
                 <div class="stats-card">
-                    <div class="text-white-50 mb-1">平均分数</div>
+                    <div class="text-white-50 mb-1">平均分数（0–100）</div>
                     <div class="stat-value">{{ "%.1f"|format(stats.average_score) }}</div>
                 </div>
             </div>
             <div class="col-md-4">
                 <div class="stats-card">
-                    <div class="text-white-50 mb-1">最高分数</div>
+                    <div class="text-white-50 mb-1">最高分数（0–100）</div>
                     <div class="stat-value">{{ stats.best_score }}</div>
                 </div>
             </div>
@@ -250,7 +250,8 @@
         {% for submission in date_submissions %}
         <div class="timeline-item">
             <div class="timeline-time">{{ submission.submitted_at.strftime('%H:%M') }}</div>
-            <div class="timeline-dot score-{{ submission.score if submission.score else 0 }}"></div>
+            {% set score_level = 'excellent' if submission.score is not none and submission.score >= 90 else 'good' if submission.score is not none and submission.score >= 70 else 'pass' if submission.score is not none and submission.score >= 60 else 'basic' if submission.score is not none and submission.score >= 30 else 'fail' %}
+            <div class="timeline-dot score-{{ score_level }}"></div>
             <div class="timeline-card">
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
@@ -259,8 +260,8 @@
                     </div>
                     <div class="d-flex align-items-center">
                         {% if submission.status == 'evaluated' %}
-                        <div class="score-badge score-{{ submission.score }}">
-                            {{ submission.score }}<small>/5</small>
+                        <div class="score-badge score-{{ score_level }}">
+                            {{ "%.1f"|format(submission.score|float) }}
                         </div>
                         {% else %}
                         <span class="badge bg-secondary p-2">未评分</span>

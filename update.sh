@@ -35,7 +35,18 @@ else
     exit 1
 fi
 
-# 3. 安装并启用独立 RQ worker
+# 3. 创建新增数据库表并检查索引
+echo ""
+echo "🗄️ 执行数据库维护..."
+"$runtime_python" database_maintenance.py
+if [ $? -eq 0 ]; then
+    echo "✓ 数据库维护成功"
+else
+    echo "✗ 数据库维护失败"
+    exit 1
+fi
+
+# 4. 安装并启用独立 RQ worker
 echo ""
 echo "⚙️ 安装后台 RQ worker 服务..."
 sudo install -m 0644 codesense.service /etc/systemd/system/codesense.service
@@ -60,7 +71,7 @@ else
     sudo systemctl disable --now codesense-ability-worker codesense-submission-worker 2>/dev/null || true
 fi
 
-# 4. 重启 Systemd 服务
+# 5. 重启 Systemd 服务
 echo ""
 echo "🔄 重启应用服务..."
 sudo systemctl restart codesense
@@ -71,7 +82,7 @@ else
     exit 1
 fi
 
-# 5. 检查服务状态
+# 6. 检查服务状态
 echo ""
 echo "📊 检查服务状态..."
 systemctl status codesense --no-pager

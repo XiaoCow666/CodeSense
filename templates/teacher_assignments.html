@@ -49,6 +49,57 @@
         </div>
     </div>
 </div>
+<!-- 批量设置班级 Modal -->
+<div class="modal fade" id="bulkClassModal" tabindex="-1" aria-labelledby="bulkClassModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="bulkClassModalLabel">
+                    <i class="bi bi-people text-primary"></i> 批量设置班级
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="bulk-class-form" method="POST" action="{{ url_for('assignments.bulk_update_classes') }}">
+                <div class="modal-body">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <p class="mb-3">
+                        将为已选的 <strong id="bulk-class-assignment-count">0</strong> 道题目统一设置班级：
+                    </p>
+                    {% if managed_classes %}
+                        <div class="row g-2">
+                            {% for class in managed_classes %}
+                                <div class="col-sm-6">
+                                    <div class="form-check">
+                                        <input class="form-check-input bulk-class-name" type="checkbox"
+                                            name="class_names" value="{{ class.name }}" id="bulk-class-{{ class.id }}">
+                                        <label class="form-check-label" for="bulk-class-{{ class.id }}">
+                                            {{ class.name }}
+                                        </label>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                        <div class="alert alert-info small mt-3 mb-0">
+                            选择后会替换所选题目当前由您管理的班级；其他教师管理的班级分配会保留。
+                        </div>
+                    {% else %}
+                        <div class="alert alert-warning mb-0">您当前没有可管理的班级。</div>
+                    {% endif %}
+                    <div id="bulk-class-assignment-inputs"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-outline-danger" name="clear_classes" value="1">
+                        <i class="bi bi-x-circle"></i> 清除班级分配
+                    </button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-check2-circle"></i> 确认批量设置
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -260,6 +311,115 @@
         }
     });
 </script>
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const selectAll = document.getElementById('select-all-assignments');
+        const toggleSelection = document.getElementById('toggle-assignment-selection');
+        const checkboxes = Array.from(document.querySelectorAll('.assignment-select'));
+        const selectedCount = document.getElementById('selected-assignment-count');
+        const bulkForm = document.getElementById('bulk-due-date-form');
+        const dueDate = document.getElementById('bulk-due-date');
+        const bulkClassButton = document.getElementById('open-bulk-class-modal');
+        const bulkClassForm = document.getElementById('bulk-class-form');
+        const bulkClassCount = document.getElementById('bulk-class-assignment-count');
+        const bulkClassInputs = document.getElementById('bulk-class-assignment-inputs');
+        const bulkClassOptions = Array.from(document.querySelectorAll('.bulk-class-name'));
+
+        function refreshSelectionState() {
+            const count = checkboxes.filter(item => item.checked).length;
+            if (selectedCount) selectedCount.textContent = `已选 ${count} 道题`;
+            if (selectAll) {
+                selectAll.checked = checkboxes.length > 0 && count === checkboxes.length;
+                selectAll.indeterminate = count > 0 && count < checkboxes.length;
+            }
+            if (toggleSelection) {
+                toggleSelection.textContent = count === checkboxes.length && count > 0 ? '取消全选' : '全选本页';
+            }
+        }
+
+        if (selectAll) {
+            selectAll.addEventListener('change', function () {
+                checkboxes.forEach(item => { item.checked = selectAll.checked; });
+                refreshSelectionState();
+            });
+        }
+        checkboxes.forEach(item => item.addEventListener('change', refreshSelectionState));
+        if (toggleSelection) {
+            toggleSelection.addEventListener('click', function () {
+                const shouldSelect = checkboxes.some(item => !item.checked);
+                checkboxes.forEach(item => { item.checked = shouldSelect; });
+                refreshSelectionState();
+            });
+        }
+
+        function syncBulkClassAssignments() {
+            const selected = checkboxes.filter(item => item.checked);
+            if (bulkClassCount) bulkClassCount.textContent = selected.length;
+            if (bulkClassInputs) {
+                bulkClassInputs.innerHTML = '';
+                selected.forEach(item => {
+                    const hidden = document.createElement('input');
+                    hidden.type = 'hidden';
+                    hidden.name = 'assignment_ids';
+                    hidden.value = item.value;
+                    hidden.className = 'bulk-class-assignment-id';
+                    bulkClassInputs.appendChild(hidden);
+                });
+            }
+            return selected;
+        }
+
+        if (bulkClassButton) {
+            bulkClassButton.addEventListener('click', function (event) {
+                const selected = syncBulkClassAssignments();
+                if (!selected.length) {
+                    event.preventDefault();
+                    window.alert('请至少选择一道题目。');
+                }
+            });
+        }
+
+        if (bulkClassForm) {
+            bulkClassForm.addEventListener('submit', function (event) {
+                const selected = syncBulkClassAssignments();
+                const clearClasses = event.submitter && event.submitter.name === 'clear_classes';
+                const selectedClasses = bulkClassOptions.filter(item => item.checked);
+                if (!selected.length) {
+                    event.preventDefault();
+                    window.alert('请至少选择一道题目。');
+                    return;
+                }
+                if (!clearClasses && !selectedClasses.length) {
+                    event.preventDefault();
+                    window.alert('请选择要统一布置的班级。');
+                    return;
+                }
+                const actionText = clearClasses ? '清除这些题目的班级分配' : '统一设置这些题目的班级';
+                if (!window.confirm(`确定要${actionText}吗？`)) event.preventDefault();
+            });
+        }
+
+        if (bulkForm) {
+            bulkForm.addEventListener('submit', function (event) {
+                const selected = checkboxes.filter(item => item.checked);
+                const clearDueDate = event.submitter && event.submitter.name === 'clear_due_date';
+                if (!selected.length) {
+                    event.preventDefault();
+                    window.alert('请至少选择一道题目。');
+                    return;
+                }
+                if (!clearDueDate && (!dueDate || !dueDate.value)) {
+                    event.preventDefault();
+                    window.alert('请选择统一的截止时间。');
+                    return;
+                }
+                const actionText = clearDueDate ? '清除这些题目的截止时间' : '统一修改这些题目的截止时间';
+                if (!window.confirm(`确定要${actionText}吗？`)) event.preventDefault();
+            });
+        }
+        refreshSelectionState();
+    });
+</script>
 {% endblock %}
 
 {% block content %}
@@ -273,6 +433,19 @@
             <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#batchImportModal">
                 <i class="bi bi-cloud-upload"></i> 批量导入题库
             </button>
+            <div class="btn-group">
+                <a href="{{ url_for('assignments.export_question_bank', format='xlsx') }}" class="btn btn-outline-success">
+                    <i class="bi bi-file-earmark-excel"></i> 导出题库
+                </a>
+                <button type="button" class="btn btn-outline-success dropdown-toggle dropdown-toggle-split"
+                    data-bs-toggle="dropdown" aria-expanded="false" aria-label="选择题库导出格式">
+                    <span class="visually-hidden">选择导出格式</span>
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    <li><a class="dropdown-item" href="{{ url_for('assignments.export_question_bank', format='xlsx') }}">Excel（.xlsx）</a></li>
+                    <li><a class="dropdown-item" href="{{ url_for('assignments.export_question_bank', format='csv') }}">CSV（.csv）</a></li>
+                </ul>
+            </div>
             <a href="{{ url_for('assignments.add_teacher_assignment') }}" class="btn btn-primary">
                 <i class="bi bi-plus-circle"></i> 创建新作业
             </a>
@@ -286,23 +459,57 @@
         <div class="card-header">
             <h5 class="card-title mb-0">作业列表</h5>
         </div>
+        <div class="card-body border-bottom bg-light py-3">
+            <form id="bulk-due-date-form" method="POST"
+                action="{{ url_for('assignments.bulk_update_due_date') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="d-flex flex-wrap align-items-center gap-2">
+                    <strong class="me-2"><i class="bi bi-calendar2-check me-1"></i>批量修改截止时间</strong>
+                    <span id="selected-assignment-count" class="text-muted small">已选 0 道题</span>
+                    <input type="datetime-local" name="due_date" id="bulk-due-date" class="form-control"
+                        style="max-width: 220px;" aria-label="统一截止时间">
+                    <button type="submit" class="btn btn-primary" id="bulk-set-due-date">
+                        <i class="bi bi-check2-circle"></i> 统一设置
+                    </button>
+                    <button type="submit" class="btn btn-outline-secondary" name="clear_due_date" value="1">
+                        <i class="bi bi-x-circle"></i> 清除截止时间
+                    </button>
+                    <button type="button" class="btn btn-outline-primary" id="open-bulk-class-modal"
+                        data-bs-toggle="modal" data-bs-target="#bulkClassModal">
+                        <i class="bi bi-people"></i> 批量设置班级
+                    </button>
+                    <button type="button" class="btn btn-link btn-sm text-decoration-none" id="toggle-assignment-selection">
+                        全选本页
+                    </button>
+                </div>
+                <div class="form-text mt-2">先勾选题目，再设置同一个截止时间；清除按钮可取消已选题目的截止时间。</div>
+            </form>
+        </div>
         <div class="card-body">
             <div class="table-responsive">
                 <table class="table table-hover">
                     <thead>
                         <tr>
+                            <th width="44" class="text-center">
+                                <input type="checkbox" id="select-all-assignments" aria-label="全选本页题目">
+                            </th>
                             <th width="60">ID</th>
                             <th>作业标题</th>
                             <th width="120">发布日期</th>
                             <th width="150">截止倒计时</th>
                             <th>已布置给我的班级</th>
-                            <th width="100">提交/平均分（0–5）</th>
+                            <th width="100">提交/平均分（0–100）</th>
                             <th width="150">操作</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for assignment in assignments %}
                         <tr data-assignment-id="{{ assignment.id }}">
+                            <td class="text-center">
+                                <input type="checkbox" class="assignment-select" name="assignment_ids"
+                                    value="{{ assignment.id }}" form="bulk-due-date-form"
+                                    aria-label="选择题目 {{ assignment.title }}">
+                            </td>
                             <td>{{ assignment.id }}</td>
                             <td>
                                 <a href="{{ url_for('assignments.view_assignment', assignment_id=assignment.id) }}"
@@ -351,7 +558,7 @@
             </td>
             <td>
                 <small class="text-muted">提交: {{ assignment.count }}</small><br>
-                        <small class="text-info">平均: {{ "%.1f"|format(assignment.average_score|float) }}/5</small>
+                        <small class="text-info">平均: {{ "%.1f"|format(assignment.average_score|float) }}</small>
             </td>
             <td>
                 <div class="btn-group">
@@ -380,7 +587,7 @@
             </tr>
             {% else %}
             <tr>
-                <td colspan="6" class="text-center text-muted">系统中还没有任何作业。</td>
+                <td colspan="7" class="text-center text-muted">系统中还没有任何作业。</td>
             </tr>
             {% endfor %}
             </tbody>

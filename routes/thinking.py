@@ -472,10 +472,7 @@ def _run_stage3_forum_turn(
     payload = result.to_public_dict()
     payload['user_goal'] = _stage3_user_goal(ts.id)
     payload['forum_state'] = _stage3_forum_state(ts.id)
-    payload['session_lifecycle'] = session_lifecycle_payload(
-        ts,
-        last_activity_at=latest_session_activity([ts.id]).get(ts.id),
-    )
+    payload['session_lifecycle'] = session_lifecycle_payload(ts)
     return ts, target_role, payload
 
 
@@ -665,10 +662,7 @@ def _stage3_payload_with_goal(payload, thinking_session, runtime=None):
     result = dict(payload or {})
     getter = getattr(runtime, 'public_user_goal', None)
     result['user_goal'] = getter() if callable(getter) else _stage3_user_goal(thinking_session.id)
-    result['session_lifecycle'] = session_lifecycle_payload(
-        thinking_session,
-        last_activity_at=latest_session_activity([thinking_session.id]).get(thinking_session.id),
-    )
+    result['session_lifecycle'] = session_lifecycle_payload(thinking_session)
     return result
 
 
@@ -795,7 +789,7 @@ def _check_and_trigger_stale_preset(preset, assignment_id):
 
 
 def _record_demo_guided_submission(thinking_session):
-    """Create one idempotent 0–5 submission when a demo run is completed."""
+    """Create one idempotent 0–100 submission when a demo run is completed."""
     run_id = current_demo_run_id()
     if (
         not run_id
@@ -823,10 +817,9 @@ def _record_demo_guided_submission(thinking_session):
         )
         db.session.add(submission)
 
-    # 完成三阶段的示范提交使用 0–5 评分；阶段一的百分制只作为
-    # 一个轻微的区分因素，不会直接写入提交分数字段。
+    # 阶段一已经是百分制，示范提交也直接使用同一评分约定。
     stage1_score = float(thinking_session.stage1_score or 80)
-    score = max(3, min(5, int(round(stage1_score / 20))))
+    score = max(0, min(100, int(round(stage1_score))))
     preset = AssignmentThinkingPreset.query.filter_by(
         assignment_id=assignment.id,
     ).first()
@@ -840,7 +833,7 @@ def _record_demo_guided_submission(thinking_session):
         'algorithm_score': score,
         'style_score': score,
         'functionality_score': score,
-        'efficiency_score': max(2, score - 1),
+        'efficiency_score': max(0, score - 20),
         'readability_score': score,
         'source': 'guided_demo_completion',
     }, ensure_ascii=False)
@@ -980,10 +973,7 @@ def start_session():
         if existing:
             if _ensure_stage3_initial_prompt(existing, assignment, preset):
                 db.session.commit()
-            lifecycle = session_lifecycle_payload(
-                existing,
-                last_activity_at=latest_session_activity([existing.id]).get(existing.id),
-            )
+            lifecycle = session_lifecycle_payload(existing)
             forum_history = _stage3_forum_history(existing.id)
             forum_state = _stage3_forum_state(existing.id)
             
@@ -1112,10 +1102,7 @@ def start_session():
 
         # 记录日志
         _log_event(new_session.id, 1, 'session_start', 'student', '开始引导式学习')
-        lifecycle = session_lifecycle_payload(
-            new_session,
-            last_activity_at=new_session.started_at,
-        )
+        lifecycle = session_lifecycle_payload(new_session)
 
         return jsonify({
             'success': True,
@@ -1198,7 +1185,7 @@ def stage1_submit():
             passed = score >= 50
             if passed:
                 ts.current_stage = 2
-                _log_event(session_id, 1, 'stage_pass', 'system', f'阶段1通过，匹配度: {score}%')
+                _log_event(session_id, 1, 'stage_pass', 'system', f'阶段1通过，匹配度: {score}分')
 
             db.session.commit()
             return {
@@ -2349,10 +2336,7 @@ def get_session_status(session_id):
         # this new endpoint does not reveal that a session id exists.
         return jsonify({'error': '会话不存在或无权访问'}), 403
 
-    lifecycle = session_lifecycle_payload(
-        thinking_session,
-        last_activity_at=latest_session_activity([thinking_session.id]).get(thinking_session.id),
-    )
+    lifecycle = session_lifecycle_payload(thinking_session)
     return jsonify({'success': True, 'session': lifecycle})
 
 @thinking.route('/api/session/<int:session_id>/log')

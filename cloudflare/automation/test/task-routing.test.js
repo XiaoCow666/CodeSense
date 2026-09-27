@@ -1,0 +1,383 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {
+  nextStageForCompletedRecord,
+  nextStageEligibility,
+  memberTaskPlan,
+  parseStageNumber,
+  parsePullRequestStage,
+  pullRequestStageMatchesTask,
+  projectForChat,
+  projectForRepository,
+  stageTaskContent,
+  selectTaskForGithubIdentity,
+  ensureNextStageTask,
+  selectPreviouslyLinkedTaskRecord,
+  selectTaskForMergedPullRequestFallback,
+  mergedPullRequestTaskSyncCandidate,
+  isSafeMergedPullRequestAssociation,
+  taskRecordSnapshot,
+} from "../src/task-board.js";
+
+test("历史补漏仅接受任务直连或已保存动作的 PR 关联", () => {
+  assert.equal(isSafeMergedPullRequestAssociation("task_link"), true);
+  assert.equal(isSafeMergedPullRequestAssociation("saved_action"), true);
+  assert.equal(isSafeMergedPullRequestAssociation("github_identity"), false);
+  assert.equal(isSafeMergedPullRequestAssociation(null), false);
+});
+
+test("PR 链接被清空后仍可按已保存的任务关联找回记录", () => {
+  const record = { record_id: "rec_stage_2", fields: { "GitHub PR / Issue": null } };
+  assert.equal(
+    selectPreviouslyLinkedTaskRecord([record], [{ matched: true, record_id: "rec_stage_2" }]),
+    record,
+  );
+  assert.equal(
+    selectPreviouslyLinkedTaskRecord([record], [
+      { matched: true, record_id: "rec_stage_2" },
+      { matched: true, record_id: "rec_other" },
+    ]),
+    null,
+  );
+});
+
+test("一百条重复历史后仍能发现另一条任务关联", () => {
+  const responses = Array.from({ length: 100 }, () => ({ matched: true, record_id: "rec_stage_2" }));
+  responses.push({ matched: true, record_id: "rec_stage_3" });
+  assert.equal(
+    selectPreviouslyLinkedTaskRecord(
+      [
+        { record_id: "rec_stage_2", fields: {} },
+        { record_id: "rec_stage_3", fields: {} },
+      ],
+      responses,
+    ),
+    null,
+  );
+});
+
+test("历史合并 PR 只有明确阶段与任务阶段相同才允许按作者找回任务", () => {
+  const stageTwo = {
+    record_id: "rec_stage_2",
+    fields: {
+      "任务名称": "阶段二：修复问题（张诗若）",
+      "状态": ["进行中"],
+      "负责人": [{ id: "ou_member", name: "张诗若" }],
+      "任务模式": ["阶段任务"],
+      "GitHub PR / Issue": null,
+    },
+  };
+  const records = [stageTwo];
+  assert.equal(
+    selectTaskForMergedPullRequestFallback(records, "ou_member", { headRefName: "codex/stage2-fix", title: "Stage 2 fix" }),
+    stageTwo,
+  );
+  assert.equal(
+    selectTaskForMergedPullRequestFallback(records, "ou_member", { headRefName: "codex/bug-fix", title: "Improve validation" }),
+    null,
+  );
+  assert.equal(
+    selectTaskForMergedPullRequestFallback(records, "ou_member", { headRefName: "codex/stage3-fix", title: "Stage 3 fix" }),
+    null,
+  );
+});
+
+test("PR 标题与分支标明不同阶段时不按作者关联任务", () => {
+  const stageThree = {
+    record_id: "rec_stage_3",
+    fields: {
+      "任务名称": "阶段三：追到根因（张诗若）",
+      "状态": ["进行中"],
+      "负责人": [{ id: "ou_member", name: "张诗若" }],
+      "任务模式": ["阶段任务"],
+      "GitHub PR / Issue": null,
+    },
+  };
+  assert.equal(
+    selectTaskForMergedPullRequestFallback([stageThree], "ou_member", {
+      headRefName: "codex/stage3-root-cause",
+      title: "Stage 2: root cause",
+    }),
+    null,
+  );
+});
+
+test("同一 PR 关联多条任务记录时不选择其中一条", async () => {
+  const stageTwo = {
+    record_id: "rec_stage_2",
+    fields: {
+      "任务名称": "阶段二：修复问题（张诗若）",
+      "状态": ["待评审"],
+      "负责人": [{ id: "ou_member", name: "张诗若" }],
+      "任务模式": ["阶段任务"],
+      "GitHub PR / Issue": "https://github.com/XiaoCow666/CodeSense/pull/28",
+    },
+  };
+  const stageThree = {
+    ...stageTwo,
+    record_id: "rec_stage_3",
+    fields: { ...stageTwo.fields, "任务名称": "阶段三：追到根因（张诗若）" },
+  };
+  assert.equal(
+    await mergedPullRequestTaskSyncCandidate(
+      {},
+      { repository: "XiaoCow666/CodeSense" },
+      [stageTwo, stageThree],
+      { number: 28, user: { login: "zhang" }, merged: true },
+    ),
+    null,
+  );
+});
+
+test("明确关联的 PR 阶段与分支或标题冲突时不推进任务", async () => {
+  const stageThree = {
+    record_id: "rec_stage_3",
+    fields: {
+      "任务名称": "阶段三：追到根因（张诗若）",
+      "状态": ["待评审"],
+      "负责人": [{ id: "ou_member", name: "张诗若" }],
+      "任务模式": ["阶段任务"],
+      "GitHub PR / Issue": "https://github.com/XiaoCow666/CodeSense/pull/28",
+    },
+  };
+  assert.equal(
+    await mergedPullRequestTaskSyncCandidate(
+      {},
+      { repository: "XiaoCow666/CodeSense" },
+      [stageThree],
+      {
+        number: 28,
+        title: "Stage 2: root cause",
+        head: { ref: "codex/stage3-root-cause" },
+        user: { login: "zhang" },
+        merged: true,
+      },
+    ),
+    null,
+  );
+});
+
+test("合并 PR 只为未完成任务或缺少下一阶段的任务重新排队", async () => {
+  const stageTwo = {
+    record_id: "rec_stage_2",
+    fields: {
+      "任务名称": "阶段二：修复问题（张诗若）",
+      "状态": ["进行中"],
+      "负责人": [{ id: "ou_member", name: "张诗若" }],
+      "任务模式": ["阶段任务"],
+      "GitHub PR / Issue": "https://github.com/XiaoCow666/CodeSense/pull/28",
+    },
+  };
+  const project = { repository: "XiaoCow666/CodeSense" };
+  const pullRequest = { number: 28, merged: true, user: { login: "zhang" } };
+  assert.deepEqual(await mergedPullRequestTaskSyncCandidate({}, project, [stageTwo], pullRequest), {
+    record_id: "rec_stage_2",
+    association: "task_link",
+  });
+
+  const completedStageTwo = { ...stageTwo, fields: { ...stageTwo.fields, "状态": ["已完成"] } };
+  assert.deepEqual(await mergedPullRequestTaskSyncCandidate({}, project, [completedStageTwo], pullRequest), {
+    record_id: "rec_stage_2",
+    association: "task_link",
+  });
+  const stageThree = {
+    record_id: "rec_stage_3",
+    fields: {
+      "任务名称": "阶段三：追到问题根因（张诗若）",
+      "状态": ["待开始"],
+      "负责人": [{ id: "ou_member", name: "张诗若" }],
+      "任务模式": ["阶段任务"],
+      "GitHub PR / Issue": null,
+    },
+  };
+  assert.equal(await mergedPullRequestTaskSyncCandidate({}, project, [completedStageTwo, stageThree], pullRequest), null);
+});
+
+test("stage parsing supports Arabic and Chinese stage names", () => {
+  assert.equal(parseStageNumber("阶段 8：真实问题"), 8);
+  assert.equal(parseStageNumber("阶段八：真实问题"), 8);
+  assert.equal(parseStageNumber("阶段十一：真实问题"), 11);
+  assert.equal(parseStageNumber("阶段十五：真实链路"), 15);
+  assert.equal(parsePullRequestStage("codex/stage12-evaluation-followup"), 12);
+});
+
+test("repository and chat routing remain project-specific", () => {
+  const env = {
+    FEISHU_CODESENSE_CHAT_IDS: "oc_codesense, oc_total",
+    FEISHU_CAIFUSI_CHAT_IDS: "oc_caifusi",
+  };
+  assert.equal(projectForRepository(env, "XiaoCow666/CodeSense").key, "codesense");
+  assert.equal(projectForRepository(env, "XiaoCow666/Caifusi").key, "caifusi");
+  assert.equal(projectForChat(env, "oc_codesense").key, "codesense");
+  assert.equal(projectForChat(env, "oc_caifusi").key, "caifusi");
+  assert.equal(projectForChat(env, "oc_unknown"), null);
+});
+
+test("completed member work exposes the next stage without creating an automation row", () => {
+  const record = {
+    record_id: "rec_1",
+    fields: {
+      "任务名称": "阶段二：真实问题改进（张三）",
+      "状态": ["已完成"],
+      "负责人": [{ id: "ou_member", name: "张三" }],
+      "GitHub PR / Issue": "https://github.com/XiaoCow666/CodeSense/pull/22",
+    },
+  };
+  const snapshot = taskRecordSnapshot(record);
+  assert.deepEqual(snapshot, {
+    recordId: "rec_1",
+    taskName: "阶段二：真实问题改进（张三）",
+    status: "已完成",
+    assigneeOpenId: "ou_member",
+    assigneeName: "张三",
+    prUrl: "https://github.com/XiaoCow666/CodeSense/pull/22",
+    stage: 2,
+  });
+  assert.deepEqual(nextStageForCompletedRecord([snapshot], snapshot), {
+    assigneeOpenId: "ou_member",
+    assigneeName: "张三",
+    nextStage: 3,
+  });
+});
+
+test("online task reconciliation does not create a duplicate active next stage", async () => {
+  const snapshot = {
+    recordId: "rec_1",
+    taskName: "阶段二：真实问题改进（张三）",
+    status: "已完成",
+    assigneeOpenId: "ou_member",
+    assigneeName: "张三",
+    prUrl: "",
+    stage: 2,
+  };
+  const activeNext = { ...snapshot, recordId: "rec_2", taskName: "阶段三：验证（张三）", status: "进行中", stage: 3 };
+  assert.deepEqual(await ensureNextStageTask({}, {}, snapshot, [snapshot, activeNext]), {
+    created: false,
+    record_id: null,
+    next_stage: null,
+    reason: "next_stage_exists",
+  });
+});
+
+test("an existing next-stage record prevents another next-stage record", () => {
+  const completed = { taskName: "阶段十一：维护整理", status: "已完成", assigneeOpenId: "ou_member", assigneeName: "张三", stage: 11 };
+  const existingNext = { taskName: "阶段十二：经验方法", status: "已完成", assigneeOpenId: "ou_member", assigneeName: "张三", stage: 12 };
+  assert.deepEqual(nextStageEligibility([completed, existingNext], completed), {
+    eligible: false,
+    reason: "next_stage_exists",
+  });
+});
+
+test("completed task recovery reports missing metadata instead of silently skipping", () => {
+  assert.deepEqual(
+    nextStageEligibility([], { taskName: "历史任务", status: "已完成", assigneeOpenId: null, stage: 2 }),
+    { eligible: false, reason: "assignee_missing" },
+  );
+  assert.deepEqual(
+    nextStageEligibility([], { taskName: "历史任务", status: "已完成", assigneeOpenId: "ou_member", stage: null }),
+    { eligible: false, reason: "stage_missing" },
+  );
+});
+
+test("stage fourteen completion creates stage fifteen and stage fifteen is final", () => {
+  const completedStageFourteen = { taskName: "阶段十四：独立完成一个小闭环", status: "已完成", assigneeOpenId: "ou_member", assigneeName: "张三", stage: 14 };
+  assert.deepEqual(nextStageEligibility([], completedStageFourteen), {
+    eligible: true,
+    assigneeOpenId: "ou_member",
+    assigneeName: "张三",
+    nextStage: 15,
+  });
+  assert.deepEqual(nextStageEligibility([], { ...completedStageFourteen, taskName: "阶段十五：把改进接进真实链路", stage: 15 }), {
+    eligible: false,
+    reason: "final_stage",
+  });
+  assert.notEqual(stageTaskContent("CodeSense", 14, "张三").description, stageTaskContent("CodeSense", 15, "张三").description);
+});
+
+test("automatic PR linking refuses a clearly different stage", () => {
+  assert.equal(pullRequestStageMatchesTask("阶段十五：把改进接进真实链路", { headRefName: "codex/stage12-evaluation-followup", title: "fix: correct stage12 evaluation evidence" }), false);
+  assert.equal(pullRequestStageMatchesTask("阶段十五：把改进接进真实链路", { headRefName: "codex/stage15-real-path", title: "feat: integrate the verified change" }), true);
+  assert.equal(pullRequestStageMatchesTask("阶段十五：把改进接进真实链路", { headRefName: "codex/knowledge-rag", title: "feat: improve retrieval" }), true);
+});
+
+test("github identity links only one active stage task", () => {
+  const task = {
+    record_id: "rec_stage_7",
+    fields: {
+      "任务名称": "阶段七：验证（张三）",
+      "状态": ["进行中"],
+      "负责人": [{ id: "ou_member", name: "张三" }],
+      "任务模式": ["阶段任务"],
+      "GitHub PR / Issue": null,
+    },
+  };
+  assert.equal(selectTaskForGithubIdentity([task], "ou_member"), task);
+  assert.equal(selectTaskForGithubIdentity([task, { ...task, record_id: "rec_other" }], "ou_member"), null);
+});
+
+test("github identity follows the next stage after the highest completed stage", () => {
+  const staleEarlier = {
+    record_id: "rec_stage_9_old",
+    fields: {
+      "任务名称": "阶段九：旧记录（张三）",
+      "状态": ["待评审"],
+      "负责人": [{ id: "ou_member", name: "张三" }],
+      "任务模式": ["阶段任务"],
+      "GitHub PR / Issue": null,
+    },
+  };
+  const completed = {
+    record_id: "rec_stage_10",
+    fields: {
+      "任务名称": "阶段十：已完成（张三）",
+      "状态": ["已完成"],
+      "负责人": [{ id: "ou_member", name: "张三" }],
+      "任务模式": ["阶段任务"],
+      "GitHub PR / Issue": "https://github.com/XiaoCow666/CodeSense/pull/64",
+    },
+  };
+  const expected = {
+    record_id: "rec_stage_11",
+    fields: {
+      "任务名称": "阶段十一：当前任务（张三）",
+      "状态": ["待开始"],
+      "负责人": [{ id: "ou_member", name: "张三" }],
+      "任务模式": ["阶段任务"],
+      "GitHub PR / Issue": null,
+    },
+  };
+  assert.equal(selectTaskForGithubIdentity([staleEarlier, completed, expected], "ou_member"), expected);
+  assert.deepEqual(memberTaskPlan([staleEarlier, completed, expected], "ou_member"), { action: "keep", record_id: "rec_stage_11" });
+});
+
+test("member reconciliation keeps an active later stage and recovers the missing next stage", () => {
+  const completed = {
+    record_id: "rec_stage_6",
+    fields: {
+      "任务名称": "阶段六：接管演练（张三）",
+      "状态": ["已完成"],
+      "负责人": [{ id: "ou_member", name: "张三" }],
+    },
+  };
+  const active = {
+    record_id: "rec_stage_7",
+    fields: {
+      "任务名称": "阶段七：真实问题改进（张三）",
+      "状态": ["进行中"],
+      "负责人": [{ id: "ou_member", name: "张三" }],
+    },
+  };
+  assert.deepEqual(memberTaskPlan([completed, active], "ou_member"), { action: "keep", record_id: "rec_stage_7" });
+  assert.deepEqual(memberTaskPlan([completed], "ou_member"), { action: "create_next", record: completed, next_stage: 7 });
+});
+
+test("stage tasks use a short STAR story and change the mission by stage", () => {
+  const stageTwo = stageTaskContent("CodeSense", 2, "张三");
+  const stageThree = stageTaskContent("CodeSense", 3, "张三");
+
+  for (const label of ["S：", "T：", "A：", "R："]) assert.match(stageTwo.description, new RegExp(label));
+  assert.ok(stageTwo.description.length < 600);
+  assert.notEqual(stageTwo.description, stageThree.description);
+  assert.match(stageTwo.target, /真实问题/);
+  assert.match(stageTwo.acceptance, /PR/);
+});

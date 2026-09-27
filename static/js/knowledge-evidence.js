@@ -18,6 +18,16 @@
             summary: '知识证据暂时不可用，但基础指导仍可继续。',
             next: '继续查看基础指导，稍后重试证据检索。'
         },
+        timeout: {
+            label: '证据检索超时',
+            summary: '本次知识证据检索没有在时间预算内完成，基础指导仍可继续。',
+            next: '继续查看基础指导，稍后重新检索证据。'
+        },
+        rate_limited: {
+            label: '证据请求需要稍候',
+            summary: '知识证据请求过于频繁，基础指导仍可继续。',
+            next: '稍等片刻后重新检索证据，或先继续检查题目和代码。'
+        },
         unknown: {
             label: '证据状态不可用',
             summary: '当前无法确认知识证据状态。',
@@ -42,6 +52,50 @@
         element.textContent = value || '';
         parent.appendChild(element);
         return element;
+    }
+
+    function appendRetryButton(parent, container, options, view) {
+        if (!view.retryable || typeof options.retryUrl !== 'string' || !options.retryUrl) {
+            return;
+        }
+
+        var retry = document.createElement('button');
+        retry.type = 'button';
+        retry.className = 'knowledge-evidence-receipt__retry';
+        retry.textContent = '重新检索证据';
+        retry.setAttribute('aria-label', '重新检索作业知识证据');
+        retry.addEventListener('click', function () {
+            if (retry.disabled) return;
+            retry.disabled = true;
+            retry.setAttribute('aria-busy', 'true');
+            retry.textContent = '正在重新检索…';
+
+            var statusMessage = document.createElement('span');
+            statusMessage.className = 'knowledge-evidence-receipt__retry-status';
+            statusMessage.setAttribute('role', 'status');
+            statusMessage.setAttribute('aria-live', 'polite');
+            statusMessage.textContent = '正在重新检索作业知识证据。';
+            parent.appendChild(statusMessage);
+
+            fetch(options.retryUrl, {
+                method: 'GET',
+                cache: 'no-store',
+                headers: { Accept: 'application/json' }
+            }).then(function (response) {
+                if (!response.ok) throw new Error('knowledge evidence retry failed');
+                return response.json();
+            }).then(function (data) {
+                var nextView = data.knowledge_evidence ||
+                    (data.data && data.data.knowledge_evidence) || data;
+                render(container, nextView, options);
+            }).catch(function () {
+                retry.disabled = false;
+                retry.removeAttribute('aria-busy');
+                retry.textContent = '重新检索证据';
+                statusMessage.textContent = '重新检索失败，请稍后再试。';
+            });
+        });
+        parent.appendChild(retry);
     }
 
     function render(container, payload, options) {
@@ -93,9 +147,10 @@
             });
             section.appendChild(details);
         } else {
-            var recovery = document.createElement('p');
+            var recovery = document.createElement('div');
             recovery.className = 'knowledge-evidence-receipt__recovery';
-            recovery.textContent = safeText(view.next_step, copy.next, 400);
+            appendText(recovery, 'p', '', safeText(view.next_step, copy.next, 400));
+            appendRetryButton(recovery, container, options, view);
             section.appendChild(recovery);
         }
 

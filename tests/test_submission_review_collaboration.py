@@ -100,7 +100,7 @@ class SubmissionReviewCollaborationTestCase(unittest.TestCase):
                 student_id=self.student.student_id,
                 assignment_id=assignment.id,
                 code='int main() { return 0; }',
-                score=2,
+                score=40,
                 status='evaluated',
                 ai_feedback='可以先检查边界条件，再比较测试输出。',
             )

@@ -29,10 +29,10 @@ class DemoSubmissionIsolationTestCase(unittest.TestCase):
         destroy_test_app(self.app)
 
     def test_submission_score_normalisation_preserves_source_scale(self):
-        self.assertEqual(_normalise_score(4), 4)
-        self.assertEqual(_normalise_score(8), 4)
-        self.assertEqual(_normalise_score(80), 4)
-        self.assertEqual(_normalise_score(100), 5)
+        self.assertEqual(_normalise_score(4), 80)
+        self.assertEqual(_normalise_score(8), 80)
+        self.assertEqual(_normalise_score(80), 80)
+        self.assertEqual(_normalise_score(100), 100)
 
     def test_evaluation_updates_only_current_demo_database(self):
         with self.app.app_context():
@@ -55,7 +55,7 @@ class DemoSubmissionIsolationTestCase(unittest.TestCase):
             'details': [{'index': 1, 'status': 'passed'}],
         }
         with patch('tasks.submission_tasks.threading.Thread', ImmediateThread), \
-                patch('tasks.submission_tasks.evaluate_cpp_code', return_value=(4, '评测完成')), \
+                patch('tasks.submission_tasks.evaluate_cpp_code', return_value=(80, '评测完成')), \
                 patch('tasks.submission_tasks.run_test_cases', return_value=sandbox_result), \
                 patch('tasks.ability_analysis.trigger_analysis_if_needed', return_value=True):
             evaluate_submission_async(
@@ -69,7 +69,7 @@ class DemoSubmissionIsolationTestCase(unittest.TestCase):
             self.assertTrue(activate_demo_run(self.run_id))
             updated = Submission.query.get(submission_id)
             self.assertEqual(updated.status, 'evaluated')
-            self.assertEqual(updated.score, 5)
+            self.assertEqual(updated.score, 100)
             self.assertEqual(updated.sandbox_passed, 3)
             self.assertIsNotNone(AbilityTrend.query.filter_by(student_id=DEMO_STUDENT_ID).one())
             self.assertEqual(SystemLog.query.count(), 0)

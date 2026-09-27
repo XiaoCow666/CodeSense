@@ -37,8 +37,13 @@
                     <h3 class="mb-0">创建新作业</h3>
                 </div>
                 <div class="card-body">
+                    {% if focus_knowledge_point %}
+                    <div class="alert alert-info" role="status">
+                        本次练习将预先关联知识点：<strong>{{ focus_knowledge_point }}</strong>{% if focus_class %}，并先布置给班级：<strong>{{ focus_class.name }}</strong>{% endif %}。
+                    </div>
+                    {% endif %}
                     <form id="assignment-form" method="POST"
-                        action="{{ url_for('assignments.add_teacher_assignment') }}">
+                        action="{{ url_for('assignments.add_teacher_assignment', knowledge_point=focus_knowledge_point, class_id=focus_class.id if focus_class else None) }}">
                         {{ form.hidden_tag() }}
 
                         <div class="mb-3">

@@ -898,7 +898,7 @@
             </div>
 
             {% if knowledge_evidence is defined %}
-            {{ knowledge_evidence_panel(knowledge_evidence, audience='student', panel_id='code-studio-knowledge-evidence', compact=true) }}
+            {{ knowledge_evidence_panel(knowledge_evidence, audience='student', panel_id='code-studio-knowledge-evidence', compact=true, retry_url=url_for('api.get_assignment_knowledge_evidence', assignment_id=assignment.id)) }}
             {% endif %}
 
             <div class="ai-chat-messages" id="ai-chat-messages">
@@ -1278,7 +1278,10 @@
         var wrapper = messageElement.parentElement;
         var mount = wrapper && wrapper.querySelector('[data-knowledge-evidence-receipt]');
         if (mount && payload) {
-            window.CodeSenseKnowledgeEvidence.render(mount, payload, { compact: true });
+            window.CodeSenseKnowledgeEvidence.render(mount, payload, {
+                compact: true,
+                retryUrl: '/api/assignments/{{ assignment.id }}/knowledge-evidence'
+            });
         }
     }
 
@@ -1594,7 +1597,11 @@
                 window.CodeSenseKnowledgeEvidence.render(
                     analysisEvidence,
                     data.knowledge_evidence,
-                    { compact: true, heading: '本次分析参考的作业知识' }
+                    {
+                        compact: true,
+                        heading: '本次分析参考的作业知识',
+                        retryUrl: '/api/assignments/{{ assignment.id }}/knowledge-evidence'
+                    }
                 );
             }
         }

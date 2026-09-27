@@ -52,7 +52,7 @@ class TeacherAnalyticsTestCase(unittest.TestCase):
                 class_name=cls.name,
                 full_name='张三',
                 submit_count=1,
-                user_ascore=4.5,
+                user_ascore=90.0,
             )
             low_score = User(
                 student_id='20230002',
@@ -62,7 +62,7 @@ class TeacherAnalyticsTestCase(unittest.TestCase):
                 class_name=cls.name,
                 full_name='李四',
                 submit_count=1,
-                user_ascore=2.0,
+                user_ascore=40.0,
             )
             no_submission = User(
                 student_id='20230003',
@@ -98,7 +98,7 @@ class TeacherAnalyticsTestCase(unittest.TestCase):
                     student_id='20230001',
                     assignment_id=latest_assignment.id,
                     code='print(1)',
-                    score=5,
+                    score=100,
                     submitted_at=dt.utcnow() - timedelta(days=1),
                     status='evaluated',
                 ),
@@ -106,7 +106,7 @@ class TeacherAnalyticsTestCase(unittest.TestCase):
                     student_id='20230002',
                     assignment_id=latest_assignment.id,
                     code='print(2)',
-                    score=2,
+                    score=40,
                     submitted_at=dt.utcnow() - timedelta(days=2),
                     status='evaluated',
                 ),
@@ -114,7 +114,7 @@ class TeacherAnalyticsTestCase(unittest.TestCase):
                     student_id='20230001',
                     assignment_id=older_assignment.id,
                     code='print(3)',
-                    score=4,
+                    score=80,
                     submitted_at=dt.utcnow() - timedelta(days=10),
                     status='evaluated',
                 ),
@@ -232,6 +232,9 @@ class TeacherAnalyticsTestCase(unittest.TestCase):
         self.assertIn('班级学习概况', body)
         self.assertIn('近 14 天提交趋势', body)
         self.assertIn('软件2302', body)
+        self.assertIn('studentSnapshotSearch', body)
+        self.assertIn('studentSnapshotStatus', body)
+        self.assertIn('studentSnapshotNext', body)
 
     def test_class_detail_renders_learning_rows(self):
         self.login_teacher()

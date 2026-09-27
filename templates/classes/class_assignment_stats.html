@@ -86,8 +86,8 @@
                             {% if submission %}
                             {% if submission.score is not none %}
                             <span
-                                class="badge badge-score-{{ submission.score|round|int if submission.score else 0 }}">{{
-                                submission.score }}</span>
+                                class="badge {% if submission.score >= 80 %}bg-success{% elif submission.score >= 60 %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+                                {{ "%.1f"|format(submission.score|float) }}</span>
                             {% else %}
                             <span class="text-warning">评阅中</span>
                             {% endif %}

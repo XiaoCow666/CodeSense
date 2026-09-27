@@ -5,6 +5,7 @@ API路由模块
 from flask import Blueprint, request, session, render_template, Response, current_app, jsonify
 from flask_login import current_user
 from sqlalchemy import desc
+from sqlalchemy.exc import SQLAlchemyError
 from models import db, User, Assignment, Submission, AbilityTrend, TestCase
 from utils.auth import (
     login_required,
@@ -37,14 +38,30 @@ from services.action_center import build_action_center
 from services.knowledge_rag import (
     MAX_EVIDENCE,
     build_knowledge_prompt_context,
+    get_knowledge_quality_snapshot,
+    knowledge_rate_limiter,
     render_knowledge_receipt,
     retrieve_assignment_knowledge,
 )
+from services.knowledge_reliability import default_retrieval_timeout_ms
 from services.knowledge_evidence import (
     build_knowledge_evidence_view,
     build_public_knowledge_retrieval,
 )
-from tasks.submission_tasks import evaluate_submission_async
+from services.student_vector_store import (
+    build_student_learning_prompt_context,
+    project_student_learning_evidence,
+    render_student_learning_receipt,
+    search_student_learning_vectors,
+)
+from services.learning_graph import (
+    LearningGraphAccessError,
+    build_student_learning_graph,
+    build_student_learning_graph_context,
+    project_student_learning_graph,
+)
+from tasks.submission_tasks import evaluate_submission_async, _normalise_score, _refresh_user_stats
+from utils.scoring import normalize_feedback_text
 from tasks.submission_queue import (
     SubmissionQueueUnavailable,
     get_submission_job_status,
@@ -119,6 +136,35 @@ def get_action_center():
     ))
     response.headers['Cache-Control'] = 'no-store'
     return response
+
+
+@api.route('/admin/knowledge-quality', methods=['GET'])
+@login_required
+@admin_required
+def get_knowledge_quality():
+    """Return bounded, low-cardinality knowledge retrieval health metrics."""
+
+    snapshot = get_knowledge_quality_snapshot()
+    quality = {
+        "requests": int(snapshot.get("requests", 0)),
+        "status_counts": dict(snapshot.get("status_counts", {})),
+        "mode_counts": dict(snapshot.get("mode_counts", {})),
+        "latency_sample_count": int(snapshot.get("latency_sample_count", 0)),
+        "mean_latency_ms": float(snapshot.get("mean_latency_ms", 0.0)),
+    }
+    limits = {
+        "max_evidence": MAX_EVIDENCE,
+        "rate_limit_requests": int(knowledge_rate_limiter.max_requests),
+        "rate_limit_window_seconds": float(knowledge_rate_limiter.window_seconds),
+        "retrieval_timeout_ms": int(default_retrieval_timeout_ms()),
+    }
+    return _no_store(
+        api_response(
+            success=True,
+            message="获取知识检索质量状态成功",
+            data={"quality": quality, "limits": limits},
+        )
+    )
 
 
 @api.route('/assignments', methods=['GET'])
@@ -394,8 +440,12 @@ def _retrieve_knowledge_context(assignment_id, query="", *, limit=MAX_EVIDENCE):
                 "citation_completeness": 0.0,
                 "no_result_fallback": False,
                 "retrieval_error_fallback": True,
+                "retrieval_timeout_fallback": False,
+                "rate_limit_fallback": False,
                 "retrieval_mode": "unavailable",
                 "indexed_chunk_count": 0,
+                "index_revision": 0,
+                "privacy_filtered_count": 0,
             },
             "fallback": {
                 "code": "KNOWLEDGE_RETRIEVAL_UNAVAILABLE",
@@ -407,9 +457,11 @@ def _retrieve_knowledge_context(assignment_id, query="", *, limit=MAX_EVIDENCE):
     current_app.logger.info(
         "knowledge_rag status=%s candidates=%s hits=%s latency_ms=%.2f "
         "citation_completeness=%.3f no_result_fallback=%s "
-        "retrieval_error_fallback=%s retrieval_mode=%s indexed_chunks=%s "
-        "fallback_code=%s embedding_provider=%s embedding_calls=%s "
-        "embedding_cost=%s embedding_budget_exceeded=%s",
+        "retrieval_error_fallback=%s retrieval_timeout_fallback=%s "
+        "rate_limit_fallback=%s retrieval_mode=%s indexed_chunks=%s "
+        "index_revision=%s privacy_filtered_count=%s fallback_code=%s "
+        "embedding_provider=%s embedding_calls=%s embedding_cost=%s "
+        "embedding_budget_exceeded=%s",
         retrieval["status"],
         metrics.get("candidate_count", 0),
         metrics.get("hit_count", 0),
@@ -417,8 +469,12 @@ def _retrieve_knowledge_context(assignment_id, query="", *, limit=MAX_EVIDENCE):
         metrics.get("citation_completeness", 0.0),
         metrics.get("no_result_fallback", False),
         metrics.get("retrieval_error_fallback", False),
+        metrics.get("retrieval_timeout_fallback", False),
+        metrics.get("rate_limit_fallback", False),
         metrics.get("retrieval_mode", "unknown"),
         metrics.get("indexed_chunk_count", 0),
+        metrics.get("index_revision", 0),
+        metrics.get("privacy_filtered_count", 0),
         (retrieval.get("fallback") or {}).get("code"),
         metrics.get("embedding_provider"),
         metrics.get("embedding_calls", 0),
@@ -426,6 +482,93 @@ def _retrieve_knowledge_context(assignment_id, query="", *, limit=MAX_EVIDENCE):
         metrics.get("embedding_budget_exceeded", False),
     )
     return retrieval
+
+
+def _empty_student_graph_projection(status, *, reason=None):
+    projection = {
+        "status": status,
+        "scope": "student_private",
+        "nodes": [],
+        "edges": [],
+        "recommendations": [],
+        "meta": {
+            "scope": "student_private",
+            "privacy": "student_private",
+        },
+    }
+    if reason:
+        projection["meta"]["reason"] = reason
+    return projection
+
+
+def _retrieve_student_graph_payload(
+    student_id,
+    assignment_id,
+    *,
+    allow_data_unavailable=False,
+):
+    """返回当前学生作业的图谱上下文和安全投影。"""
+
+    try:
+        graph = build_student_learning_graph(
+            student_id=student_id,
+            assignment_id=assignment_id,
+            limit=8,
+        )
+        return {
+            "context": build_student_learning_graph_context(graph),
+            "projection": project_student_learning_graph(graph),
+        }
+    except LearningGraphAccessError:
+        return {
+            "context": "当前作业没有可用知识点图谱。",
+            "projection": _empty_student_graph_projection("no_result"),
+        }
+    except SQLAlchemyError:
+        if not allow_data_unavailable:
+            raise
+        current_app.logger.warning(
+            "student learning graph data unavailable student_id=%s assignment_id=%s",
+            student_id,
+            assignment_id,
+        )
+        return {
+            "context": "当前作业知识点图谱暂时不可用。",
+            "projection": _empty_student_graph_projection(
+                "unavailable",
+                reason="data_unavailable",
+            ),
+        }
+    except (RuntimeError, AttributeError):
+        if not allow_data_unavailable:
+            raise
+        current_app.logger.warning(
+            "student learning graph dependency unavailable student_id=%s assignment_id=%s",
+            student_id,
+            assignment_id,
+        )
+        return {
+            "context": "当前作业知识点图谱暂时不可用。",
+            "projection": _empty_student_graph_projection(
+                "unavailable",
+                reason="dependency_unavailable",
+            ),
+        }
+
+
+def _retrieve_student_graph_context(
+    student_id,
+    assignment_id,
+    *,
+    allow_data_unavailable=False,
+):
+    """仅返回当前学生当前作业的图谱提示。"""
+
+    return _retrieve_student_graph_payload(
+        student_id,
+        assignment_id,
+        allow_data_unavailable=allow_data_unavailable,
+    )["context"]
 
 
 @api.route('/assignments/<int:assignment_id>/knowledge-evidence', methods=['GET'])
@@ -594,9 +737,10 @@ def submit_code():
                 model=None, 
                 assignment_title=assignment.title
             )
+            feedback = normalize_feedback_text(feedback)
             
             # 更新提交记录
-            submission.score = score
+            submission.score = _normalise_score(score)
             submission.feedback = feedback
             submission.status = 'evaluated'
             
@@ -614,7 +758,7 @@ def submit_code():
                         try:
                             feedback_data = json.loads(json_str)
                             if 'feedback' in feedback_data:
-                                ai_feedback = feedback_data['feedback']
+                                ai_feedback = normalize_feedback_text(feedback_data['feedback'])
                                 submission.ai_feedback = ai_feedback
                         except Exception as e:
                             current_app.logger.warning('解析 AI 反馈 JSON 失败: %s', type(e).__name__)
@@ -625,8 +769,20 @@ def submit_code():
             assignment.total_score += score
             assignment.count += 1
             assignment.average_score = assignment.total_score / assignment.count
+            _refresh_user_stats(student_id)
             
             db.session.commit()
+
+            from services.student_vector_store import StudentVectorRebuildError
+            from tasks.submission_tasks import refresh_student_learning_index
+
+            try:
+                refresh_student_learning_index(student_id)
+            except StudentVectorRebuildError as vector_error:
+                current_app.logger.warning(
+                    "提交完成后学生学习索引更新失败: %s",
+                    type(vector_error).__name__,
+                )
 
             # 与网页提交保持一致：每次成功提交都刷新学生能力分析。
             # demo 请求携带 run id，后台任务因此只会写入当前临时库。
@@ -897,10 +1053,46 @@ def ask_question():
         public_knowledge_retrieval = build_public_knowledge_retrieval(
             knowledge_retrieval
         )
+        knowledge_evidence = build_knowledge_evidence_view(
+            public_knowledge_retrieval,
+            audience="student",
+        )
         knowledge_prompt_context = build_knowledge_prompt_context(
             public_knowledge_retrieval
         )
         knowledge_receipt = render_knowledge_receipt(public_knowledge_retrieval)
+        student_learning_retrieval = search_student_learning_vectors(
+            student_id,
+            question,
+            assignment_id=assignment_id,
+        )
+        student_learning_evidence = project_student_learning_evidence(
+            student_learning_retrieval
+        )
+        student_learning_context = build_student_learning_prompt_context(
+            student_learning_retrieval
+        )
+        student_graph_payload = _retrieve_student_graph_payload(
+            student_id,
+            assignment_id,
+            allow_data_unavailable=(
+                public_knowledge_retrieval.get("status") == "unavailable"
+            ),
+        )
+        student_graph_context = student_graph_payload["context"]
+        student_learning_graph = student_graph_payload["projection"]
+        student_learning_receipt = render_student_learning_receipt(
+            student_learning_retrieval
+        )
+        knowledge_prompt_context = "\n\n".join(
+            part
+            for part in (
+                knowledge_prompt_context,
+                student_graph_context,
+                student_learning_context,
+            )
+            if part
+        )
 
         # 仅对合法且有权限的请求计入冷却时间；同时容忍旧版或损坏的
         # session 值，避免 fromisoformat 异常把一个普通请求变成 500。
@@ -960,6 +1152,7 @@ def ask_question():
                         else:
                             formatted_answer = '很抱歉，我无法理解您的问题或无法基于当前代码生成回答。请尝试重新表述您的问题或提供更多代码上下文。'
                         formatted_answer += knowledge_receipt
+                        formatted_answer += student_learning_receipt
 
                         if student_id:
                             try:
@@ -985,8 +1178,14 @@ def ask_question():
                             'data': {
                                 'answer': formatted_answer,
                                 'knowledge_retrieval': public_knowledge_retrieval,
+                                'knowledge_evidence': knowledge_evidence,
+                                'student_learning_evidence': student_learning_evidence,
+                                'student_learning_graph': student_learning_graph,
                             },
                             'knowledge_retrieval': public_knowledge_retrieval,
+                            'knowledge_evidence': knowledge_evidence,
+                            'student_learning_evidence': student_learning_evidence,
+                            'student_learning_graph': student_learning_graph,
                         })
                     except Exception as stream_error:
                         db.session.rollback()
@@ -1035,6 +1234,7 @@ def ask_question():
                 formatted_answer = "很抱歉，我无法理解您的问题或无法基于当前代码生成回答。请尝试重新表述您的问题或提供更多代码上下文。"
 
             formatted_answer += knowledge_receipt
+            formatted_answer += student_learning_receipt
             
             # 记录学生提问日志
             if student_id:
@@ -1061,6 +1261,9 @@ def ask_question():
                 data={
                     'answer': formatted_answer,
                     'knowledge_retrieval': public_knowledge_retrieval,
+                    'knowledge_evidence': knowledge_evidence,
+                    'student_learning_evidence': student_learning_evidence,
+                    'student_learning_graph': student_learning_graph,
                 }
             )
             
@@ -1146,6 +1349,11 @@ def get_code_advice():
         knowledge_retrieval = None
         knowledge_evidence = None
         knowledge_prompt_context = ""
+        student_learning_retrieval = None
+        student_learning_evidence = None
+        student_learning_graph = None
+        student_learning_receipt = ""
+        student_graph_context = ""
         if assignment_id:
             assignment = Assignment.query.get(assignment_id)
             if not assignment:
@@ -1168,6 +1376,45 @@ def get_code_advice():
             knowledge_prompt_context = build_knowledge_prompt_context(
                 public_knowledge_retrieval,
             )
+            student_graph_payload = _retrieve_student_graph_payload(
+                student_id,
+                assignment_id,
+                allow_data_unavailable=(
+                    public_knowledge_retrieval.get("status") == "unavailable"
+                ),
+            )
+            student_graph_context = student_graph_payload["context"]
+            student_learning_graph = student_graph_payload["projection"]
+
+        student_learning_query = user_question.strip()
+        if not student_learning_query and assignment_title:
+            student_learning_query = " ".join(
+                part for part in (assignment_title, assignment_description) if part
+            )[:2000]
+        if student_learning_query:
+            student_learning_retrieval = search_student_learning_vectors(
+                student_id,
+                student_learning_query,
+                assignment_id=assignment_id,
+            )
+            student_learning_evidence = project_student_learning_evidence(
+                student_learning_retrieval
+            )
+            student_learning_context = build_student_learning_prompt_context(
+                student_learning_retrieval
+            )
+            student_learning_receipt = render_student_learning_receipt(
+                student_learning_retrieval
+            )
+            knowledge_prompt_context = "\n\n".join(
+                part
+                for part in (
+                    knowledge_prompt_context,
+                    student_graph_context,
+                    student_learning_context,
+                )
+                if part
+            )
 
         knowledge_fields = {}
         if knowledge_retrieval is not None:
@@ -1175,6 +1422,10 @@ def get_code_advice():
                 "knowledge_retrieval": public_knowledge_retrieval,
                 "knowledge_evidence": knowledge_evidence,
             }
+        if student_learning_evidence is not None:
+            knowledge_fields["student_learning_evidence"] = student_learning_evidence
+        if student_learning_graph is not None:
+            knowledge_fields["student_learning_graph"] = student_learning_graph
 
         # 判断是否为聊天式交互（有用户问题）还是代码分析
         if user_question:
@@ -1280,6 +1531,7 @@ def get_code_advice():
                                 'message': 'AI服务未返回有效内容，请稍后重试',
                             })
                             return
+                        full_content += student_learning_receipt
                         yield sse_event({
                             'type': 'done',
                             'done': True,
@@ -1325,11 +1577,13 @@ def get_code_advice():
                             language=language,
                             assignment_title=assignment_title,
                             assignment_description=assignment_description,
+                            knowledge_context=knowledge_prompt_context,
                             advanced_mode=False
                         )
                         if not analysis_result:
                             raise RuntimeError('无法生成代码建议，请稍后再试')
                         advice = _code_advice_report(analysis_result)
+                        advice += student_learning_receipt
                         metrics = {
                             'algorithm_score': analysis_result.get('algorithm_score', 60),
                             'style_score': analysis_result.get('style_score', 60),
@@ -1372,6 +1626,7 @@ def get_code_advice():
                     language=language,
                     assignment_title=assignment_title,
                     assignment_description=assignment_description,
+                    knowledge_context=knowledge_prompt_context,
                     advanced_mode=False
                 )
 
@@ -1383,6 +1638,7 @@ def get_code_advice():
                 current_app.logger.debug('代码建议生成成功')
 
                 advice = _code_advice_report(analysis_result)
+                advice += student_learning_receipt
                 metrics = {
                     'algorithm_score': analysis_result.get('algorithm_score', 60),
                     'style_score': analysis_result.get('style_score', 60),

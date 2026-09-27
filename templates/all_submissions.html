@@ -148,13 +148,13 @@
 
             <div class="filter-group">
                 <label for="min_score" class="form-label">最低分数</label>
-                <input type="number" class="form-control" id="min_score" name="min_score" min="0" max="5" step="0.1"
+                <input type="number" class="form-control" id="min_score" name="min_score" min="0" max="100" step="0.1"
                     value="{{ filters.min_score }}">
             </div>
 
             <div class="filter-group">
                 <label for="max_score" class="form-label">最高分数</label>
-                <input type="number" class="form-control" id="max_score" name="max_score" min="0" max="5" step="0.1"
+                <input type="number" class="form-control" id="max_score" name="max_score" min="0" max="100" step="0.1"
                     value="{{ filters.max_score }}">
             </div>
 
@@ -202,12 +202,12 @@
                             <strong>{{ submission.assignment.title }}</strong>
                         </td>
                         <td>
-                            {% if submission.score >= 4 %}
-                            <span class="score-badge score-high">{{ submission.score }}</span>
-                            {% elif submission.score >= 3 %}
-                            <span class="score-badge score-medium">{{ submission.score }}</span>
+                            {% if submission.score >= 80 %}
+                            <span class="score-badge score-high">{{ "%.1f"|format(submission.score|float) }}</span>
+                            {% elif submission.score >= 60 %}
+                            <span class="score-badge score-medium">{{ "%.1f"|format(submission.score|float) }}</span>
                             {% else %}
-                            <span class="score-badge score-low">{{ submission.score }}</span>
+                            <span class="score-badge score-low">{{ "%.1f"|format(submission.score|float) }}</span>
                             {% endif %}
                         </td>
                         <td>

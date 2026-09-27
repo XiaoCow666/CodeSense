@@ -117,7 +117,7 @@ class DemoGuidedLearningTestCase(unittest.TestCase):
     def test_public_demo_shortcuts_can_move_shared_session_through_all_stages(self):
         base_url = 'https://experience.codesense.test'
         self.client.get('/demo-login/student', base_url=base_url)
-        with self.client.session_transaction() as client_session:
+        with self.client.session_transaction(base_url=base_url) as client_session:
             run_id = client_session['demo_run_id']
         with self.app.app_context():
             self.assertTrue(activate_demo_run(run_id))
@@ -169,7 +169,7 @@ class DemoGuidedLearningTestCase(unittest.TestCase):
 
         self.client.get('/logout', base_url=base_url)
         self.client.get('/demo-login/student', base_url=base_url)
-        with self.client.session_transaction() as client_session:
+        with self.client.session_transaction(base_url=base_url) as client_session:
             run_id = client_session['demo_run_id']
         with self.app.app_context():
             self.assertTrue(activate_demo_run(run_id))
@@ -239,7 +239,7 @@ class DemoGuidedLearningTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.get_json()['success'])
 
-    def test_demo_guided_completion_creates_temporary_five_point_submission(self):
+    def test_demo_guided_completion_creates_temporary_percent_submission(self):
         run_id = self._login_demo()
         assignment_id = self._demo_assignment_id(run_id)
         with self.app.app_context():
@@ -267,7 +267,7 @@ class DemoGuidedLearningTestCase(unittest.TestCase):
             ).filter(Submission.code.like('/* codesense-demo-guided-session:%')).one()
             self.assertEqual(submission.status, 'evaluated')
             self.assertGreaterEqual(submission.score, 0)
-            self.assertLessEqual(submission.score, 5)
+            self.assertLessEqual(submission.score, 100)
 
         with self.app.app_context():
             self.assertEqual(Submission.query.count(), 0)

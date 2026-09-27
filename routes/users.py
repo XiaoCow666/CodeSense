@@ -37,6 +37,15 @@ users = Blueprint('users', __name__)
 _AVATAR_MAX_BYTES = 5 * 1024 * 1024
 
 
+def _score_distribution(scores):
+    """Return submission-score buckets for the canonical 0–100 scale."""
+    return [
+        sum(1 for score in scores if float(score) >= 80),
+        sum(1 for score in scores if 60 <= float(score) < 80),
+        sum(1 for score in scores if float(score) < 60),
+    ]
+
+
 def _normalize_email(value):
     return (value or '').strip().lower() or None
 
@@ -224,13 +233,7 @@ def view_submissions():
         chart_data = {
             'x': [sub.assignment_id for sub in submissions.items],
             'y': [sub.score if sub.score is not None else 0 for sub in submissions.items],
-            'pie_data': [
-                scores.count(5) if 5 in scores else 0,
-                scores.count(4) if 4 in scores else 0,
-                scores.count(3) if 3 in scores else 0,
-                scores.count(2) if 2 in scores else 0,
-                scores.count(1) if 1 in scores else 0
-            ]
+            'pie_data': _score_distribution(scores),
         }
         
         # 4. 获取真实的能力分析数据
@@ -608,13 +611,7 @@ def view_student_details(student_id):
         chart_data = {
             'x': [sub.assignment_id for sub in submissions.items],
             'y': [sub.score if sub.score is not None else 0 for sub in submissions.items],
-            'pie_data': [
-                scores.count(5) if 5 in scores else 0,
-                scores.count(4) if 4 in scores else 0,
-                scores.count(3) if 3 in scores else 0,
-                scores.count(2) if 2 in scores else 0,
-                scores.count(1) if 1 in scores else 0
-            ]
+            'pie_data': _score_distribution(scores),
         }
         
         # 计算学生的提交统计
@@ -624,11 +621,9 @@ def view_student_details(student_id):
             'max_score': max(scores) if scores else 0,
             'min_score': min(scores) if scores else 0,
             'score_distribution': {
-                '5分': scores.count(5) if 5 in scores else 0,
-                '4分': scores.count(4) if 4 in scores else 0,
-                '3分': scores.count(3) if 3 in scores else 0,
-                '2分': scores.count(2) if 2 in scores else 0,
-                '1分': scores.count(1) if 1 in scores else 0
+                '80–100分': _score_distribution(scores)[0],
+                '60–79分': _score_distribution(scores)[1],
+                '0–59分': _score_distribution(scores)[2],
             }
         }
         

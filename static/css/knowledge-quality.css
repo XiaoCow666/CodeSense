@@ -1,0 +1,100 @@
+.knowledge-quality-card {
+    margin-bottom: 2rem;
+    border-left: 4px solid #0f766e;
+}
+
+.knowledge-quality-card__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.knowledge-quality-card__subtitle,
+.knowledge-quality-card__status {
+    margin: 0.4rem 0 0;
+    color: #475569;
+}
+
+.knowledge-quality-card__status {
+    min-height: 1.5rem;
+}
+
+.knowledge-quality-card__metrics {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.75rem;
+    margin-top: 1rem;
+}
+
+.knowledge-quality-card__metrics > div {
+    padding: 0.85rem;
+    background: #f7fafc;
+    border-radius: 0.45rem;
+}
+
+.knowledge-quality-card__metrics strong,
+.knowledge-quality-card__metrics span {
+    display: block;
+}
+
+.knowledge-quality-card__metrics strong {
+    color: #14213d;
+    font-size: 1.35rem;
+}
+
+.knowledge-quality-card__metrics span,
+.knowledge-quality-card__breakdown h3 {
+    color: #64748b;
+    font-size: 0.82rem;
+}
+
+.knowledge-quality-card__breakdown {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.knowledge-quality-card__breakdown h3 {
+    margin: 0 0 0.5rem;
+    font-weight: 700;
+}
+
+.knowledge-quality-card__chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+}
+
+.knowledge-quality-card__chip {
+    padding: 0.3rem 0.55rem;
+    color: #334155;
+    background: #eef6ff;
+    border-radius: 999px;
+    font-size: 0.82rem;
+}
+
+.knowledge-quality-card button:focus-visible {
+    outline: 3px solid rgba(47, 128, 237, 0.45);
+    outline-offset: 3px;
+}
+
+@media (max-width: 767px) {
+    .knowledge-quality-card__header,
+    .knowledge-quality-card__breakdown {
+        display: block;
+    }
+
+    .knowledge-quality-card__header button {
+        margin-top: 0.8rem;
+    }
+
+    .knowledge-quality-card__metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .knowledge-quality-card__breakdown > div + div {
+        margin-top: 1rem;
+    }
+}

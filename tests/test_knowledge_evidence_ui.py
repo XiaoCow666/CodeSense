@@ -29,6 +29,9 @@ def test_evidence_macro_has_accessible_status_and_disclosure_contract():
     assert "<summary" in macro
     assert "knowledge-evidence-detail" in macro
     assert "knowledge-evidence-panel" in macro
+    assert "retry_url" in macro
+    assert "knowledge-evidence-retry" in macro
+    assert "重新检索证据" in macro
 
 
 def test_evidence_styles_define_tokens_focus_mobile_and_reduced_motion():
@@ -64,6 +67,8 @@ def test_submission_and_code_studio_reuse_the_evidence_workspace():
     assert 'components/knowledge_evidence.html' in submit
     assert "knowledge_evidence" in submit
     assert "请用问题引导我检查" in submit
+    assert "assignments.submit_code" in submit
+    assert "assignments.submit_code" in submission
 
 
 def test_dynamic_evidence_renderer_is_safe_and_done_only():
@@ -80,8 +85,15 @@ def test_dynamic_evidence_renderer_is_safe_and_done_only():
     assert 'role", "status"' in renderer or "role', 'status'" in renderer
     assert "aria-live" in renderer
     assert "innerHTML" not in renderer
+    assert "timeout" in renderer
+    assert "rate_limited" in renderer
+    assert "retryUrl" in renderer
+    assert "cache: 'no-store'" in renderer or 'cache: "no-store"' in renderer
+    assert "aria-label" in renderer
+    assert "disabled" in renderer
     assert "js/knowledge-evidence.js" in submit
     assert "CodeSenseKnowledgeEvidence.render" in submit
+    assert "retryUrl" in submit
     assert submit.count("appendKnowledgeEvidenceMount(wrapper);") == 2
     done_index = submit.index("if (data.done)")
     delta_index = submit.index("if (data.content)")

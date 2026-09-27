@@ -1,9 +1,18 @@
 """
 作业相关路由
 """
-from flask import Blueprint, render_template, request, redirect, url_for, flash, Response, current_app, jsonify, abort
+from flask import Blueprint, render_template, request, redirect, url_for, flash, Response, current_app, jsonify, abort, send_file
 from flask_login import current_user
-from models import db, User, Assignment, Submission, SystemLog, AssignmentThinkingPreset
+from models import (
+    db,
+    User,
+    Assignment,
+    Submission,
+    SystemLog,
+    AssignmentThinkingPreset,
+    AssignmentKnowledgePoint,
+    KnowledgePointScore,
+)
 from forms import AssignmentForm, SubmissionForm
 from utils.auth import (
     login_required,
@@ -44,13 +53,16 @@ from services.submission_reviews import (
 from services.notifications import create_notification
 from services.knowledge_evidence import build_knowledge_evidence_view
 from services.knowledge_rag import retrieve_assignment_knowledge
-from io import BytesIO
+from io import BytesIO, StringIO
+import csv
 from sqlalchemy import desc, func
 import traceback  # 添加traceback模块
 import os
 import json
 from datetime import datetime
 from utils.sse import sse_event, sse_response, wants_sse
+from utils.export_safety import safe_export_cell
+from utils.submission_stats import submission_score_stats
 
 assignments = Blueprint('assignments', __name__)
 
@@ -533,9 +545,11 @@ def view_assignment(assignment_id):
         ]
         submission_count = len(visible_submissions)
         scores = [s.score for s in visible_submissions if s.score is not None]
-        score_distribution = {}
+        score_distribution = {'0-59': 0, '60-79': 0, '80-100': 0}
         for score in scores:
-            score_distribution[int(score)] = score_distribution.get(int(score), 0) + 1
+            score = float(score)
+            bucket = '80-100' if score >= 80 else '60-79' if score >= 60 else '0-59'
+            score_distribution[bucket] += 1
         recent_submissions = sorted(
             visible_submissions,
             key=lambda submission: submission.submitted_at or datetime.min,
@@ -543,6 +557,12 @@ def view_assignment(assignment_id):
         )[:10]
         for submission in recent_submissions:
             submission.user = User.query.get(submission.student_id)
+
+        progress_scope = None
+        if usertype == '教师' and assignment.creator_id != current_user.student_id:
+            progress_scope = [
+                classroom.name for classroom in accessible_classes(current_user)
+            ]
 
         return render_template(
             'assignment_detail.html',
@@ -552,6 +572,7 @@ def view_assignment(assignment_id):
             student_count=len({s.student_id for s in visible_submissions}),
             score_distribution=score_distribution,
             recent_submissions=recent_submissions,
+            class_progress=assignment.get_class_progress(progress_scope),
             usertype=usertype,
             knowledge_evidence=knowledge_evidence,
         )
@@ -877,7 +898,7 @@ def student_assignments():
             if max_score is not None:
                 assignment_max_scores[a.id] = max_score
                 a.max_student_score = max_score
-                if max_score >= 3:
+                if max_score >= 60:
                     assignment_statuses[a.id] = '已通过'
                 else:
                     assignment_statuses[a.id] = '不及格'
@@ -1384,9 +1405,10 @@ def submission_history(assignment_id):
     
     # 计算提交统计信息
     total_submissions = len(submissions)
-    average_score = sum(s.score or 0 for s in submissions) / total_submissions if total_submissions > 0 else 0
-    best_submission = max(submissions, key=lambda s: s.score or 0) if submissions else None
-    best_score = best_submission.score if best_submission else 0
+    # 口径与同文件其他平均分（仅统计已评分提交）及官方统计保持一致：
+    # 未评分提交不进分子也不进分母，无已评分提交时回退 0；
+    # best_score 同时由该纯函数给出，避免全未评分时泄漏 None。
+    average_score, best_score = submission_score_stats(submissions)
     
     # 按时间分组的提交
     submissions_by_date = {}
@@ -1425,18 +1447,241 @@ def teacher_assignments():
     teacher_assignments = Assignment.query.filter_by(creator_id=current_user.student_id).order_by(Assignment.id.desc()).all()
     
     # 获取教师管理的班级名称列表
-    managed_classes = [cls.name for cls in current_user.managed_classes]
+    managed_class_objects = accessible_classes(current_user)
+    managed_class_names = [cls.name for cls in managed_class_objects]
     
     # 为每个作业添加一个状态，表示是否已布置给教师的班级
     for assignment in teacher_assignments:
         assigned_to_my_classes = []
         target_classes = assignment.get_target_class_list()
         for cls_name in target_classes:
-            if cls_name in managed_classes:
+            if cls_name in managed_class_names:
                 assigned_to_my_classes.append(cls_name)
         assignment.assigned_to_my_classes = assigned_to_my_classes
 
-    return render_template('teacher_assignments.html', assignments=teacher_assignments, current_time=datetime.utcnow())
+    return render_template(
+        'teacher_assignments.html',
+        assignments=teacher_assignments,
+        current_time=datetime.utcnow(),
+        managed_classes=managed_class_objects,
+    )
+
+
+@assignments.route('/question-bank/export')
+@login_required
+@admin_or_teacher_required
+def export_question_bank():
+    """导出当前用户可管理的题库。"""
+    if current_user.is_admin:
+        question_bank = Assignment.query.order_by(Assignment.id.asc()).all()
+    else:
+        question_bank = Assignment.query.filter_by(
+            creator_id=current_user.student_id
+        ).order_by(Assignment.id.asc()).all()
+
+    headers = [
+        '题目ID',
+        '题目标题',
+        '题目描述',
+        '创建时间',
+        '截止时间',
+        '布置班级',
+        '提交次数',
+        '平均分（0–100）',
+        '创建教师',
+    ]
+    rows = []
+    for assignment in question_bank:
+        rows.append([
+            assignment.id,
+            safe_export_cell(assignment.title or ''),
+            safe_export_cell(assignment.description or ''),
+            assignment.created_time.strftime('%Y-%m-%d %H:%M') if assignment.created_time else '',
+            assignment.due_date.strftime('%Y-%m-%d %H:%M') if assignment.due_date else '',
+            safe_export_cell(', '.join(assignment.get_target_class_list())),
+            assignment.count or 0,
+            round(float(assignment.average_score or 0), 2),
+            safe_export_cell(
+                assignment.creator.full_name or assignment.creator.username
+                if assignment.creator else ''
+            ),
+        ])
+
+    export_format = (request.args.get('format') or 'xlsx').strip().lower()
+    if export_format in {'xlsx', 'excel'}:
+        import pandas as pd
+
+        buffer = BytesIO()
+        dataframe = pd.DataFrame(rows, columns=headers)
+        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+            dataframe.to_excel(writer, index=False, sheet_name='题库')
+        buffer.seek(0)
+        return send_file(
+            buffer,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name='question_bank.xlsx',
+        )
+
+    output = StringIO(newline='')
+    writer = csv.writer(output)
+    writer.writerow(headers)
+    writer.writerows(rows)
+    response = Response(
+        '\ufeff' + output.getvalue(),
+        mimetype='text/csv; charset=utf-8',
+    )
+    response.headers['Content-Disposition'] = 'attachment; filename=question_bank.csv'
+    return response
+
+
+@assignments.route('/teacher/bulk-due-date', methods=['POST'])
+@login_required
+@admin_or_teacher_required
+def bulk_update_due_date():
+    """统一修改选中题目的截止时间。"""
+    selected_ids = []
+    for raw_id in request.form.getlist('assignment_ids'):
+        try:
+            assignment_id = int(raw_id)
+        except (TypeError, ValueError):
+            continue
+        if assignment_id > 0 and assignment_id not in selected_ids:
+            selected_ids.append(assignment_id)
+
+    redirect_endpoint = (
+        'assignments.manage_assignments'
+        if current_user.is_admin
+        else 'assignments.teacher_assignments'
+    )
+    if not selected_ids:
+        flash('请至少选择一道题目。', 'warning')
+        return redirect(url_for(redirect_endpoint))
+
+    clear_due_date = request.form.get('clear_due_date') == '1'
+    due_date_text = (request.form.get('due_date') or '').strip()
+    due_date = None
+    if not clear_due_date:
+        if not due_date_text:
+            flash('请选择统一的截止时间。', 'warning')
+            return redirect(url_for(redirect_endpoint))
+        try:
+            due_date = datetime.strptime(due_date_text, '%Y-%m-%dT%H:%M')
+        except ValueError:
+            flash('截止时间格式不正确，请重新选择。', 'danger')
+            return redirect(url_for(redirect_endpoint))
+
+    query = Assignment.query.filter(Assignment.id.in_(selected_ids))
+    if not current_user.is_admin:
+        query = query.filter(Assignment.creator_id == current_user.student_id)
+    assignments_to_update = query.all()
+    if not assignments_to_update:
+        flash('没有找到您可以修改的题目。', 'danger')
+        return redirect(url_for(redirect_endpoint))
+
+    try:
+        for assignment in assignments_to_update:
+            assignment.due_date = due_date
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception(
+            '批量更新作业截止时间失败 actor_id=%s assignment_ids=%s',
+            current_user.student_id,
+            selected_ids,
+        )
+        flash('批量修改失败，请稍后重试。', 'danger')
+        return redirect(url_for(redirect_endpoint))
+
+    action = (
+        '清除了截止时间'
+        if clear_due_date
+        else f'统一设置截止时间为 {due_date.strftime("%Y-%m-%d %H:%M")}'
+    )
+    flash(f'已对 {len(assignments_to_update)} 道题目{action}。', 'success')
+    return redirect(url_for(redirect_endpoint))
+
+
+@assignments.route('/teacher/bulk-classes', methods=['POST'])
+@login_required
+@teacher_required
+def bulk_update_classes():
+    """统一更新选中作业的班级分配。"""
+    selected_ids = []
+    for raw_id in request.form.getlist('assignment_ids'):
+        try:
+            assignment_id = int(raw_id)
+        except (TypeError, ValueError):
+            continue
+        if assignment_id > 0 and assignment_id not in selected_ids:
+            selected_ids.append(assignment_id)
+
+    redirect_endpoint = (
+        'assignments.manage_assignments'
+        if current_user.is_admin
+        else 'assignments.teacher_assignments'
+    )
+    if not selected_ids:
+        flash('请至少选择一道题目。', 'warning')
+        return redirect(url_for(redirect_endpoint))
+
+    managed_class_names = {
+        classroom.name.strip()
+        for classroom in accessible_classes(current_user)
+        if classroom.name and classroom.name.strip()
+    }
+    selected_class_names = []
+    for raw_name in request.form.getlist('class_names'):
+        class_name = (raw_name or '').strip()
+        if class_name and class_name not in selected_class_names:
+            selected_class_names.append(class_name)
+
+    invalid_class_names = set(selected_class_names) - managed_class_names
+    if invalid_class_names:
+        flash('只能选择您有权限管理的班级。', 'danger')
+        return redirect(url_for(redirect_endpoint))
+
+    clear_classes = request.form.get('clear_classes') == '1'
+    if not selected_class_names and not clear_classes:
+        flash('请至少选择一个班级，或选择清除班级分配。', 'warning')
+        return redirect(url_for(redirect_endpoint))
+
+    query = Assignment.query.filter(Assignment.id.in_(selected_ids))
+    if not current_user.is_admin:
+        query = query.filter(Assignment.creator_id == current_user.student_id)
+    assignments_to_update = query.all()
+    if not assignments_to_update:
+        flash('没有找到您可以修改的题目。', 'danger')
+        return redirect(url_for(redirect_endpoint))
+
+    try:
+        for assignment in assignments_to_update:
+            preserved_class_names = [
+                class_name
+                for class_name in assignment.get_target_class_list()
+                if class_name not in managed_class_names
+            ]
+            assignment.set_target_classes(
+                preserved_class_names
+                if clear_classes
+                else preserved_class_names + selected_class_names
+            )
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception(
+            '批量更新作业班级分配失败 actor_id=%s assignment_ids=%s',
+            current_user.student_id,
+            selected_ids,
+        )
+        flash('批量设置班级失败，请稍后重试。', 'danger')
+        return redirect(url_for(redirect_endpoint))
+
+    action = '清除了班级分配' if clear_classes else (
+        f'统一设置为：{"、".join(selected_class_names)}'
+    )
+    flash(f'已对 {len(assignments_to_update)} 道题目{action}。', 'success')
+    return redirect(url_for(redirect_endpoint))
 
 
 @assignments.route('/assign/<int:assignment_id>', methods=['GET', 'POST'])
@@ -1493,6 +1738,24 @@ def assign_to_classes(assignment_id):
 def add_teacher_assignment():
     """教师创建新作业"""
     form = AssignmentForm()
+    focus_knowledge_point = (request.args.get('knowledge_point') or '').strip()
+    focus_class_id = request.args.get('class_id', type=int)
+    managed_class_objects = accessible_classes(current_user)
+    focus_class = None
+    if focus_class_id is not None:
+        focus_class = next(
+            (
+                classroom
+                for classroom in managed_class_objects
+                if classroom.id == focus_class_id
+            ),
+            None,
+        )
+        if focus_class is None:
+            abort(403)
+    if len(focus_knowledge_point) > 50:
+        abort(400)
+
     if form.validate_on_submit():
         # 检查作业ID是否已存在
         assignment_id = form.assignment_id.data
@@ -1500,7 +1763,12 @@ def add_teacher_assignment():
         
         if existing_assignment:
             flash('该作业ID已存在，请使用其他ID', 'danger')
-            return render_template('teacher_add_assignment.html', form=form)
+            return render_template(
+                'teacher_add_assignment.html',
+                form=form,
+                focus_knowledge_point=focus_knowledge_point,
+                focus_class=focus_class,
+            )
 
         new_assignment = Assignment(
             id=form.assignment_id.data,
@@ -1512,6 +1780,18 @@ def add_teacher_assignment():
             average_score=0.0,
             count=0
         )
+        if focus_class is not None:
+            new_assignment.set_target_classes([focus_class.name])
+        if focus_knowledge_point:
+            db.session.add(
+                AssignmentKnowledgePoint(
+                    assignment=new_assignment,
+                    knowledge_point=focus_knowledge_point,
+                    weight=1.0,
+                    difficulty=1.0,
+                    auto_detected=False,
+                )
+            )
         
         try:
             db.session.add(new_assignment)
@@ -1525,17 +1805,33 @@ def add_teacher_assignment():
                 current_app.logger.error(f"触发预设生成任务失败: {e}")
                 
             flash('作业创建成功！', 'success')
+            redirect_url = (
+                url_for(
+                    'assignments.assign_to_classes',
+                    assignment_id=new_assignment.id,
+                )
+                if focus_class is not None
+                else url_for('assignments.teacher_assignments')
+            )
             # AJAX 提交时返回 JSON，普通提交时重定向
             if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-                return jsonify({'success': True, 'assignment_id': new_assignment.id,
-                                 'redirect': url_for('assignments.teacher_assignments')})
-            return redirect(url_for('assignments.teacher_assignments'))
+                return jsonify({
+                    'success': True,
+                    'assignment_id': new_assignment.id,
+                    'redirect': redirect_url,
+                })
+            return redirect(redirect_url)
         except Exception:
             db.session.rollback()
             current_app.logger.exception('教师创建作业失败')
             flash('创建作业失败，请稍后重试。', 'danger')
             
-    return render_template('teacher_add_assignment.html', form=form)
+    return render_template(
+        'teacher_add_assignment.html',
+        form=form,
+        focus_knowledge_point=focus_knowledge_point,
+        focus_class=focus_class,
+    )
 
 
 @assignments.route('/teacher/edit/<int:assignment_id>', methods=['GET', 'POST'])

@@ -10,9 +10,13 @@ from services.demo_database import activate_demo_run, is_active_demo_run
 from utils.sse import sse_event, stream_text_chunks
 from utils.timezone import format_display_datetime
 from utils.access import class_student_filter
+from utils.teacher_advice_prompt import (
+    RISK_TAG_CALIBER_INSTRUCTION,
+    format_attention_student_line,
+    format_risk_reason,
+)
 
 
-logger = logging.getLogger(__name__)
 logger = logging.getLogger(__name__)
 
 # 线程锁，防止重复并发生成同一班级的AI建议
@@ -60,6 +64,31 @@ def _friendly_ai_error(code):
         'INVALID_RESPONSE': 'AI 返回内容格式不完整，请稍后重试。',
     }
     return messages.get(code, 'AI 上游服务暂时不可用，请稍后重试。')
+
+
+def _attach_assignment_ids(structured, suggested_assignments):
+    """只保留服务端候选作业编号。"""
+
+    ids_by_title = {
+        item['title']: item['id']
+        for item in suggested_assignments
+        if item.get('id')
+    }
+    assignments = []
+    for item in structured.get('suggested_assignments', []):
+        if not isinstance(item, dict):
+            continue
+        enriched = dict(item)
+        assignment_id = ids_by_title.get(enriched.get('title'))
+        if assignment_id:
+            enriched['assignment_id'] = assignment_id
+        else:
+            enriched.pop('assignment_id', None)
+        assignments.append(enriched)
+    structured['suggested_assignments'] = assignments
+    return structured
+
+
 def _mark_stream_failed_if_needed(class_id, teacher_id, suggestion, demo_run_id):
     """Do not leave a suggestion permanently stuck in ``processing``."""
 
@@ -121,7 +150,8 @@ def generate_class_suggestions(class_id, teacher_id, demo_run_id=None):
                         'student_id': row['student'].student_id,
                         'name': row['student'].full_name or row['student'].username,
                         'risk_tags': row['risk_tags'],
-                        'latest_score': row['latest_score']
+                        'latest_score': row['latest_score'],
+                        'historical_score': row['student'].user_ascore
                     })
 
         # 2. 获取弱势知识点 (班级平均分最低的前3个)
@@ -156,7 +186,8 @@ def generate_class_suggestions(class_id, teacher_id, demo_run_id=None):
             candidate_assignments = Assignment.query.join(
                 AssignmentKnowledgePoint, Assignment.id == AssignmentKnowledgePoint.assignment_id
             ).filter(
-                AssignmentKnowledgePoint.knowledge_point.in_(weak_kp_codes)
+                AssignmentKnowledgePoint.knowledge_point.in_(weak_kp_codes),
+                Assignment.creator_id == teacher_id,
             ).all()
 
             for assign in candidate_assignments:
@@ -186,7 +217,7 @@ def generate_class_suggestions(class_id, teacher_id, demo_run_id=None):
                 {
                     'student_id': s['student_id'],
                     'name': s['name'],
-                    'risk_reason': f"存在{'/'.join(s['risk_tags'])}风险，最近得分 {s['latest_score'] if s['latest_score'] is not None else '无'}"
+                    'risk_reason': format_risk_reason(s)
                 } for s in attention_students
             ],
             'weak_knowledge_points': [
@@ -199,6 +230,7 @@ def generate_class_suggestions(class_id, teacher_id, demo_run_id=None):
             'suggested_assignments': [
                 {
                     'title': a['title'],
+                    'assignment_id': a['id'] or None,
                     'reason': f"针对弱势概念进行课后巩固训练。",
                     'difficulty': a['difficulty']
                 } for a in suggested_assignments[:3]
@@ -210,7 +242,7 @@ def generate_class_suggestions(class_id, teacher_id, demo_run_id=None):
         if llm.is_available():
             try:
                 attention_details_str = "\n".join([
-                    f"- {s['name']} ({s['student_id']}): 风险标签 {s['risk_tags']}, 最近得分 {s['latest_score']}" 
+                    format_attention_student_line(s)
                     for s in attention_students
                 ]) if attention_students else "暂无高风险学生"
 
@@ -229,6 +261,7 @@ def generate_class_suggestions(class_id, teacher_id, demo_run_id=None):
                         "role": "system",
                         "content": (
                             "你是一个专业的编程教育专家，擅长从班级学生成绩、提交活跃度、弱点概念等多维度给出点对点的教学建议。\n"
+                            + RISK_TAG_CALIBER_INSTRUCTION + "\n"
                             "请用简洁专业的中文直接输出分析内容，并在正文结束后，输出一行由 `===JSON===` 分隔的 JSON 字符串，包含系统结构。"
                         )
                     },
@@ -293,6 +326,10 @@ def generate_class_suggestions(class_id, teacher_id, demo_run_id=None):
                         parsed_json = json.loads(json_part)
                         # 确保基本字段完整
                         if 'attention_students' in parsed_json and 'weak_knowledge_points' in parsed_json:
+                            parsed_json = _attach_assignment_ids(
+                                parsed_json,
+                                suggested_assignments,
+                            )
                             suggestion.suggestion_markdown = markdown_part
                             suggestion.suggestion_json = json.dumps(parsed_json, ensure_ascii=False)
                             suggestion.status = 'completed'
@@ -380,17 +417,52 @@ def _generate_rule_based_markdown(cls, weak_points, attention_students, suggeste
 
 def generate_class_suggestions_async(class_id, teacher_id, app, demo_run_id=None):
     """
-    异步启动班级AI建议生成任务
+    异步启动班级AI建议生成任务。
+
+    外层兜底：generate_class_suggestions 自身已捕获业务异常并标记 failed，
+    但若线程内发生其保护范围之外的意外错误（如应用上下文异常），异常会
+    直接杀死工作线程，使记录永久停留在 pending、前端轮询无法收口。此处
+    统一捕获并把状态翻成 failed。
     """
     def task():
-        with app.app_context():
-            if demo_run_id and not activate_demo_run(demo_run_id):
-                return
-            generate_class_suggestions(
+        try:
+            with app.app_context():
+                if demo_run_id and not activate_demo_run(demo_run_id):
+                    return
+                generate_class_suggestions(
+                    class_id,
+                    teacher_id,
+                    demo_run_id=demo_run_id,
+                )
+        except Exception as exc:
+            logger.exception(
+                "教师端学情异步任务意外失败 class_id=%s error_type=%s",
                 class_id,
-                teacher_id,
-                demo_run_id=demo_run_id,
+                type(exc).__name__,
             )
+            try:
+                with app.app_context():
+                    if demo_run_id:
+                        if _demo_database_is_available(demo_run_id):
+                            _mark_demo_suggestion_failed(class_id, teacher_id)
+                        return
+                    suggestion = TeacherAISuggestion.get_or_create(
+                        class_id=class_id,
+                        teacher_id=teacher_id,
+                    )
+                    # 不回退已经完成的结果，只解救卡住的 pending/processing
+                    if (
+                        suggestion is not None
+                        and suggestion.status in ('pending', 'processing')
+                    ):
+                        suggestion.status = 'failed'
+                        suggestion.last_updated = dt.utcnow()
+                        db.session.commit()
+            except Exception:
+                logger.exception(
+                    "教师端学情异步失败状态清理异常 class_id=%s",
+                    class_id,
+                )
 
     thread = threading.Thread(target=task)
     thread.daemon = True
@@ -470,7 +542,8 @@ def _generate_class_suggestions_stream(class_id, teacher_id, demo_run_id=None, *
                     'student_id': row['student'].student_id,
                     'name': row['student'].full_name or row['student'].username,
                     'risk_tags': row['risk_tags'],
-                    'latest_score': row['latest_score']
+                    'latest_score': row['latest_score'],
+                    'historical_score': row['student'].user_ascore
                 })
 
     yield sse_event({'type': 'status', 'message': '正在聚合知识点雷达掌握度...'})
@@ -505,7 +578,8 @@ def _generate_class_suggestions_stream(class_id, teacher_id, demo_run_id=None, *
         candidate_assignments = Assignment.query.join(
             AssignmentKnowledgePoint, Assignment.id == AssignmentKnowledgePoint.assignment_id
         ).filter(
-            AssignmentKnowledgePoint.knowledge_point.in_(weak_kp_codes)
+            AssignmentKnowledgePoint.knowledge_point.in_(weak_kp_codes),
+            Assignment.creator_id == teacher_id,
         ).all()
 
         for assign in candidate_assignments:
@@ -533,7 +607,7 @@ def _generate_class_suggestions_stream(class_id, teacher_id, demo_run_id=None, *
             {
                 'student_id': s['student_id'],
                 'name': s['name'],
-                'risk_reason': f"存在{'/'.join(s['risk_tags'])}风险，最近得分 {s['latest_score'] if s['latest_score'] is not None else '无'}"
+                'risk_reason': format_risk_reason(s)
             } for s in attention_students
         ],
         'weak_knowledge_points': [
@@ -546,6 +620,7 @@ def _generate_class_suggestions_stream(class_id, teacher_id, demo_run_id=None, *
         'suggested_assignments': [
             {
                 'title': a['title'],
+                'assignment_id': a['id'] or None,
                 'reason': f"针对弱势概念进行课后巩固训练。",
                 'difficulty': a['difficulty']
             } for a in suggested_assignments[:3]
@@ -561,7 +636,7 @@ def _generate_class_suggestions_stream(class_id, teacher_id, demo_run_id=None, *
     if llm.is_available():
         try:
             attention_details_str = "\n".join([
-                f"- {s['name']} ({s['student_id']}): 风险标签 {s['risk_tags']}, 最近得分 {s['latest_score']}" 
+                format_attention_student_line(s)
                 for s in attention_students
             ]) if attention_students else "暂无高风险学生"
 
@@ -580,6 +655,7 @@ def _generate_class_suggestions_stream(class_id, teacher_id, demo_run_id=None, *
                     "role": "system",
                     "content": (
                         "你是一个专业的编程教育专家，擅长从班级 student 分数、提交活跃度、弱点概念等多维度给出建议。\n"
+                        + RISK_TAG_CALIBER_INSTRUCTION + "\n"
                         "请用学术严谨且易懂的中文直接输出 Markdown 格式的分析正文。只输出正文，不要输出 JSON、分隔符或额外说明。左侧结构化卡片由系统根据班级数据生成。"
                     )
                 },
@@ -677,6 +753,10 @@ def _generate_class_suggestions_stream(class_id, teacher_id, demo_run_id=None, *
                         ):
                             if isinstance(parsed_json.get(key), list):
                                 structured_json[key] = parsed_json[key]
+                        structured_json = _attach_assignment_ids(
+                            structured_json,
+                            suggested_assignments,
+                        )
                     else:
                         raise ValueError('structured response is not an object')
                 except Exception as je:

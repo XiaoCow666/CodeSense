@@ -173,7 +173,8 @@ def trial_usage_friendly_v1(student, submissions, thinking_sessions, thinking_lo
             guided_reason += '，已完成引导式学习'
         reason_parts.append(guided_reason)
 
-    course_score = round(min(10.0, score), 1)
+    # 评分簿对外统一使用百分制；内部仍按原有 0–10 权重累加，最后只在出口换算。
+    course_score = round(min(10.0, score) * 10, 1)
 
     return {
         'student': student,

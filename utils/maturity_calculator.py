@@ -1,6 +1,7 @@
 """成熟度评分计算工具 - 统一处理 φ_avg, φ_freq, φ_std, φ_grad 的计算逻辑"""
 import statistics
 from datetime import datetime
+from utils.scoring import normalize_mixed_score
 
 # 从 code_evaluator 导入权重常量（避免循环导入，直接复制常量定义）
 MATURITY_WEIGHTS = {
@@ -51,7 +52,13 @@ def calculate_maturity_components(all_subs, ability_scores=None, class_averages=
     result['phi_freq'] = min(100, submissions_per_day * 100)
 
     # 3. φ_std (稳定性): 惩罚项，检测稳定性偏离
-    scores = [s.score for s in all_subs if s.score is not None]
+    # 成熟度的历史公式按 0–5 计算，提交分本身统一落库为百分制，
+    # 这里仅在公式内部换算，输出仍然是 0–100。
+    scores = [
+        (normalize_mixed_score(s.score) or 0) / 20
+        for s in all_subs
+        if s.score is not None
+    ]
     if len(scores) > 1:
         std_dev = statistics.stdev(scores)
         result['phi_std'] = max(0, 100 - (std_dev * 20))
@@ -63,10 +70,26 @@ def calculate_maturity_components(all_subs, ability_scores=None, class_averages=
         half_len = len(all_subs) // 2
         first_half = all_subs[:half_len]
         second_half = all_subs[half_len:]
-        avg_init = sum(s.score for s in first_half if s.score) / len(first_half)
-        avg_recent = sum(s.score for s in second_half if s.score) / len(second_half)
-        growth = avg_recent - avg_init
-        result['phi_grad'] = min(100, max(0, 50 + growth * 10))
+        # score 可空（已提交但尚未评分），且公式内部按历史 0–5 制计算
+        # （百分制 / 20 换算）。分子与分母必须基于同一批“已评分”提交：
+        # 不能把 None 排除出分子却计入整半长度（那等价于把未评分当 0 分，
+        # 两半缺失率不同时会让梯度方向都反掉）。任一半没有可评分提交时，
+        # 没有可比较的均值，保持中性默认 50。
+        init_scores = [
+            normalize_mixed_score(s.score) / 20
+            for s in first_half
+            if s.score is not None
+        ]
+        recent_scores = [
+            normalize_mixed_score(s.score) / 20
+            for s in second_half
+            if s.score is not None
+        ]
+        if init_scores and recent_scores:
+            avg_init = sum(init_scores) / len(init_scores)
+            avg_recent = sum(recent_scores) / len(recent_scores)
+            growth = avg_recent - avg_init
+            result['phi_grad'] = min(100, max(0, 50 + growth * 10))
 
     # 计算总分
     result['maturity_score'] = round(min(100, (

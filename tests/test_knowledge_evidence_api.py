@@ -266,9 +266,87 @@ def test_retrieval_failure_returns_safe_fallback_without_sensitive_log(
     assert "SECRET_EVIDENCE" not in caplog.text
 
 
+def test_timeout_response_keeps_timeout_status_in_public_projection(
+    evidence_api_context, monkeypatch
+):
+    _, client, ids = evidence_api_context
+    _login(client, "evidence-student")
+    monkeypatch.setattr(
+        api_routes,
+        "retrieve_assignment_knowledge",
+        lambda *args, **kwargs: {
+            "status": "timeout",
+            "evidence": [],
+            "metrics": {
+                "candidate_count": 1,
+                "hit_count": 0,
+                "retrieval_latency_ms": 250.0,
+                "retrieval_mode": "timeout",
+                "retrieval_timeout_fallback": True,
+                "index_revision": 4,
+            },
+            "fallback": {
+                "code": "KNOWLEDGE_RETRIEVAL_TIMEOUT",
+                "message": "知识证据检索超时，回答仅基于题目和代码。",
+            },
+        },
+    )
+
+    response = client.get(f"/api/assignments/{ids['student']}/knowledge-evidence")
+
+    assert response.status_code == 200
+    data = response.json["data"]
+    assert data["knowledge_retrieval"]["status"] == "timeout"
+    assert data["knowledge_retrieval"]["fallback"]["code"] == (
+        "KNOWLEDGE_RETRIEVAL_TIMEOUT"
+    )
+    assert data["knowledge_evidence"]["status"] == "timeout"
+    assert data["knowledge_evidence"]["retryable"] is True
+
+
 def test_unauthenticated_request_keeps_login_boundary(evidence_api_context):
     _, client, ids = evidence_api_context
 
     response = client.get(f"/api/assignments/{ids['student']}/knowledge-evidence")
 
     assert response.status_code in {302, 401}
+
+
+def test_admin_can_read_bounded_knowledge_quality_snapshot(evidence_api_context):
+    _, client, _ = evidence_api_context
+    _login(client, "evidence-admin")
+
+    response = client.get("/api/admin/knowledge-quality")
+
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "no-store"
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    data = response.json["data"]
+    assert set(data) == {"quality", "limits"}
+    assert set(data["quality"]) == {
+        "requests",
+        "status_counts",
+        "mode_counts",
+        "latency_sample_count",
+        "mean_latency_ms",
+    }
+    assert set(data["limits"]) == {
+        "max_evidence",
+        "rate_limit_requests",
+        "rate_limit_window_seconds",
+        "retrieval_timeout_ms",
+    }
+    assert "student_id" not in json.dumps(response.json, ensure_ascii=False)
+    assert "query" not in json.dumps(response.json, ensure_ascii=False)
+
+
+@pytest.mark.parametrize("username", ["evidence-student", "evidence-teacher"])
+def test_knowledge_quality_snapshot_keeps_admin_boundary(
+    evidence_api_context, username
+):
+    _, client, _ = evidence_api_context
+    _login(client, username)
+
+    response = client.get("/api/admin/knowledge-quality")
+
+    assert response.status_code == 302

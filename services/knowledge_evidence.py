@@ -18,6 +18,7 @@ MAX_CANDIDATES = 64
 MAX_INDEXED_CHUNKS = 64
 MAX_EMBEDDING_CALLS = 128
 MAX_LATENCY_MS = 600_000.0
+MAX_INDEX_REVISION = 1_000_000_000
 
 _ALLOWED_STATUSES = frozenset(
     {"grounded", "no_result", "unavailable", "timeout", "rate_limited"}
@@ -69,13 +70,13 @@ _STATUS_COPY = {
     },
     "timeout": {
         "status_label": "证据检索超时",
-        "summary": "知识证据检索超时，但基础指导仍可继续。",
-        "next_step": "继续查看基础指导，稍后重试证据检索。",
+        "summary": "本次知识证据检索没有在时间预算内完成，基础指导仍可继续。",
+        "next_step": "继续查看基础指导，稍后重新检索证据。",
     },
     "rate_limited": {
-        "status_label": "证据请求受限",
-        "summary": "知识证据请求过于频繁，但基础指导仍可继续。",
-        "next_step": "稍后重试证据检索。",
+        "status_label": "证据请求需要稍候",
+        "summary": "知识证据请求过于频繁，基础指导仍可继续。",
+        "next_step": "稍等片刻后重新检索证据，或先继续检查题目和代码。",
     },
     "unknown": {
         "status_label": "证据状态不可用",
@@ -83,6 +84,7 @@ _STATUS_COPY = {
         "next_step": "继续使用基础指导，稍后重试。",
     },
 }
+_RETRYABLE_STATUSES = frozenset({"unavailable", "timeout", "rate_limited"})
 
 
 def _safe_text(value: Any, *, limit: int, default: str = "") -> str:
@@ -271,10 +273,28 @@ def build_public_knowledge_retrieval(
                 if isinstance(metrics.get("retrieval_error_fallback"), bool)
                 else status == "unavailable"
             ),
+            "retrieval_timeout_fallback": (
+                bool(metrics.get("retrieval_timeout_fallback"))
+                if isinstance(metrics.get("retrieval_timeout_fallback"), bool)
+                else status == "timeout"
+            ),
+            "rate_limit_fallback": (
+                bool(metrics.get("rate_limit_fallback"))
+                if isinstance(metrics.get("rate_limit_fallback"), bool)
+                else status == "rate_limited"
+            ),
             "retrieval_mode": retrieval_mode,
             "indexed_chunk_count": _safe_nonnegative_int(
                 metrics.get("indexed_chunk_count"),
                 maximum=MAX_INDEXED_CHUNKS,
+            ),
+            "index_revision": _safe_nonnegative_int(
+                metrics.get("index_revision"),
+                maximum=MAX_INDEX_REVISION,
+            ),
+            "privacy_filtered_count": _safe_nonnegative_int(
+                metrics.get("privacy_filtered_count"),
+                maximum=MAX_CANDIDATES,
             ),
             "embedding_provider": _safe_text(
                 metrics.get("embedding_provider"),
@@ -325,7 +345,7 @@ def build_knowledge_evidence_view(
 ) -> dict[str, Any]:
     """Project retrieval output into a bounded view safe for UI consumers.
 
-    Only the three known retrieval states are accepted.  Missing or malformed
+    Only the known retrieval states are accepted.  Missing or malformed
     input becomes ``unknown``; a grounded result without usable evidence is
     represented as ``no_result``.  Teacher and admin views include bounded
     operational diagnostics, while student views do not.
@@ -358,6 +378,15 @@ def build_knowledge_evidence_view(
         retrieval_mode = _safe_retrieval_mode(metrics.get("retrieval_mode"))
 
     copy = _STATUS_COPY[status]
+    fallback = retrieval.get("fallback") if retrieval else None
+    fallback_message = (
+        fallback.get("message")
+        if (
+            isinstance(fallback, Mapping)
+            and _FALLBACK_CODES.get(status) == fallback.get("code")
+        )
+        else None
+    )
     view: dict[str, Any] = {
         "status": status,
         "status_label": copy["status_label"],
@@ -365,6 +394,16 @@ def build_knowledge_evidence_view(
         "next_step": copy["next_step"],
         "has_evidence": bool(evidence),
         "fallback_code": _fallback_code(retrieval, status=status),
+        "fallback_message": (
+            _safe_text(
+                fallback_message,
+                limit=240,
+                default=_FALLBACK_MESSAGES.get(status, ""),
+            )
+            if status != "grounded"
+            else None
+        ),
+        "retryable": status in _RETRYABLE_STATUSES,
         "retrieval_mode": retrieval_mode,
         "evidence": evidence,
     }
@@ -387,6 +426,30 @@ def build_knowledge_evidence_view(
                 metrics.get("retrieval_latency_ms")
             ),
             "retrieval_mode": retrieval_mode,
+        }
+        view["quality_diagnostics"] = {
+            "citation_completeness": _safe_rate(
+                metrics.get("citation_completeness")
+            ),
+            "index_revision": _safe_nonnegative_int(
+                metrics.get("index_revision"),
+                maximum=MAX_INDEX_REVISION,
+            ),
+            "privacy_filtered_count": _safe_nonnegative_int(
+                metrics.get("privacy_filtered_count"),
+                maximum=MAX_CANDIDATES,
+            ),
+            "retrieval_timeout_fallback": (
+                bool(metrics.get("retrieval_timeout_fallback"))
+                if isinstance(metrics.get("retrieval_timeout_fallback"), bool)
+                else status == "timeout"
+            ),
+            "rate_limit_fallback": (
+                bool(metrics.get("rate_limit_fallback"))
+                if isinstance(metrics.get("rate_limit_fallback"), bool)
+                else status == "rate_limited"
+            ),
+            "fallback_code": _fallback_code(retrieval, status=status),
         }
 
     return view
