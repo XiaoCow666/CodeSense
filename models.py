@@ -479,8 +479,6 @@ class User(db.Model, UserMixin):  # 添加UserMixin继承
                 User.student_id,
                 effective_class_name,
                 Submission.ai_feedback,
-                Submission.score,
-                Submission.submitted_at,
             ).join(
                 Submission, Submission.student_id == User.student_id
             ).outerjoin(
@@ -492,21 +490,20 @@ class User(db.Model, UserMixin):  # 添加UserMixin继承
             ).all()
 
             per_student = {}
-            for student_id, class_name, ai_feedback, score, submitted_at in rows:
+            for student_id, class_name, ai_feedback in rows:
                 item = per_student.setdefault(
                     student_id,
-                    {'class_name': class_name, 'scores': {name: [] for name in dimension_names},
-                     'fallback_scores': []},
+                    {'class_name': class_name, 'scores': {name: [] for name in dimension_names}},
                 )
-                if score is not None:
-                    normalized_score = normalize_submission_score(score, submitted_at)
-                    if normalized_score is not None:
-                        item['fallback_scores'].append(normalized_score)
                 if not ai_feedback:
                     continue
                 try:
                     feedback = json.loads(ai_feedback)
                 except (json.JSONDecodeError, TypeError, ValueError):
+                    continue
+                if not isinstance(feedback, dict) or not isinstance(
+                    feedback.get('dimension_feedback'), str
+                ) or not feedback['dimension_feedback'].strip():
                     continue
                 for name in dimension_names:
                     value = feedback.get(f'{name}_score')
@@ -527,10 +524,7 @@ class User(db.Model, UserMixin):  # 添加UserMixin继承
                         sum(item['scores'][name]) / len(item['scores'][name])
                         if item['scores'][name] else 0.0
                     )
-                if not any(values.values()) and item['fallback_scores']:
-                    fallback = sum(item['fallback_scores']) / len(item['fallback_scores'])
-                    values = {name: fallback for name in dimension_names}
-                if not any(values.values()):
+                if not any(item['scores'][name] for name in dimension_names):
                     continue
                 bucket = class_totals.setdefault(
                     class_name,

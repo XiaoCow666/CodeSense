@@ -332,22 +332,22 @@ def home():
         analysis_status = trend_record.status or 'pending'
         # 1. 通过统一的能力引擎获取雷达图数据
         ability_scores = current_user.get_ability_scores()
-        algorithm_score = ability_scores.get('algorithm', 60)
-        style_score = ability_scores.get('style', 60)
-        functionality_score = ability_scores.get('functionality', 60)
-        efficiency_score = ability_scores.get('efficiency', 60)
-        readability_score = ability_scores.get('readability', 60)
+        algorithm_score = ability_scores.get('algorithm', 0)
+        style_score = ability_scores.get('style', 0)
+        functionality_score = ability_scores.get('functionality', 0)
+        efficiency_score = ability_scores.get('efficiency', 0)
+        readability_score = ability_scores.get('readability', 0)
         
         # 2. 获取班级平均能力得分
         class_averages = User.get_class_average_scores()
         class_name = authoritative_class_name(current_user)
         st_class_avg = class_averages.get(class_name, {})
         
-        class_algorithm_score = st_class_avg.get('algorithm', 65)
-        class_style_score = st_class_avg.get('style', 65)
-        class_functionality_score = st_class_avg.get('functionality', 65)
-        class_efficiency_score = st_class_avg.get('efficiency', 65)
-        class_readability_score = st_class_avg.get('readability', 65)
+        class_algorithm_score = st_class_avg.get('algorithm', 0)
+        class_style_score = st_class_avg.get('style', 0)
+        class_functionality_score = st_class_avg.get('functionality', 0)
+        class_efficiency_score = st_class_avg.get('efficiency', 0)
+        class_readability_score = st_class_avg.get('readability', 0)
         
         # 3. 准备能力数据的 JSON 格式供雷达图使用
         skills_data = {
@@ -1049,7 +1049,7 @@ def user_profile(user_username):
     # 准备技能数据
     skills_data = {
         'student': {k: float(v) for k, v in ability_scores.items()},
-        'class_average': {k: float(v) for k, v in st_class_avg.items()}
+        'class_average': {k: float(v) for k, v in st_class_avg.items()} if st_class_avg else None
     }
 
     # 准备真实蜕变轨迹数据 (取最近 10 次提交的分数)

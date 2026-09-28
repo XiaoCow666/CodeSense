@@ -253,9 +253,7 @@ def view_submissions():
         
         ability_data = {
             'student': ability_scores,
-            'class_avg': class_avg_scores.get(profile_class_name, {
-                'algorithm': 70, 'style': 70, 'functionality': 70, 'efficiency': 70, 'readability': 70
-            })
+            'class_avg': class_avg_scores.get(profile_class_name)
         }
 
         knowledge_profile = KnowledgePointScore.get_student_profile(student_id)

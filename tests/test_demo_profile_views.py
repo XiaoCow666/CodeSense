@@ -64,8 +64,13 @@ class DemoProfileViewsTestCase(unittest.TestCase):
         )
         self.assertIn('C语言知识点画像', profile_html)
         self.assertIn('提交分数采用 0–100 分', profile_html)
+        self.assertIn('"class_average": null', profile_html)
         for _, name in C_LANGUAGE_POINTS:
             self.assertIn(name, profile_html)
+
+        submissions_page = self.client.get('/view_submission')
+        self.assertEqual(submissions_page.status_code, 200)
+        self.assertIn('"class_avg": null', submissions_page.data.decode('utf-8'))
 
         assignment_list = self.client.get('/student_assignments')
         self.assertEqual(assignment_list.status_code, 200)

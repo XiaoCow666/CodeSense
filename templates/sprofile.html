@@ -145,6 +145,7 @@
             <div class="col-lg-4 d-none d-lg-block">
                 <div class="radar-container" style="max-width: 300px;">
                     <canvas id="abilityRadarChart"></canvas>
+                    <p class="text-white-50 small mt-2">能力分项依据带文字理由的 AI 评估；班级暂无分项记录时不显示班级曲线。</p>
                 </div>
             </div>
         </div>
@@ -348,7 +349,7 @@
                     borderWidth: 2,
                     pointBackgroundColor: 'rgba(59, 130, 246, 1)',
                 },
-                {
+                ...(skillsData.class_average ? [{
                     label: '全班平均',
                     data: [
                         skillsData.class_average.algorithm,
@@ -362,7 +363,7 @@
                     borderWidth: 1,
                     pointBackgroundColor: 'rgba(255, 255, 255, 0.2)',
                     borderDash: [5, 5]
-                }
+                }] : [])
             ]
         },
         options: chartOptions

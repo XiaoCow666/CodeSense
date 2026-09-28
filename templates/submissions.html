@@ -195,6 +195,7 @@
         <div class="chart-container">
             <canvas id="abilityChart"></canvas>
         </div>
+        <p class="text-muted small mt-2 mb-0">能力分项依据带文字理由的 AI 评估；班级暂无分项记录时不显示班级曲线。</p>
     </div>
 </div>
 
@@ -412,7 +413,7 @@
                         pointHoverBackgroundColor: '#fff',
                         pointHoverBorderColor: 'rgba(54, 162, 235, 1)',
                         borderWidth: 2
-                    }, {
+                    }, ...(abilityData.class_avg ? [{
                         label: '班级平均',
                         data: [
                             abilityData.class_avg.algorithm,
@@ -428,7 +429,7 @@
                         pointHoverBackgroundColor: '#fff',
                         pointHoverBorderColor: 'rgba(255, 99, 132, 1)',
                         borderWidth: 2
-                    }]
+                    }] : [])]
                 },
                 options: {
                     responsive: true,

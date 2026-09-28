@@ -282,6 +282,10 @@ class AbilityScorer:
                 if sub.ai_feedback:
                     try:
                         data = json.loads(sub.ai_feedback)
+                        if not isinstance(data, dict) or not isinstance(
+                            data.get("dimension_feedback"), str
+                        ) or not data["dimension_feedback"].strip():
+                            continue
                         for key in totals:
                             score_key = f"{key}_score"
                             if score_key in data:
@@ -297,20 +301,6 @@ class AbilityScorer:
             for key in totals:
                 avg_scores[key] = totals[key] / valid_counts[key] if valid_counts[key] > 0 else 0.0
             
-            # 极速回归补偿：如果所有维度都是 0（可能由于解析失败或旧数据），则采用系统总分
-            if sum(avg_scores.values()) == 0:
-                normalized_scores = [
-                    normalize_submission_score(s.score, s.submitted_at)
-                    for s in all_submissions
-                    if s.score is not None
-                ]
-                normalized_scores = [score for score in normalized_scores if score is not None]
-                base = (
-                    min(100, sum(normalized_scores) / len(normalized_scores))
-                    if normalized_scores else 0
-                )
-                avg_scores = {k: base for k in avg_scores}
-                
             return avg_scores
             
         except Exception as e:

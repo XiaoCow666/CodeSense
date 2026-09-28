@@ -1,3 +1,4 @@
+import json
 import pytest
 from datetime import datetime
 from flask import Flask
@@ -193,5 +194,96 @@ def test_class_comparison_reads_historical_and_current_scale_per_submission(tmp_
         db.session.flush()
         comparison = AbilityScorer()._get_class_comparison_data("示例班级")
         assert comparison["avg_score"] == pytest.approx(2.625)
+        db.session.remove()
+        db.drop_all()
+
+
+def test_ability_profiles_use_only_dimension_scores_with_model_reasons(tmp_path):
+    app = Flask(__name__)
+    app.config.update(
+        SQLALCHEMY_DATABASE_URI=f"sqlite:///{tmp_path / 'dimension-sources.db'}",
+        SQLALCHEMY_TRACK_MODIFICATIONS=False,
+    )
+    db.init_app(app)
+    with app.app_context():
+        db.create_all()
+        student = User(
+            student_id="dimension-student",
+            username="dimension-student",
+            usertype="学生",
+            class_name="分项来源班级",
+        )
+        student.password = "score-password"
+        legacy_student = User(
+            student_id="legacy-dimension-student",
+            username="legacy-dimension-student",
+            usertype="学生",
+            class_name="旧记录班级",
+        )
+        legacy_student.password = "score-password"
+        zero_student = User(
+            student_id="zero-dimension-student",
+            username="zero-dimension-student",
+            usertype="学生",
+            class_name="零分记录班级",
+        )
+        zero_student.password = "score-password"
+        assignment = Assignment(
+            title="分项来源练习",
+            description="检查能力评分来源",
+            creator_id=student.student_id,
+        )
+        db.session.add_all([student, legacy_student, zero_student, assignment])
+        db.session.flush()
+        db.session.add_all([
+            Submission(
+                student_id=student.student_id,
+                assignment_id=assignment.id,
+                code="int main() { return 0; }",
+                score=20,
+                status="evaluated",
+                submitted_at=datetime(2026, 9, 27, 10, 0),
+                ai_feedback=json.dumps({"algorithm_score": 90}),
+            ),
+            Submission(
+                student_id=student.student_id,
+                assignment_id=assignment.id,
+                code="int main() { return 1; }",
+                score=80,
+                status="evaluated",
+                submitted_at=datetime(2026, 9, 27, 11, 0),
+                ai_feedback=json.dumps({
+                    "algorithm_score": 40,
+                    "dimension_feedback": "循环边界需要检查。",
+                }),
+            ),
+            Submission(
+                student_id=legacy_student.student_id,
+                assignment_id=assignment.id,
+                code="int main() { return 2; }",
+                score=20,
+                status="evaluated",
+                submitted_at=datetime(2026, 9, 27, 12, 0),
+                ai_feedback=json.dumps({"algorithm_score": 90}),
+            ),
+            Submission(
+                student_id=zero_student.student_id,
+                assignment_id=assignment.id,
+                code="int main() { return 3; }",
+                score=0,
+                status="evaluated",
+                submitted_at=datetime(2026, 9, 27, 13, 0),
+                ai_feedback=json.dumps({
+                    "algorithm_score": 0,
+                    "dimension_feedback": "算法要求尚未完成。",
+                }),
+            ),
+        ])
+        db.session.flush()
+        assert AbilityScorer().calculate_detailed_ability_scores(student.student_id)["algorithm"] == 40
+        assert AbilityScorer().calculate_detailed_ability_scores(legacy_student.student_id)["algorithm"] == 0
+        assert User.get_class_average_scores()["分项来源班级"]["algorithm"] == 40
+        assert User.get_class_average_scores()["零分记录班级"]["algorithm"] == 0
+        assert "旧记录班级" not in User.get_class_average_scores()
         db.session.remove()
         db.drop_all()
