@@ -40,8 +40,9 @@ Before starting, verify that the seed database exists and that `DEV_DATABASE_URL
 
 ## Browser 插件版本一致性
 
-- 每次使用 Browser 时，读取当前会话提供的 Browser skill 路径，并从同一安装目录载入 `browser-client.mjs`。不要在本文件、自动化说明或运行记录中保存插件版本数字或带版本号的目录路径。
-- Browser client 和 service 文件必须来自同一安装目录。运行环境要求的 service 文件缺失时，停止 Browser 操作，并在 Codex 应用中刷新 Browser 插件。不要在不同版本目录之间复制文件，也不要改用其他浏览器控制工具。
+- 每次使用 Browser 时，读取当前会话提供的 Browser skill 路径，并从该安装目录载入 `browser-client.mjs`。不要在本文件或运行配置中保存插件缓存目录的版本号。
+- `NODE_REPL_TRUSTED_SERVICES.browser` 使用 Codex 运行环境提供的包入口；当前桌面环境使用 `@oai/browser-desktop/service`。插件升级后检查该入口仍可解析，避免配置指向某次安装的缓存目录。
+- 修改 `NODE_REPL_TRUSTED_SERVICES` 后，重新启动 Codex，并验证 Browser 文档读取和页面访问。
 
 ## Project Overview
 
