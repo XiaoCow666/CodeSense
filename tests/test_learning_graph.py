@@ -546,10 +546,11 @@ def test_teacher_can_open_knowledge_focus_and_other_teacher_cannot(
         db.session.add(shared_assignment)
         db.session.flush()
         db.session.add(
-            AssignmentKnowledgePoint(
-                assignment_id=shared_assignment.id,
-                knowledge_point="array",
-            )
+                AssignmentKnowledgePoint(
+                    assignment_id=shared_assignment.id,
+                    knowledge_point="array",
+                    auto_detected=True,
+                )
         )
         db.session.commit()
 
@@ -569,9 +570,12 @@ def test_teacher_can_open_knowledge_focus_and_other_teacher_cannot(
     assert "数组与递归" in body
     assert "布置到班级" in body
     assert f"/assign/{ids['assignment_one']}" in body
+    assert 'href="/teacher/edit/{}"'.format(ids["assignment_one"]) in body
     shared_start = body.index("其他教师创建的数组练习")
     shared_card = body[shared_start:body.index("</article>", shared_start)]
     assert "布置到班级" not in shared_card
+    assert "编辑知识点" not in shared_card
+    assert "AI 自动提取" in shared_card
     assert "当前账号无法布置此作业" in shared_card
 
     other_client = app.test_client()

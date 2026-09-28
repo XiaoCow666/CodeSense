@@ -21,7 +21,11 @@ DEFAULT_FIXTURE = (
 
 def load_fixture(path: str | Path = DEFAULT_FIXTURE):
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
-    return tuple(payload["sources"]), tuple(payload["queries"])
+    return (
+        tuple(payload["sources"]),
+        tuple(payload["queries"]),
+        payload.get("assignment_knowledge_points", {}),
+    )
 
 
 def _cosine_similarity(left, right) -> float:
@@ -43,7 +47,7 @@ def evaluate_student_vector_fixture(
 ) -> dict[str, Any]:
     """检查作用域过滤、撤回来源过滤和有限检索召回率。"""
 
-    sources, queries = load_fixture(path)
+    sources, queries, assignment_knowledge_points = load_fixture(path)
     embedder = embedder or NgramCountEmbedder()
     clock = clock or time.perf_counter
     active_sources = [source for source in sources if source.get("status") == "active"]
@@ -53,6 +57,7 @@ def evaluate_student_vector_fixture(
     recall_at_k = []
     cross_scope_hit_count = 0
     revoked_hit_count = 0
+    unlinked_knowledge_score_hit_count = 0
     case_results = []
     query_latencies_ms = []
 
@@ -65,10 +70,18 @@ def evaluate_student_vector_fixture(
             for source in active_sources
             if str(source.get("student_id")) == student_id
         ]
+        assignment_labels = set(
+            assignment_knowledge_points.get(str(assignment_id), [])
+        )
         scoped_sources = [
             source
             for source in scope_sources
-            if assignment_id is None or source.get("assignment_id") == assignment_id
+            if assignment_id is None
+            or source.get("assignment_id") == assignment_id
+            or (
+                source.get("source_type") == "knowledge_point_score"
+                and source.get("source_title") in assignment_labels
+            )
         ]
         scope_candidate_count = len(scope_sources)
         filtered_candidate_count = len(scoped_sources)
@@ -98,6 +111,15 @@ def evaluate_student_vector_fixture(
             for item in selected
         ):
             revoked_hit_count += 1
+        unlinked_score_hits = [
+            str(item[1])
+            for item in selected
+            if assignment_id is not None
+            and item[2].get("assignment_id") != assignment_id
+            and item[2].get("source_type") == "knowledge_point_score"
+            and item[2].get("source_title") not in assignment_labels
+        ]
+        unlinked_knowledge_score_hit_count += len(unlinked_score_hits)
 
         case_result = {
             "query": case["query"],
@@ -106,6 +128,7 @@ def evaluate_student_vector_fixture(
             "expected_status": expected_status,
             "actual_status": actual_status,
             "retrieved_source_ids": actual_ids,
+            "unlinked_knowledge_score_hits": unlinked_score_hits,
             "status_match": expected_status in {None, actual_status},
         }
         if expected_ids:
@@ -147,6 +170,7 @@ def evaluate_student_vector_fixture(
         else 0.0,
         "cross_scope_hit_count": cross_scope_hit_count,
         "revoked_hit_count": revoked_hit_count,
+        "unlinked_knowledge_score_hit_count": unlinked_knowledge_score_hit_count,
         "status_mismatch_count": sum(
             1 for result in case_results if not result["status_match"]
         ),

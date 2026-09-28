@@ -1887,4 +1887,92 @@ def edit_assignment(assignment_id):
             current_app.logger.exception('教师更新作业失败 assignment_id=%s', assignment_id)
             flash('更新作业失败，请稍后重试。', 'danger')
             
-    return render_template('edit_assignment.html', form=form, assignment=assignment)
+    knowledge_point_sources = AssignmentKnowledgePoint.query.filter_by(
+        assignment_id=assignment.id
+    ).order_by(AssignmentKnowledgePoint.id.asc()).all()
+    knowledge_point_options = sorted(
+        KnowledgePointScore.KNOWLEDGE_POINTS.items(),
+        key=lambda item: item[1],
+    )
+    return render_template(
+        'edit_assignment.html',
+        form=form,
+        assignment=assignment,
+        knowledge_point_sources=knowledge_point_sources,
+        knowledge_point_labels=KnowledgePointScore.KNOWLEDGE_POINTS,
+        knowledge_point_options=knowledge_point_options,
+    )
+
+
+@assignments.route(
+    '/teacher/edit/<int:assignment_id>/knowledge-points',
+    methods=['POST'],
+)
+@login_required
+@teacher_required
+def update_assignment_knowledge_points(assignment_id):
+    """更新作业知识点来源。"""
+
+    assignment = Assignment.query.get_or_404(assignment_id)
+    if current_user.usertype != '管理员' and assignment.creator_id != current_user.student_id:
+        flash('您没有权限修改此作业', 'danger')
+        return redirect(url_for('assignments.teacher_assignments'))
+
+    raw_source_ids = request.form.getlist('remove_knowledge_point_ids')
+    if (
+        len(set(raw_source_ids)) != len(raw_source_ids)
+        or any(
+            not value.isascii()
+            or not value.isdecimal()
+            or len(value) > 12
+            for value in raw_source_ids
+        )
+    ):
+        abort(400)
+
+    remove_source_ids = {int(value) for value in raw_source_ids}
+    sources = AssignmentKnowledgePoint.query.filter_by(
+        assignment_id=assignment.id
+    ).all()
+    sources_by_id = {source.id: source for source in sources}
+    if not remove_source_ids.issubset(sources_by_id):
+        abort(400)
+
+    add_knowledge_point = (request.form.get('add_knowledge_point') or '').strip()
+    if (
+        add_knowledge_point
+        and (
+            len(add_knowledge_point) > 50
+            or add_knowledge_point not in KnowledgePointScore.KNOWLEDGE_POINTS
+        )
+    ):
+        abort(400)
+    if not remove_source_ids and not add_knowledge_point:
+        flash('请选择要移除或添加的知识点。', 'warning')
+        return redirect(
+            url_for('assignments.edit_assignment', assignment_id=assignment.id)
+        )
+
+    remaining_codes = {
+        source.knowledge_point
+        for source in sources
+        if source.id not in remove_source_ids
+    }
+    for source_id in remove_source_ids:
+        db.session.delete(sources_by_id[source_id])
+    if add_knowledge_point and add_knowledge_point not in remaining_codes:
+        db.session.add(
+            AssignmentKnowledgePoint(
+                assignment_id=assignment.id,
+                knowledge_point=add_knowledge_point,
+                weight=1.0,
+                difficulty=1.0,
+                auto_detected=False,
+            )
+        )
+
+    db.session.commit()
+    flash('作业知识点来源已更新。', 'success')
+    return redirect(
+        url_for('assignments.edit_assignment', assignment_id=assignment.id)
+    )

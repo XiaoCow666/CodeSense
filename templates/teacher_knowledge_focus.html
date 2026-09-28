@@ -76,12 +76,14 @@
                         </div>
                         <div class="small text-muted">
                             <div><i class="bi bi-bookmark-check" aria-hidden="true"></i> 知识点：{{ assignment.knowledge_label }}</div>
+                            <div><i class="bi bi-diagram-2" aria-hidden="true"></i> 标签来源：{{ 'AI 自动提取' if assignment.auto_detected else '教师关联' }}</div>
                             <div><i class="bi bi-people" aria-hidden="true"></i> 当前范围：{{ assignment.target_classes|join('、') }}</div>
                             <div><i class="bi bi-link-45deg" aria-hidden="true"></i> 标签来源版本：{{ assignment.source_version[:12] }}</div>
                         </div>
                         <div class="d-flex flex-wrap gap-2 mt-auto">
                             <a href="{{ url_for('assignments.view_assignment', assignment_id=assignment.assignment_id) }}" class="btn btn-outline-primary btn-sm">查看作业</a>
                             {% if assignment.can_manage %}
+                            <a href="{{ url_for('assignments.edit_assignment', assignment_id=assignment.assignment_id) }}" class="btn btn-outline-secondary btn-sm">编辑知识点</a>
                             <a href="{{ url_for('assignments.assign_to_classes', assignment_id=assignment.assignment_id) }}" class="btn btn-primary btn-sm">布置到班级</a>
                             {% else %}
                             <span class="text-muted small align-self-center">当前账号无法布置此作业</span>

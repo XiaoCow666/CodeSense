@@ -804,6 +804,7 @@ def build_teacher_knowledge_focus(
                 "target_classes": target_classes,
                 "knowledge_point": code,
                 "knowledge_label": _knowledge_label(code),
+                "auto_detected": detail["auto_detected"],
                 "weight": detail["weight"],
                 "difficulty": detail["difficulty"],
                 "source_refs": detail["source_refs"],

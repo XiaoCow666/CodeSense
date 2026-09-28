@@ -111,6 +111,50 @@
                     </form>
                 </div>
             </div>
+            <section class="card mt-4" aria-labelledby="assignment-knowledge-title">
+                <div class="card-header">
+                    <h4 id="assignment-knowledge-title" class="mb-0">管理作业知识点</h4>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small">
+                        作业知识点会用于学生知识路径、作业辅导和教师班级概览。移除标签后，相关结果会按当前标签更新；学生自己的历史掌握记录会保留。
+                    </p>
+                    <form method="POST"
+                        action="{{ url_for('assignments.update_assignment_knowledge_points', assignment_id=assignment.id) }}">
+                        {{ form.csrf_token(id="knowledge-csrf-token") }}
+                        {% if knowledge_point_sources %}
+                        <fieldset class="mb-3">
+                            <legend class="fs-6">当前关联的知识点</legend>
+                            {% for source in knowledge_point_sources %}
+                            <div class="form-check d-flex align-items-center gap-2 mb-2">
+                                <input class="form-check-input mt-0" type="checkbox"
+                                    id="remove-knowledge-point-{{ source.id }}"
+                                    name="remove_knowledge_point_ids" value="{{ source.id }}">
+                                <label class="form-check-label" for="remove-knowledge-point-{{ source.id }}">
+                                    {{ knowledge_point_labels.get(source.knowledge_point, source.knowledge_point) }}
+                                </label>
+                                <span class="badge text-bg-light">
+                                    {{ 'AI 自动提取' if source.auto_detected else '教师关联' }}
+                                </span>
+                            </div>
+                            {% endfor %}
+                        </fieldset>
+                        {% else %}
+                        <p class="text-muted" role="status">这份作业还没有关联知识点。</p>
+                        {% endif %}
+                        <div class="mb-3">
+                            <label class="form-label" for="add-knowledge-point">添加知识点</label>
+                            <select class="form-select" id="add-knowledge-point" name="add_knowledge_point">
+                                <option value="">不添加新知识点</option>
+                                {% for code, label in knowledge_point_options %}
+                                <option value="{{ code }}">{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <button type="submit" class="btn btn-outline-primary">保存知识点更改</button>
+                    </form>
+                </div>
+            </section>
         </div>
     </div>
 </div>

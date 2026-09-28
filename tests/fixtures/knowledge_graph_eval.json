@@ -1,0 +1,16 @@
+{
+  "initial": {
+    "knowledge_points": ["array", "recursion"],
+    "mastery_points": ["array", "recursion"],
+    "co_occurrence_pairs": [["array", "recursion"]],
+    "forbidden_knowledge_points": ["tree"],
+    "allowed_edge_scopes": ["student_assignments", "student_private"]
+  },
+  "after_retag": {
+    "knowledge_points": ["linked_list", "recursion"],
+    "mastery_points": ["recursion"],
+    "co_occurrence_pairs": [["linked_list", "recursion"]],
+    "forbidden_knowledge_points": ["array", "tree"],
+    "allowed_edge_scopes": ["student_assignments", "student_private"]
+  }
+}

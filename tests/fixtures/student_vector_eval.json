@@ -4,27 +4,44 @@
       "source_id": "a-submission-1",
       "student_id": "student-a",
       "assignment_id": 101,
+      "source_type": "submission_feedback",
+      "source_title": "递归练习",
       "status": "active",
       "content": "递归函数需要检查终止条件和空输入。"
     },
     {
       "source_id": "a-score-1",
       "student_id": "student-a",
-      "assignment_id": 101,
+      "assignment_id": null,
+      "source_type": "knowledge_point_score",
+      "source_title": "递归",
       "status": "active",
       "content": "知识点递归当前掌握度55，仍需练习终止条件。"
     },
     {
+      "source_id": "a-score-array",
+      "student_id": "student-a",
+      "assignment_id": null,
+      "source_type": "knowledge_point_score",
+      "source_title": "数组",
+      "status": "active",
+      "content": "知识点数组当前掌握度45，需要复习数组边界。"
+    },
+    {
       "source_id": "a-revoked-1",
       "student_id": "student-a",
-      "assignment_id": 101,
+      "assignment_id": null,
+      "source_type": "knowledge_point_score",
+      "source_title": "指针",
       "status": "revoked",
       "content": "指针生命周期需要检查释放顺序。"
     },
     {
       "source_id": "a-expired-1",
       "student_id": "student-a",
-      "assignment_id": 101,
+      "assignment_id": null,
+      "source_type": "knowledge_point_score",
+      "source_title": "树",
       "status": "expired",
       "content": "旧的树状数组反馈不应继续参与检索。"
     },
@@ -32,10 +49,16 @@
       "source_id": "b-submission-1",
       "student_id": "student-b",
       "assignment_id": 202,
+      "source_type": "submission_feedback",
+      "source_title": "指针练习",
       "status": "active",
       "content": "指针生命周期需要检查释放顺序。"
     }
   ],
+  "assignment_knowledge_points": {
+    "101": ["递归", "树"],
+    "202": ["指针"]
+  },
   "queries": [
     {
       "student_id": "student-a",
@@ -68,6 +91,21 @@
       "top_k": 2,
       "relevant_source_ids": [],
       "expected_status": "no_result"
+    },
+    {
+      "student_id": "student-a",
+      "assignment_id": 101,
+      "query": "数组边界",
+      "top_k": 2,
+      "relevant_source_ids": [],
+      "expected_status": "no_result"
+    },
+    {
+      "student_id": "student-a",
+      "query": "数组边界",
+      "top_k": 1,
+      "relevant_source_ids": ["a-score-array"],
+      "expected_status": "grounded"
     }
   ]
 }
