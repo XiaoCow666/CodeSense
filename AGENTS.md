@@ -21,8 +21,14 @@ Canonical PowerShell startup for a seeded PR worktree:
 
 ```powershell
 conda activate student-eval
-cd E:\CodeSense\stage3-forum-agent-interaction
-$env:DEV_DATABASE_URL = "sqlite:///E:/CodeSense/stage3-forum-agent-interaction/instance/pr_student_code_review.db"
+$worktreePath = (Get-Location).Path
+if (-not (Test-Path -LiteralPath (Join-Path $worktreePath "app.py"))) { throw "请在 PR worktree 根目录运行此命令。" }
+$gitDirectory = (git -C $worktreePath rev-parse --absolute-git-dir).Trim()
+$commonGitDirectory = (git -C $worktreePath rev-parse --path-format=absolute --git-common-dir).Trim()
+if (-not $gitDirectory -or -not $commonGitDirectory -or $gitDirectory -eq $commonGitDirectory) { throw "请在 PR worktree 根目录运行此命令。" }
+$databasePath = Join-Path $worktreePath "instance\pr_student_code_review.db"
+if (-not (Test-Path -LiteralPath $databasePath)) { throw "请先创建 PR worktree 的 SQLite seed copy。" }
+$env:DEV_DATABASE_URL = "sqlite:///$($databasePath.Replace('\', '/'))"
 $env:REDIS_URL = "redis://127.0.0.1:6379/1"
 $env:HOST = "127.0.0.1"
 $env:PORT = "5000"
@@ -31,6 +37,11 @@ python .\app.py
 ```
 
 Before starting, verify that the seed database exists and that `DEV_DATABASE_URL` does not resolve to the main checkout. Keep the seed database untracked; it is already covered by the repository's `instance/` and `*.db` ignore rules.
+
+## Browser 插件版本一致性
+
+- 每次使用 Browser 时，读取当前会话提供的 Browser skill 路径，并从同一安装目录载入 `browser-client.mjs`。不要在本文件、自动化说明或运行记录中保存插件版本数字或带版本号的目录路径。
+- Browser client 和 service 文件必须来自同一安装目录。运行环境要求的 service 文件缺失时，停止 Browser 操作，并在 Codex 应用中刷新 Browser 插件。不要在不同版本目录之间复制文件，也不要改用其他浏览器控制工具。
 
 ## Project Overview
 
