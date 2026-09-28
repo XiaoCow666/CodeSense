@@ -15,6 +15,26 @@
         overflow: hidden;
     }
 
+    .assignment-page-heading {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 1rem;
+    }
+
+    .assignment-page-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .5rem;
+    }
+
+    .assignment-page-actions .btn { white-space: nowrap; margin: 0 !important; }
+
+    @media (max-width: 768px) {
+        .assignment-page-heading { flex-direction: column; }
+        .assignment-page-actions { width: 100%; }
+    }
+
     .assignment-header {
         padding: 1.5rem;
         border-bottom: 1px solid #e5e7eb;
@@ -135,12 +155,12 @@
 
 {% block content %}
 <div class="page-header">
-    <div class="d-flex justify-content-between align-items-center">
+    <div class="assignment-page-heading">
         <div>
             <h1 class="page-title">{{ assignment.title }}</h1>
             <p class="page-subtitle">题目详情与代码提交</p>
         </div>
-        <div>
+        <div class="assignment-page-actions">
             {% if session.get('usertype') == '学生' %}
             <a href="{{ url_for('assignments.submit_code', assignment_id=assignment.id) }}"
                 class="btn btn-primary me-2">
@@ -374,9 +394,10 @@
                         <td>{{ submission.user.full_name if submission.user else '未知' }}</td>
                         <td>{{ submission.submitted_at.strftime('%Y-%m-%d %H:%M') }}</td>
                         <td>
+                            {% set score = submission.score|submission_score(submission.submitted_at) if submission.score is not none else none %}
                             <span
-                                class="badge {% if submission.score >= 80 %}bg-success{% elif submission.score >= 60 %}bg-primary{% else %}bg-danger{% endif %}">
-                                {{ "%.1f"|format(submission.score|float) }}
+                                class="badge {% if score is none %}bg-secondary{% elif score >= 80 %}bg-success{% elif score >= 60 %}bg-primary{% else %}bg-danger{% endif %}">
+                                {{ "%.1f"|format(score) if score is not none else '未评分' }}
                             </span>
                         </td>
                         <td>
@@ -422,7 +443,7 @@
 
         <div>
             <strong>评分结果:</strong>
-            <div class="score-display">{{ "%.1f"|format(latest_submission.score|float) }}（0–100分）</div>
+            <div class="score-display">{{ "%.1f"|format(latest_submission.score|submission_score(latest_submission.submitted_at)) if latest_submission.score is not none else '未评分' }}（0–100分）</div>
         </div>
 
         <div>

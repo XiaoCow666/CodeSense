@@ -10,9 +10,9 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_sqlalchemy.session import Session as FlaskSQLAlchemySession
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_login import UserMixin  # 添加UserMixin导入
-from sqlalchemy import Index, UniqueConstraint, and_, inspect, or_, text
+from sqlalchemy import Index, UniqueConstraint, and_, inspect, or_, select, text
 from sqlalchemy.exc import SQLAlchemyError
-from utils.scoring import normalize_mixed_score, normalize_submission_score
+from utils.scoring import normalize_mixed_score, normalize_submission_score, normalized_submission_score_sql
 
 # 班级默认配置
 DEFAULT_GRADE = '2024'
@@ -29,6 +29,20 @@ class CodeSenseSession(FlaskSQLAlchemySession):
 
 
 db = SQLAlchemy(session_options={'class_': CodeSenseSession})
+
+
+def student_average_score_sql():
+    """读取百分制综合分，并兼容有时间记录的历史提交。"""
+    submission_average = select(db.func.avg(normalized_submission_score_sql(
+        Submission.score, Submission.submitted_at,
+    ))).where(
+        Submission.student_id == User.student_id,
+        Submission.score.isnot(None),
+    ).correlate(User).scalar_subquery()
+    return db.case(
+        (and_(User.user_ascore > 5, User.user_ascore <= 100), User.user_ascore),
+        else_=submission_average,
+    )
 
 
 def _database_cache_scope():
@@ -130,7 +144,7 @@ class Class(db.Model):
         student_stats = db.session.query(
             db.func.count(User.student_id),
             db.func.coalesce(db.func.sum(User.submit_count), 0),
-            db.func.coalesce(db.func.avg(User.user_ascore), 0),
+            db.func.coalesce(db.func.avg(db.func.coalesce(student_average_score_sql(), 0)), 0),
             db.func.coalesce(
                 db.func.sum(db.case((User.submit_count > 0, 1), else_=0)),
                 0,
@@ -180,7 +194,7 @@ class Class(db.Model):
                 and_(User.class_id.is_(None), User.class_name == self.name),
             ),
             User.usertype == '学生',
-        ).order_by(User.user_ascore.desc()).limit(limit).all()
+        ).order_by(student_average_score_sql().desc()).limit(limit).all()
     
     def get_assignment_progress(self, page=1, per_page=10):
         """获取班级作业完成进度 (分页形式)"""
@@ -283,7 +297,7 @@ class Class(db.Model):
             effective_class_name,
             db.func.count(User.student_id),
             db.func.coalesce(db.func.sum(User.submit_count), 0),
-            db.func.coalesce(db.func.avg(User.user_ascore), 0),
+            db.func.coalesce(db.func.avg(db.func.coalesce(student_average_score_sql(), 0)), 0),
         ).outerjoin(Class, User.class_id == Class.id).filter(
             User.usertype == '学生',
             effective_class_name.isnot(None),

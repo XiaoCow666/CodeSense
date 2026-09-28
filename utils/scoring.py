@@ -10,6 +10,7 @@ import math
 import re
 import json
 from datetime import datetime
+from sqlalchemy import and_, case
 
 
 SCORE_MAX = 100.0
@@ -97,6 +98,18 @@ def normalize_submission_score(value, submitted_at: datetime):
     if submitted_at < PERCENT_SCORE_DEPLOYED_AT and score <= 5:
         return score * 20
     return score
+
+
+def normalized_submission_score_sql(score_column, submitted_at_column):
+    """按提交时间构造与提交记录读取规则相同的数据库表达式。"""
+
+    return case(
+        (
+            and_(submitted_at_column < PERCENT_SCORE_DEPLOYED_AT, score_column <= 5),
+            score_column * 20,
+        ),
+        else_=score_column,
+    )
 
 
 def display_submission_ai_feedback(value):

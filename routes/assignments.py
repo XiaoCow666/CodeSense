@@ -55,15 +55,14 @@ from services.knowledge_evidence import build_knowledge_evidence_view
 from services.knowledge_rag import retrieve_assignment_knowledge
 from io import BytesIO, StringIO
 import csv
-from sqlalchemy import desc, func
+from sqlalchemy import desc, func, select
 import traceback  # 添加traceback模块
 import os
 import json
 from datetime import datetime
 from utils.sse import sse_event, sse_response, wants_sse
 from utils.export_safety import safe_export_cell
-from utils.submission_stats import submission_score_stats
-from utils.scoring import display_submission_ai_feedback
+from utils.scoring import display_submission_ai_feedback, normalize_submission_score, normalized_submission_score_sql
 
 assignments = Blueprint('assignments', __name__)
 
@@ -318,10 +317,13 @@ def manage_assignments():
             else:
                 query = query.order_by(Assignment.count.desc())
         elif sort_by == 'average_score':
+            average_score_for_sort = select(func.avg(normalized_submission_score_sql(
+                Submission.score, Submission.submitted_at,
+            ))).where(Submission.assignment_id == Assignment.id).scalar_subquery()
             if sort_order == 'asc':
-                query = query.order_by(Assignment.average_score.asc())
+                query = query.order_by(average_score_for_sort.asc())
             else:
-                query = query.order_by(Assignment.average_score.desc())
+                query = query.order_by(average_score_for_sort.desc())
         
         # 添加搜索条件
         if search_term:
@@ -335,6 +337,18 @@ def manage_assignments():
         # 获取分页的作业列表
         print("正在获取作业列表...")
         assignment_list = query.paginate(page=page, per_page=per_page, error_out=False)
+        assignment_ids = [assignment.id for assignment in assignment_list.items]
+        assignment_average_scores = {}
+        if assignment_ids:
+            normalized_score = normalized_submission_score_sql(
+                Submission.score, Submission.submitted_at,
+            )
+            assignment_average_scores = dict(db.session.query(
+                Submission.assignment_id, func.avg(normalized_score),
+            ).filter(
+                Submission.assignment_id.in_(assignment_ids),
+                Submission.score.isnot(None),
+            ).group_by(Submission.assignment_id).all())
         print(f"获取到 {len(assignment_list.items)} 个作业")
         
         # 获取统计信息
@@ -350,6 +364,7 @@ def manage_assignments():
             return render_template(
                 'assignments.html', 
                 assignments=assignment_list,
+                assignment_average_scores=assignment_average_scores,
                 total_submissions=total_submissions,
                 student_count=student_count,
                 search_term=search_term,
@@ -373,10 +388,11 @@ def manage_assignments():
             assignment_ids = [a.id for a in assignment_list.items]
             if assignment_ids:
                 # 子查询：获取每个作业该学生的最高分
-                from sqlalchemy import func
                 max_scores_subquery = db.session.query(
                     Submission.assignment_id,
-                    func.max(Submission.score).label('max_score')
+                    func.max(normalized_submission_score_sql(
+                        Submission.score, Submission.submitted_at,
+                    )).label('max_score')
                 ).filter(
                     Submission.student_id == student_id,
                     Submission.assignment_id.in_(assignment_ids)
@@ -545,7 +561,10 @@ def view_assignment(assignment_id):
             if can_access_submission(submission, current_user)
         ]
         submission_count = len(visible_submissions)
-        scores = [s.score for s in visible_submissions if s.score is not None]
+        scores = [
+            normalize_submission_score(s.score, s.submitted_at)
+            for s in visible_submissions if s.score is not None
+        ]
         score_distribution = {'0-59': 0, '60-79': 0, '80-100': 0}
         for score in scores:
             score = float(score)
@@ -587,13 +606,19 @@ def view_assignment(assignment_id):
         student_id=student_id,
         assignment_id=assignment_id,
     ).all()
-    scores = [s.score for s in student_submissions if s.score is not None]
+    scores = [
+        normalize_submission_score(s.score, s.submitted_at)
+        for s in student_submissions if s.score is not None
+    ]
+    assignment_average_score = db.session.query(func.avg(normalized_submission_score_sql(
+        Submission.score, Submission.submitted_at,
+    ))).filter(Submission.assignment_id == assignment.id).scalar() or 0
     return render_template(
         'assignment_detail.html',
         assignment=assignment,
         latest_submission=latest_submission,
         submission_count=len(student_submissions),
-        average_score=assignment.average_score if assignment.count > 0 else 0,
+        average_score=assignment_average_score,
         max_score=max(scores) if scores else 0,
         usertype=usertype,
         knowledge_evidence=knowledge_evidence,
@@ -868,7 +893,9 @@ def student_assignments():
         if assignment_ids:
             max_score_rows = db.session.query(
                 Submission.assignment_id,
-                func.max(Submission.score),
+                func.max(normalized_submission_score_sql(
+                    Submission.score, Submission.submitted_at,
+                )),
             ).filter(
                 Submission.student_id == student_id,
                 Submission.assignment_id.in_(assignment_ids),
@@ -1337,8 +1364,8 @@ def all_submissions():
         # 获取筛选参数
         student_id = request.args.get('student_id', '')
         assignment_id = request.args.get('assignment_id', '')
-        min_score = request.args.get('min_score', '', type=float)
-        max_score = request.args.get('max_score', '', type=float)
+        min_score = request.args.get('min_score', type=float)
+        max_score = request.args.get('max_score', type=float)
         
         # 构建查询
         query = Submission.query
@@ -1347,10 +1374,13 @@ def all_submissions():
             query = query.filter(Submission.student_id == student_id)
         if assignment_id:
             query = query.filter(Submission.assignment_id == assignment_id)
-        if min_score:
-            query = query.filter(Submission.score >= min_score)
-        if max_score:
-            query = query.filter(Submission.score <= max_score)
+        normalized_score = normalized_submission_score_sql(
+            Submission.score, Submission.submitted_at,
+        )
+        if min_score is not None:
+            query = query.filter(normalized_score >= min_score)
+        if max_score is not None:
+            query = query.filter(normalized_score <= max_score)
             
         # 分页获取提交记录，并按提交时间降序排序
         submissions = query.order_by(desc(Submission.submitted_at)).paginate(
@@ -1414,7 +1444,12 @@ def submission_history(assignment_id):
     # 口径与同文件其他平均分（仅统计已评分提交）及官方统计保持一致：
     # 未评分提交不进分子也不进分母，无已评分提交时回退 0；
     # best_score 同时由该纯函数给出，避免全未评分时泄漏 None。
-    average_score, best_score = submission_score_stats(submissions)
+    scores = [
+        normalize_submission_score(submission.score, submission.submitted_at)
+        for submission in submissions if submission.score is not None
+    ]
+    average_score = sum(scores) / len(scores) if scores else 0
+    best_score = max(scores) if scores else 0
     
     # 按时间分组的提交
     submissions_by_date = {}
@@ -1451,6 +1486,18 @@ def teacher_assignments():
     """教师查看自己创建的作业列表"""
     # 只获取当前教师创建的作业
     teacher_assignments = Assignment.query.filter_by(creator_id=current_user.student_id).order_by(Assignment.id.desc()).all()
+    assignment_ids = [assignment.id for assignment in teacher_assignments]
+    assignment_average_scores = {}
+    if assignment_ids:
+        assignment_average_scores = dict(db.session.query(
+            Submission.assignment_id,
+            func.avg(normalized_submission_score_sql(
+                Submission.score, Submission.submitted_at,
+            )),
+        ).filter(
+            Submission.assignment_id.in_(assignment_ids),
+            Submission.score.isnot(None),
+        ).group_by(Submission.assignment_id).all())
     
     # 获取教师管理的班级名称列表
     managed_class_objects = accessible_classes(current_user)
@@ -1458,6 +1505,7 @@ def teacher_assignments():
     
     # 为每个作业添加一个状态，表示是否已布置给教师的班级
     for assignment in teacher_assignments:
+        assignment.display_average_score = assignment_average_scores.get(assignment.id) or 0
         assigned_to_my_classes = []
         target_classes = assignment.get_target_class_list()
         for cls_name in target_classes:
@@ -1484,6 +1532,16 @@ def export_question_bank():
         question_bank = Assignment.query.filter_by(
             creator_id=current_user.student_id
         ).order_by(Assignment.id.asc()).all()
+    assignment_ids = [assignment.id for assignment in question_bank]
+    average_scores = dict(db.session.query(
+        Submission.assignment_id,
+        func.avg(normalized_submission_score_sql(
+            Submission.score, Submission.submitted_at,
+        )),
+    ).filter(
+        Submission.assignment_id.in_(assignment_ids),
+        Submission.score.isnot(None),
+    ).group_by(Submission.assignment_id).all()) if assignment_ids else {}
 
     headers = [
         '题目ID',
@@ -1506,7 +1564,7 @@ def export_question_bank():
             assignment.due_date.strftime('%Y-%m-%d %H:%M') if assignment.due_date else '',
             safe_export_cell(', '.join(assignment.get_target_class_list())),
             assignment.count or 0,
-            round(float(assignment.average_score or 0), 2),
+            round(float(average_scores.get(assignment.id) or 0), 2),
             safe_export_cell(
                 assignment.creator.full_name or assignment.creator.username
                 if assignment.creator else ''
@@ -1735,7 +1793,10 @@ def assign_to_classes(assignment_id):
 
     # GET请求：准备数据以渲染表单
     assigned_classes = set(assignment.get_target_class_list())
-    return render_template('assign_form.html', assignment=assignment, managed_classes=managed_classes, assigned_classes=assigned_classes)
+    average_score = db.session.query(func.avg(normalized_submission_score_sql(
+        Submission.score, Submission.submitted_at,
+    ))).filter(Submission.assignment_id == assignment.id).scalar() or 0
+    return render_template('assign_form.html', assignment=assignment, managed_classes=managed_classes, assigned_classes=assigned_classes, average_score=average_score)
 
 
 @assignments.route('/teacher/add', methods=['GET', 'POST'])
@@ -1761,6 +1822,8 @@ def add_teacher_assignment():
             abort(403)
     if len(focus_knowledge_point) > 50:
         abort(400)
+    if focus_knowledge_point and focus_knowledge_point not in KnowledgePointScore.KNOWLEDGE_POINTS:
+        abort(400)
 
     if form.validate_on_submit():
         # 检查作业ID是否已存在
@@ -1773,6 +1836,7 @@ def add_teacher_assignment():
                 'teacher_add_assignment.html',
                 form=form,
                 focus_knowledge_point=focus_knowledge_point,
+                focus_knowledge_label=KnowledgePointScore.KNOWLEDGE_POINTS.get(focus_knowledge_point),
                 focus_class=focus_class,
             )
 
@@ -1836,6 +1900,7 @@ def add_teacher_assignment():
         'teacher_add_assignment.html',
         form=form,
         focus_knowledge_point=focus_knowledge_point,
+        focus_knowledge_label=KnowledgePointScore.KNOWLEDGE_POINTS.get(focus_knowledge_point),
         focus_class=focus_class,
     )
 

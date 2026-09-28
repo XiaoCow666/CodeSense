@@ -111,7 +111,7 @@
                     <div class="col-6">
                         <div
                             class="p-3 bg-white bg-opacity-10 rounded border border-white border-opacity-10 text-center">
-                            <h4 class="text-white-50 fs-6 mb-1">φ_freq (练习律)</h4>
+                            <h4 class="text-white-50 fs-6 mb-1">练习规律</h4>
                             <div class="h5 mb-0 fw-bold">{{ phi_freq }}</div>
                             <small class="text-white-50">提交密度与规律性</small>
                         </div>
@@ -119,25 +119,25 @@
                     <div class="col-6">
                         <div
                             class="p-3 bg-white bg-opacity-10 rounded border border-white border-opacity-10 text-center">
-                            <h4 class="text-white-50 fs-6 mb-1">φ_avg (相对分)</h4>
+                            <h4 class="text-white-50 fs-6 mb-1">相对成绩</h4>
                             <div class="h5 mb-0 fw-bold">{{ phi_avg }}</div>
-                            <small class="text-white-50">对齐班级基准线</small>
+                            <small class="text-white-50">与班级平均成绩比较</small>
                         </div>
                     </div>
                     <div class="col-6">
                         <div
                             class="p-3 bg-white bg-opacity-10 rounded border border-white border-opacity-10 text-center">
-                            <h4 class="text-white-50 fs-6 mb-1">φ_std (稳定性)</h4>
+                            <h4 class="text-white-50 fs-6 mb-1">成绩稳定性</h4>
                             <div class="h5 mb-0 fw-bold">{{ phi_std }}</div>
-                            <small class="text-white-50">波动惩罚项</small>
+                            <small class="text-white-50">成绩波动情况</small>
                         </div>
                     </div>
                     <div class="col-6">
                         <div
                             class="p-3 bg-white bg-opacity-10 rounded border border-white border-opacity-10 text-center">
-                            <h4 class="text-white-50 fs-6 mb-1">φ_grad (进化率)</h4>
+                            <h4 class="text-white-50 fs-6 mb-1">成长变化</h4>
                             <div class="h5 mb-0 fw-bold">{{ phi_grad }}</div>
-                            <small class="text-white-50">一阶成长梯度</small>
+                            <small class="text-white-50">近期成长趋势</small>
                         </div>
                     </div>
                 </div>
@@ -291,7 +291,7 @@
             <img src="{{ url_for('static', filename='images/success_metamorphosis.png') }}" alt="All perfected"
                 style="width: 200px; opacity: 1;">
             <h4 class="mt-4">恭喜您！目前没有显著瓶颈</h4>
-            <p class="text-muted">所有已分配作业均已达到满分，您可以尝试挑战更高难度的扩展题。</p>
+            <p class="text-muted">目前没有低于 60 分的作业。继续复盘提交反馈，巩固已掌握的知识点。</p>
         </div>
         {% endif %}
     </div>

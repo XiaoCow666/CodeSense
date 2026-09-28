@@ -121,7 +121,7 @@
                     </p>
                     <form method="POST"
                         action="{{ url_for('assignments.update_assignment_knowledge_points', assignment_id=assignment.id) }}">
-                        {{ form.csrf_token(id="knowledge-csrf-token") }}
+                        <input type="hidden" name="csrf_token" id="knowledge-csrf-token" value="{{ csrf_token() }}">
                         {% if knowledge_point_sources %}
                         <fieldset class="mb-3">
                             <legend class="fs-6">当前关联的知识点</legend>

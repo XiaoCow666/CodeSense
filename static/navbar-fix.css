@@ -2,27 +2,39 @@
 
 /* 桌面端默认样式 (width > 768px) */
 @media (min-width: 769px) {
+    .navbar-container {
+        display: grid !important;
+        grid-template-columns: auto minmax(0, 1fr);
+        align-items: center;
+        row-gap: 10px;
+    }
+
     .navbar-toggler-btn {
         display: none !important;
     }
     
     .navbar-menu-wrapper {
-        display: flex !important;
-        flex: 1;
-        justify-content: space-between;
-        align-items: center;
-        margin-left: 24px;
+        display: contents !important;
     }
 
     .navbar-nav {
         display: flex !important;
         flex-direction: row !important;
-        flex-wrap: wrap !important;
-        justify-content: flex-start !important;
-        gap: 16px !important;
-        width: auto !important;
-        padding: 5px !important;
+        flex-wrap: nowrap !important;
+        justify-content: center !important;
+        grid-column: 1 / -1;
+        grid-row: 2;
+        gap: 12px !important;
+        width: 100% !important;
+        padding: 0 !important;
         margin: 0 !important;
+    }
+
+    .navbar-user {
+        grid-column: 2;
+        grid-row: 1;
+        justify-content: flex-end;
+        flex-wrap: nowrap;
     }
 
     .navbar-nav > li {

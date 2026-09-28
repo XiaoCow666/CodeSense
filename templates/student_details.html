@@ -665,8 +665,9 @@
                         </td>
                         <td>{{ submission.submitted_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
                         <td>
-                            <span class="score-badge {% if submission.score >= 90 %}score-excellent{% elif submission.score >= 70 %}score-good{% elif submission.score >= 60 %}score-pass{% elif submission.score >= 30 %}score-basic{% else %}score-fail{% endif %}">
-                                {{ "%.1f"|format(submission.score|float) }}
+                            {% set score = submission.score|submission_score(submission.submitted_at) if submission.score is not none else none %}
+                            <span class="score-badge {% if score is none %}score-basic{% elif score >= 90 %}score-excellent{% elif score >= 70 %}score-good{% elif score >= 60 %}score-pass{% elif score >= 30 %}score-basic{% else %}score-fail{% endif %}">
+                                {{ "%.1f"|format(score) if score is not none else '未评分' }}
                             </span>
                         </td>
                         <td>

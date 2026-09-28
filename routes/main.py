@@ -12,6 +12,7 @@ from sqlalchemy.orm import joinedload
 from models import (
     db,
     User,
+    Class,
     Assignment,
     Submission,
     SystemLog,
@@ -71,12 +72,24 @@ from utils.export_safety import safe_export_cell
 from utils.maturity_calculator import calculate_maturity_components
 from utils.sse import sse_event, sse_response
 from utils.timezone import format_display_datetime
+from utils.scoring import normalize_submission_score, normalized_submission_score_sql
 
 main = Blueprint('main', __name__)
 
 
 def _write_export_row(writer, values):
     writer.writerow([safe_export_cell(value) for value in values])
+
+
+def _export_score_maps():
+    score = normalized_submission_score_sql(Submission.score, Submission.submitted_at)
+    student_scores = dict(db.session.query(
+        Submission.student_id, func.avg(score),
+    ).filter(Submission.score.isnot(None)).group_by(Submission.student_id).all())
+    assignment_scores = dict(db.session.query(
+        Submission.assignment_id, func.avg(score),
+    ).filter(Submission.score.isnot(None)).group_by(Submission.assignment_id).all())
+    return student_scores, assignment_scores
 
 
 _ANALYSIS_STATUS_LABELS = {
@@ -210,7 +223,9 @@ def home():
         submissions_count = len(submitted_assignment_ids)
 
         # 平均得分的计算范围仍保留为所有已分配给该学生的作业，以反映整体表现
-        average_score_query = db.session.query(func.avg(Submission.score)).filter(
+        average_score_query = db.session.query(func.avg(normalized_submission_score_sql(
+            Submission.score, Submission.submitted_at,
+        ))).filter(
             Submission.student_id == student_id,
             Submission.assignment_id.in_(all_assigned_ids)
         ).scalar()
@@ -448,10 +463,13 @@ def admin_dashboard():
     }
 
     try:
+        normalized_score = normalized_submission_score_sql(
+            Submission.score, Submission.submitted_at,
+        )
         total_users = User.query.count()
         total_assignments = Assignment.query.count()
         total_submissions = Submission.query.count()
-        average_score = db.session.query(func.avg(Submission.score)).scalar() or 0
+        average_score = db.session.query(func.avg(normalized_score)).scalar() or 0
 
         now = datetime.datetime.utcnow()
         recent_activities = []
@@ -486,14 +504,14 @@ def admin_dashboard():
         ).limit(10).all()
 
         score_distribution = db.session.query(
-            Submission.score,
+            normalized_score.label('score'),
             func.count(Submission.id).label('count'),
         ).filter(
             Submission.score.isnot(None)
         ).group_by(
-            Submission.score
+            normalized_score
         ).order_by(
-            Submission.score
+            normalized_score
         ).all()
 
         today = now.date()
@@ -910,7 +928,9 @@ def profile():
         ).count()
         
         # 获取平均分数
-        average_score_query = db.session.query(func.avg(Submission.score)).scalar()
+        average_score_query = db.session.query(func.avg(normalized_submission_score_sql(
+            Submission.score, Submission.submitted_at,
+        ))).scalar()
         average_score = average_score_query if average_score_query else 0
         
         # 获取管理员邮箱
@@ -1339,6 +1359,18 @@ def action_center():
         priority=request.args.get('priority', 'all'),
         limit=request.args.get('limit', 20),
     )
+    payload['generated_at_display'] = format_display_datetime(
+        datetime.datetime.fromisoformat(payload['generated_at'].replace('Z', '+00:00')),
+        '%Y-%m-%d %H:%M',
+    )
+    for item in payload['items']:
+        item['occurred_at_display'] = (
+            format_display_datetime(
+                datetime.datetime.fromisoformat(item['occurred_at'].replace('Z', '+00:00')),
+                '%Y-%m-%d %H:%M',
+            )
+            if item['occurred_at'] else ''
+        )
     return render_template(
         'action_center.html',
         action_center=payload,
@@ -1438,6 +1470,7 @@ def download_data(export_type):
         classroom.id: classroom.name
         for classroom in Class.query.all()
     }
+    student_scores, assignment_scores = _export_score_maps()
     
     # 记录导出操作
     filter_desc = ""
@@ -1485,7 +1518,7 @@ def download_data(export_type):
                     (class_names_by_id.get(user.class_id) if user.class_id is not None else user.class_name) or '未设置',
                     user.usertype,
                     user.submit_count,
-                    user.user_ascore
+                    round(student_scores.get(user.student_id, 0), 2)
                 ])
             
             # 设置响应
@@ -1510,7 +1543,7 @@ def download_data(export_type):
                     assignment.description[:50] + '...' if len(assignment.description) > 50 else assignment.description,
                     assignment.created_time.strftime('%Y-%m-%d %H:%M:%S'),
                     assignment.count,
-                    assignment.average_score
+                    round(assignment_scores.get(assignment.id, 0), 2)
                 ])
             
             # 设置响应
@@ -1553,7 +1586,7 @@ def download_data(export_type):
                     submission.student_id,
                     submission.submitted_at.strftime('%Y-%m-%d %H:%M:%S'),
                     submission.code[:50] + '...' if len(submission.code) > 50 else submission.code,
-                    submission.score,
+                    normalize_submission_score(submission.score, submission.submitted_at) if submission.score is not None else '',
                     submission.feedback[:50] + '...' if submission.feedback and len(submission.feedback) > 50 else submission.feedback or ''
                 ])
             
@@ -1589,7 +1622,7 @@ def download_data(export_type):
                         (class_names_by_id.get(user.class_id) if user.class_id is not None else user.class_name) or '未设置',
                         user.usertype,
                         user.submit_count,
-                        user.user_ascore
+                        round(student_scores.get(user.student_id, 0), 2)
                     ])
                 zf.writestr('users.csv', users_data.getvalue())
                 
@@ -1604,7 +1637,7 @@ def download_data(export_type):
                         assignment.description[:50] + '...' if len(assignment.description) > 50 else assignment.description,
                         assignment.created_time.strftime('%Y-%m-%d %H:%M:%S'),
                         assignment.count,
-                        assignment.average_score
+                        round(assignment_scores.get(assignment.id, 0), 2)
                     ])
                 zf.writestr('assignments.csv', assignments_data.getvalue())
                 
@@ -1634,7 +1667,7 @@ def download_data(export_type):
                         submission.student_id,
                         submission.submitted_at.strftime('%Y-%m-%d %H:%M:%S'),
                         submission.code[:50] + '...' if len(submission.code) > 50 else submission.code,
-                        submission.score,
+                        normalize_submission_score(submission.score, submission.submitted_at) if submission.score is not None else '',
                         submission.feedback[:50] + '...' if submission.feedback and len(submission.feedback) > 50 else submission.feedback or ''
                     ])
                 zf.writestr('submissions.csv', submissions_data.getvalue())

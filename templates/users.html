@@ -702,7 +702,7 @@
                                 </span>
                             </td>
                             <td>{{ user.submit_count }}</td>
-                            <td>{{ "%.2f"|format(user.user_ascore) }}</td>
+                            <td>{{ "%.2f"|format(user_scores.get(user.student_id, 0)) }}</td>
                             <td>
                                 <a href="{% if user.usertype == '学生' %}{{ url_for('users.view_student_details', student_id=user.student_id) }}{% else %}{{ url_for('users.view_staff_details', student_id=user.student_id) }}{% endif %}"
                                     class="btn btn-sm btn-info">

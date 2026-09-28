@@ -9,9 +9,11 @@
             <!-- LLM Formatter Card -->
             <div class="card mb-4 border-primary">
                 <div class="card-header bg-primary text-white">
-                    <h4 class="mb-0"><i class="bi bi-magic"></i> 智能格式化工具</h4>
+                    <button class="btn btn-link text-white text-decoration-none fw-bold p-0" type="button" data-bs-toggle="collapse" data-bs-target="#assignment-ai-formatter" aria-expanded="false" aria-controls="assignment-ai-formatter">
+                        <i class="bi bi-magic" aria-hidden="true"></i> 智能格式化工具
+                    </button>
                 </div>
-                <div class="card-body">
+                <div id="assignment-ai-formatter" class="card-body collapse">
                     <p class="card-text">输入简短指令（如"留一道动态规划作业"）或粘贴完整的作业文本，AI将自动生成题目并填充到表单中。</p>
                     <div class="mb-3">
                         <textarea id="raw-text-input" class="form-control" rows="8"
@@ -39,7 +41,7 @@
                 <div class="card-body">
                     {% if focus_knowledge_point %}
                     <div class="alert alert-info" role="status">
-                        本次练习将预先关联知识点：<strong>{{ focus_knowledge_point }}</strong>{% if focus_class %}，并先布置给班级：<strong>{{ focus_class.name }}</strong>{% endif %}。
+                        本次练习将预先关联知识点：<strong>{{ focus_knowledge_label }}</strong>{% if focus_class %}，并先布置给班级：<strong>{{ focus_class.name }}</strong>{% endif %}。
                     </div>
                     {% endif %}
                     <form id="assignment-form" method="POST"

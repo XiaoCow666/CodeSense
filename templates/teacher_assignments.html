@@ -2,6 +2,44 @@
 
 {% block title %}作业管理 - 教师工作台{% endblock %}
 
+{% block extra_css %}
+<style>
+    .teacher-assignment-table { min-width: 1040px; }
+    .teacher-assignment-actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: .375rem;
+        width: 200px;
+    }
+    .teacher-assignment-actions .btn { width: 100%; white-space: nowrap; }
+    .teacher-assignment-actions form { margin: 0; }
+    .teacher-assignment-heading {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 1.5rem;
+        margin-bottom: 1.5rem;
+    }
+    .teacher-assignment-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: .5rem;
+    }
+    .teacher-assignment-toolbar .btn { white-space: nowrap; }
+    @media (max-width: 768px) {
+        .teacher-assignment-heading { flex-direction: column; }
+        .teacher-assignment-toolbar {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            width: 100%;
+        }
+        .teacher-assignment-toolbar .btn-group,
+        .teacher-assignment-toolbar .btn { width: 100%; }
+    }
+</style>
+{% endblock %}
+
 {% block modals %}
 <!-- 批量导入题库 Modal -->
 <div class="modal fade" id="batchImportModal" tabindex="-1" aria-labelledby="batchImportModalLabel" aria-hidden="true">
@@ -424,12 +462,12 @@
 
 {% block content %}
 <div class="container py-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
+    <div class="teacher-assignment-heading">
         <div>
             <h1 class="h2">作业管理</h1>
             <p class="text-muted">创建、查看和管理您自己创建的作业，并将其布置给您管理的班级。</p>
         </div>
-        <div>
+        <div class="teacher-assignment-toolbar">
             <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#batchImportModal">
                 <i class="bi bi-cloud-upload"></i> 批量导入题库
             </button>
@@ -487,7 +525,7 @@
         </div>
         <div class="card-body">
             <div class="table-responsive">
-                <table class="table table-hover">
+                <table class="table table-hover teacher-assignment-table">
                     <thead>
                         <tr>
                             <th width="44" class="text-center">
@@ -499,7 +537,7 @@
                             <th width="150">截止倒计时</th>
                             <th>已布置给我的班级</th>
                             <th width="100">提交/平均分（0–100）</th>
-                            <th width="150">操作</th>
+                            <th width="210">操作</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -558,10 +596,10 @@
             </td>
             <td>
                 <small class="text-muted">提交: {{ assignment.count }}</small><br>
-                        <small class="text-info">平均: {{ "%.1f"|format(assignment.average_score|float) }}</small>
+                        <small class="text-info">平均: {{ "%.1f"|format(assignment.display_average_score|float) }}</small>
             </td>
             <td>
-                <div class="btn-group">
+                <div class="teacher-assignment-actions">
                     <a href="{{ url_for('assignments.edit_assignment', assignment_id=assignment.id) }}"
                         class="btn btn-sm btn-warning">
                         <i class="bi bi-pencil"></i> 编辑

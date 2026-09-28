@@ -151,7 +151,7 @@ def generate_class_suggestions(class_id, teacher_id, demo_run_id=None):
                         'name': row['student'].full_name or row['student'].username,
                         'risk_tags': row['risk_tags'],
                         'latest_score': row['latest_score'],
-                        'historical_score': row['student'].user_ascore
+                        'historical_score': row['average_score']
                     })
 
         # 2. 获取弱势知识点 (班级平均分最低的前3个)
@@ -543,7 +543,7 @@ def _generate_class_suggestions_stream(class_id, teacher_id, demo_run_id=None, *
                     'name': row['student'].full_name or row['student'].username,
                     'risk_tags': row['risk_tags'],
                     'latest_score': row['latest_score'],
-                    'historical_score': row['student'].user_ascore
+                    'historical_score': row['average_score']
                 })
 
     yield sse_event({'type': 'status', 'message': '正在聚合知识点雷达掌握度...'})

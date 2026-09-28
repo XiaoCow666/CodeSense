@@ -40,9 +40,17 @@ Before starting, verify that the seed database exists and that `DEV_DATABASE_URL
 
 ## Browser 插件版本一致性
 
-- 每次使用 Browser 时，读取当前会话提供的 Browser skill 路径，并从该安装目录载入 `browser-client.mjs`。不要在本文件或运行配置中保存插件缓存目录的版本号。
-- `NODE_REPL_TRUSTED_SERVICES.browser` 使用 Codex 运行环境提供的包入口；当前桌面环境使用 `@oai/browser-desktop/service`。插件升级后检查该入口仍可解析，避免配置指向某次安装的缓存目录。
-- 修改 `NODE_REPL_TRUSTED_SERVICES` 后，重新启动 Codex，并验证 Browser 文档读取和页面访问。
+- 每次使用 Browser 时，读取当前会话提供的 Browser skill 路径，并检查 `codex mcp get node_repl --json` 返回的 `NODE_REPL_TRUSTED_SERVICES.browser`。不要在本文件中保存插件缓存目录的版本号。
+- Codex 桌面应用启动时会更新 Browser service 路径。确认该路径中的文件存在、缓存目录中的插件清单版本与路径版本一致，且 `browser-client.mjs` 来自相同版本。只修改 `config.toml` 无法修复缺少插件文件的问题。
+- 当前版本缓存缺失时，从已安装 Codex 桌面应用随附的 `resources/plugins/openai-bundled/plugins/browser` 恢复清单版本完全相同的插件内容，逐项核对文件校验值，再验证 Browser 文档读取和页面访问。不要把其他版本的文件放进当前版本目录。
+
+## 发布版本一致性
+
+- 发布前读取 GitHub `origin/main`、候选提交、服务器 `/var/www/codesense` 的 `HEAD` 和服务器 `origin/main`。核对服务器目录与工作区状态，确认候选包含最新远端 `main`，并逐项处理主工作区尚未提交的改动。
+- 发布版本号同时检查 `README.md`、`README.en.md`、`CHANGELOG.md`、版本信息图文件名和 GitHub Release 标签。用户看到的版本介绍必须对应准备发布的提交。
+- 候选通过审查和测试后，向远端 `main` 推送候选提交，再读取远端提交确认推送结果。服务器只在目标实例和目录核验通过后执行 `/var/www/codesense/update.sh`。
+- 等待 `update.sh` 完整结束，随后确认服务器 `HEAD` 与远端 `main` 是同一提交，应用及必要 worker 正常运行，`/healthz` 与 `/readyz` 均返回 200。完成这些检查后才能创建 Release、发送更新消息和修改项目知识文档。
+- 报告分别记录候选、远端、服务器和 Release 的版本与提交。任一位置不同步时，停止对外发布并记录实际状态。
 
 ## Project Overview
 

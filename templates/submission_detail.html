@@ -5,6 +5,19 @@
 
 {% block extra_css %}
 <style>
+    .submission-page-heading {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 1rem;
+    }
+
+    .submission-page-heading .btn { white-space: nowrap; }
+
+    @media (max-width: 768px) {
+        .submission-page-heading { flex-direction: column; }
+    }
+
     .submission-card {
         background-color: #fff;
         border-radius: 0.5rem;
@@ -211,7 +224,7 @@
 
 {% block content %}
 <div class="page-header">
-    <div class="d-flex justify-content-between align-items-center">
+    <div class="submission-page-heading">
         <div>
             <h1 class="page-title">提交详情</h1>
             <p class="page-subtitle">
@@ -239,11 +252,6 @@
     </div>
 </div>
 
-{% if knowledge_evidence is defined %}
-{% set knowledge_audience = 'admin' if session.get('usertype') == '管理员' else 'teacher' if session.get('usertype') == '教师' else 'student' %}
-{{ knowledge_evidence_panel(knowledge_evidence, audience=knowledge_audience, panel_id='submission-knowledge-evidence', compact=true, boundary_note=true, heading='这道作业使用的知识焦点', retry_url=url_for('api.get_assignment_knowledge_evidence', assignment_id=assignment.id)) }}
-{% endif %}
-
 <div class="submission-card">
     <div class="submission-info">
         <h2 class="mb-3">{{ assignment.title }}</h2>
@@ -269,8 +277,9 @@
                     {% if submission.status == 'failed' %}评测失败{% else %}评测中{% endif %}
                 </span>
                 {% else %}
-                <span class="ms-1 badge {% if submission.score >= 80 %}bg-success{% elif submission.score >= 60 %}bg-warning text-dark{% else %}bg-danger{% endif %} fs-6">
-                    {{ "%.1f"|format(submission.score|float) }}
+                {% set score = submission.score|submission_score(submission.submitted_at) %}
+                <span class="ms-1 badge {% if score >= 80 %}bg-success{% elif score >= 60 %}bg-warning text-dark{% else %}bg-danger{% endif %} fs-6">
+                    {{ "%.1f"|format(score) }}
                 </span>
                 {% endif %}
                 {% if submission.sandbox_status == 'unavailable' %}
@@ -452,7 +461,8 @@
         <h3><i class="bi bi-chat-square-text me-2"></i>评分反馈</h3>
 
         {% if submission.score is not none %}
-        {% if submission.score >= 90 %}
+        {% set score = submission.score|submission_score(submission.submitted_at) %}
+        {% if score >= 90 %}
         <div class="alert alert-success mt-4">
             <i class="bi bi-award-fill"></i> <strong>优秀 (90-100 分)：</strong>
             {% if session.get('usertype') == '学生' %}
@@ -461,7 +471,7 @@
             该代码非常出色，逻辑清晰，结构优良。代码不仅实现了所有要求的功能，而且效率高，可读性好，注释充分。这是一个非常专业的解决方案，几乎没有可改进的地方。
             {% endif %}
         </div>
-        {% elif submission.score >= 70 %}
+        {% elif score >= 70 %}
         <div class="alert alert-success mt-4">
             <i class="bi bi-check-circle-fill"></i> <strong>良好 (70-89 分)：</strong>
             {% if session.get('usertype') == '学生' %}
@@ -470,7 +480,7 @@
             该代码质量很好，实现了所有核心功能，代码结构清晰。虽然还有一些小的优化空间，但整体表现出色。代码风格良好，注释适当，可读性强。
             {% endif %}
         </div>
-        {% elif submission.score >= 50 %}
+        {% elif score >= 50 %}
         <div class="alert alert-warning mt-4">
             <i class="bi bi-info-circle-fill"></i> <strong>中等 (50-69 分)：</strong>
             {% if session.get('usertype') == '学生' %}
@@ -479,7 +489,7 @@
             该代码基本实现了要求的功能，逻辑正确，但存在一些优化空间。代码结构可以更清晰，部分地方缺少必要的注释，某些算法可以进一步优化。
             {% endif %}
         </div>
-        {% elif submission.score >= 30 %}
+        {% elif score >= 30 %}
         <div class="alert alert-warning mt-4">
             <i class="bi bi-exclamation-circle-fill"></i> <strong>基础 (30-49 分)：</strong>
             {% if session.get('usertype') == '学生' %}
@@ -578,6 +588,11 @@
     </section>
     {% endif %}
 </div>
+
+{% if knowledge_evidence is defined %}
+{% set knowledge_audience = 'admin' if session.get('usertype') == '管理员' else 'teacher' if session.get('usertype') == '教师' else 'student' %}
+{{ knowledge_evidence_panel(knowledge_evidence, audience=knowledge_audience, panel_id='submission-knowledge-evidence', compact=true, boundary_note=true, heading='这道作业使用的知识焦点', retry_url=url_for('api.get_assignment_knowledge_evidence', assignment_id=assignment.id)) }}
+{% endif %}
 
 <div class="d-flex justify-content-between mt-4">
     <a href="{{ url_for('assignments.download_code', submission_id=submission.id) }}" class="btn btn-primary">

@@ -345,7 +345,7 @@
                 {% else %}
                 <p class="text-muted mb-3">你可以先使用自由账号体验平台。收到教师邀请后，在这里输入班级加入码即可加入对应班级。</p>
                 <form class="join-code-form" action="{{ url_for('classes.join_class') }}" method="post">
-                    {% if csrf_token is defined %}{{ csrf_token() }}{% endif %}
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="text" name="join_code" class="form-control" maxlength="20"
                         placeholder="请输入教师提供的班级加入码" autocomplete="off" required>
                     <button type="submit" class="btn btn-primary text-nowrap">

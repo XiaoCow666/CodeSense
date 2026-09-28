@@ -41,6 +41,7 @@ from config import config
 from models import db, init_db
 from services.api_keys import api_keys  # 导入 API 密钥管理器
 from utils.timezone import format_display_datetime
+from utils.scoring import normalize_submission_score
 
 
 csrf = CSRFProtect()
@@ -484,6 +485,10 @@ def create_app(config_name='default'):
     def localtime_filter(value, fmt='%Y-%m-%d %H:%M:%S'):
         """Render a stored UTC timestamp in the configured display timezone."""
         return format_display_datetime(value, fmt)
+
+    @app.template_filter('submission_score')
+    def submission_score_filter(value, submitted_at):
+        return normalize_submission_score(value, submitted_at)
 
     # 注册全局上下文变量
     @app.context_processor

@@ -64,13 +64,13 @@ function submitCodeViaAPI() {
             showSubmissionMessage("代码已提交，后台评测中，请稍候。", "info");
             return pollSubmissionUntilEvaluated(submission.submission_id)
                 .then(result => {
-                    showSubmissionMessage(`代码评测完成! 评分: ${result.score}/5`, "success");
+                    showSubmissionMessage(`代码评测完成! 评分: ${result.score}/100`, "success");
                     window.location.href = `/assignments/view_submission/${submission.submission_id}`;
                 });
         }
 
         // 默认线程/同步路径保留原有即时响应。
-        showSubmissionMessage(`代码提交成功! 评分: ${submission.score}/5`, "success");
+        showSubmissionMessage(`代码提交成功! 评分: ${submission.score}/100`, "success");
         if (submission.submission_id) {
             setTimeout(() => {
                 window.location.href = `/assignments/view_submission/${submission.submission_id}`;

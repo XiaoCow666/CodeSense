@@ -89,7 +89,7 @@
                 <span class="text-muted small" role="status">{{ '已撤回' if source.get('revoke_reason') == 'user_revoked' else '来源已移除' }}</span>
                 {% else %}
                 <form method="post" action="{{ url_for('main.revoke_student_learning_memory_source') }}">
-                    {% if csrf_token is defined %}{{ csrf_token() }}{% endif %}
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="source_type" value="{{ source.get('source_type') }}">
                     <input type="hidden" name="source_id" value="{{ source.get('source_id') }}">
                     <button type="submit" class="btn btn-sm btn-outline-danger">撤回此来源</button>
@@ -102,6 +102,7 @@
     {% endif %}
 
     <form method="post" action="{{ url_for('main.rebuild_student_learning_memory') }}" class="student-learning-memory-panel__action">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button type="submit" class="btn btn-outline-primary">
             <i class="bi bi-arrow-repeat" aria-hidden="true"></i>
             更新我的学习记忆

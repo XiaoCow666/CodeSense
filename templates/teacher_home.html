@@ -39,6 +39,26 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
+        gap: 0.75rem;
+    }
+
+    .teacher-dashboard-heading {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 1.25rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .teacher-dashboard-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .teacher-dashboard-actions .btn,
+    .review-dashboard-card .btn {
+        white-space: nowrap;
     }
 
     .list-group-item a {
@@ -196,6 +216,28 @@
     }
 
     @media (max-width: 576px) {
+        .teacher-dashboard-heading {
+            flex-direction: column;
+        }
+
+        .teacher-dashboard-actions {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            width: 100%;
+        }
+
+        .teacher-dashboard-actions .btn:first-child {
+            grid-column: 1 / -1;
+        }
+
+        .dashboard-section {
+            padding: 1.25rem;
+        }
+
+        .section-title {
+            font-size: 1.25rem;
+        }
+
         .student-snapshot-filters {
             align-items: stretch;
             flex-direction: column;
@@ -240,12 +282,12 @@
 
 {% block content %}
 <div class="container py-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
+    <div class="teacher-dashboard-heading">
         <div>
             <h1 class="h2">教师仪表盘</h1>
             <p class="text-muted">欢迎回来, {{ teacher.full_name or teacher.username }}!</p>
         </div>
-        <div>
+        <div class="teacher-dashboard-actions">
             <a href="{{ url_for('classes.class_list') }}" class="btn btn-primary">
                 <i class="bi bi-collection me-2"></i>管理我的班级
             </a>
@@ -530,7 +572,7 @@
                                 {{ row.student.full_name or row.student.username }}
                             </a>
                         </td>
-                        <td><span class="badge bg-light text-primary">{{ "%.1f"|format(row.student.user_ascore|float) }}</span></td>
+                        <td><span class="badge bg-light text-primary">{{ "%.1f"|format(row.average_score or 0) }}</span></td>
                         <td>
                             {% if row.latest_score is not none %}{{ "%.1f"|format(row.latest_score|float) }}{% else %}未提交{% endif %}
                         </td>
@@ -670,9 +712,10 @@
                                 </td>
                                 <td>{{ sub.submitted_at.strftime('%Y-%m-%d %H:%M') }}</td>
                                 <td>
+                                    {% set score = sub.score|submission_score(sub.submitted_at) if sub.score is not none else none %}
                                     <span
-                                        class="badge {% if sub.score is not none and sub.score >= 80 %}bg-success{% elif sub.score is not none and sub.score >= 60 %}bg-warning{% else %}bg-danger{% endif %}">
-                                        {% if sub.score is not none %}{{ "%.1f"|format(sub.score|float) }}{% else %}待评分{% endif %}
+                                        class="badge {% if score is none %}bg-secondary{% elif score >= 80 %}bg-success{% elif score >= 60 %}bg-warning{% else %}bg-danger{% endif %}">
+                                        {% if score is not none %}{{ "%.1f"|format(score) }}{% else %}待评分{% endif %}
                                     </span>
                                 </td>
                             </tr>

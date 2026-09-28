@@ -18,7 +18,7 @@
                 <p class="text-muted small mb-2">{{ action.summary }}</p>
                 <span class="badge bg-light text-dark border">班级聚合</span>
                 {% if action.kind == 'knowledge_practice' and action.source_versions %}
-                <span class="text-muted small ms-2">来源版本：{{ action.source_versions|join(', ') }}</span>
+                <span class="text-muted small ms-2">来源版本：{% for version in action.source_versions %}<span title="{{ version }}">{{ version[:12] }}</span>{{ '、' if not loop.last }}{% endfor %}</span>
                 {% endif %}
             </div>
             {% if action.kind == 'knowledge_practice' %}
@@ -27,7 +27,7 @@
             </a>
             {% elif action.kind == 'learning_memory_refresh' %}
             <form method="POST" action="{{ action.action_url }}" class="teacher-learning-action-form">
-                {% if csrf_token is defined %}{{ csrf_token() }}{% endif %}
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="next" value="{{ request.full_path }}">
                 <button class="btn btn-sm btn-primary" type="submit">
                     提醒学生更新学习记忆

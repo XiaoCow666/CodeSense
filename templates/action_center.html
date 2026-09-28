@@ -24,7 +24,7 @@
         {% if action_center.degraded_sources %}
         部分来源暂时不可用，已显示其余行动。
         {% else %}
-        队列已更新 · {{ action_center.generated_at }}
+        队列已更新 · {{ action_center.generated_at_display }}
         {% endif %}
     </div>
 
@@ -45,7 +45,7 @@
                     <span class="action-center-item-meta">
                         <span class="action-center-item-priority">{{ item.status_label }}</span>
                         <span>{{ item.source_label }}</span>
-                        {% if item.occurred_at %}<time datetime="{{ item.occurred_at }}">{{ item.occurred_at }}</time>{% endif %}
+                        {% if item.occurred_at %}<time datetime="{{ item.occurred_at }}">{{ item.occurred_at_display }}</time>{% endif %}
                     </span>
                     <strong>{{ item.title }}</strong>
                     <span>{{ item.summary }}</span>

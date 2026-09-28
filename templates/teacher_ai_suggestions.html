@@ -4,6 +4,20 @@
 
 {% block extra_css %}
 <style>
+    .teacher-advice-heading {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .teacher-advice-heading .btn { white-space: nowrap; }
+
+    @media (max-width: 768px) {
+        .teacher-advice-heading { flex-direction: column; }
+    }
+
     .ai-card {
         background: rgba(255, 255, 255, 0.85);
         backdrop-filter: blur(10px);
@@ -100,7 +114,7 @@
 {% block content %}
 <div class="container py-4">
     <!-- 面包屑和标题 -->
-    <div class="d-flex justify-content-between align-items-center mb-4">
+    <div class="teacher-advice-heading">
         <div>
             <nav aria-label="breadcrumb">
                 <ol class="breadcrumb mb-1">

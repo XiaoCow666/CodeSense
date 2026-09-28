@@ -322,8 +322,6 @@
             
             log("Chart.js库已加载，版本: " + (Chart.version || "未知"));
             
-            // 后端传入的是结构化 JSON；使用 tojson，避免作业标题中的引号或
-            // </script> 片段破坏脚本上下文，也绝不在生产页面伪造统计数据。
             const chartData = {{ chart_data|tojson }};
             log("图表数据已加载，包含 " + Object.keys(chartData).length + " 个图表配置");
             log("作业数据: " + (chartData.assignments?.labels?.length || 0) + " 个标签");

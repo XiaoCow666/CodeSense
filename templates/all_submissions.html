@@ -202,12 +202,15 @@
                             <strong>{{ submission.assignment.title }}</strong>
                         </td>
                         <td>
-                            {% if submission.score >= 80 %}
-                            <span class="score-badge score-high">{{ "%.1f"|format(submission.score|float) }}</span>
-                            {% elif submission.score >= 60 %}
-                            <span class="score-badge score-medium">{{ "%.1f"|format(submission.score|float) }}</span>
+                            {% set score = submission.score|submission_score(submission.submitted_at) if submission.score is not none else none %}
+                            {% if score is none %}
+                            <span class="score-badge">未评分</span>
+                            {% elif score >= 80 %}
+                            <span class="score-badge score-high">{{ "%.1f"|format(score) }}</span>
+                            {% elif score >= 60 %}
+                            <span class="score-badge score-medium">{{ "%.1f"|format(score) }}</span>
                             {% else %}
-                            <span class="score-badge score-low">{{ "%.1f"|format(submission.score|float) }}</span>
+                            <span class="score-badge score-low">{{ "%.1f"|format(score) }}</span>
                             {% endif %}
                         </td>
                         <td>

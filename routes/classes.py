@@ -5,7 +5,7 @@ from flask import Blueprint, render_template, request, jsonify, flash, redirect,
 from flask_login import login_required, current_user
 from sqlalchemy import and_, func, desc, or_
 import pandas as pd
-from models import db, Class, StudentRoster, User, Assignment, Submission
+from models import db, Class, StudentRoster, User, Assignment, Submission, student_average_score_sql
 from services.demo_experience import seed_legacy_demo_experience
 from services.teacher_analytics import build_assignment_completion_matrix, build_class_learning_rows
 from services.student_vector_health import build_teacher_learning_memory_health
@@ -19,6 +19,7 @@ from utils.access import (
     managed_classes,
 )
 from utils.upload_safety import UploadValidationError, validate_upload
+from utils.scoring import normalized_submission_score_sql
 
 classes = Blueprint('classes', __name__, url_prefix='/classes')
 
@@ -124,6 +125,13 @@ def class_list():
             'stats': stats,
             'top_students': cls.get_top_students(3)
         })
+    top_student_ids = {
+        student.student_id
+        for item in class_data for student in item['top_students']
+    }
+    top_student_scores = dict(db.session.query(
+        User.student_id, student_average_score_sql(),
+    ).filter(User.student_id.in_(top_student_ids)).all()) if top_student_ids else {}
     
     # 按学生数量排序
     class_data.sort(key=lambda x: x['stats']['student_count'], reverse=True)
@@ -142,6 +150,7 @@ def class_list():
         
     return render_template('classes/class_list.html', 
                          class_data=class_data,
+                         top_student_scores=top_student_scores,
                          total_classes=len(all_classes),
                          total_students=total_students,
                          total_submissions_overall=total_submissions,
@@ -476,12 +485,18 @@ def class_detail(class_id):
     students = User.query.filter(
         class_student_filter(cls),
         User.usertype == '学生',
-    ).order_by(desc(User.user_ascore)).paginate(
+    ).order_by(desc(student_average_score_sql())).paginate(
         page=page,
         per_page=per_page,
         error_out=False,
     )
     learning_rows = build_class_learning_rows(cls, students=students.items)
+    student_average_scores = dict(db.session.query(
+        User.student_id,
+        student_average_score_sql(),
+    ).filter(
+        User.student_id.in_([student.student_id for student in students.items]),
+    ).all()) if students.items else {}
     assignment_matrix = build_assignment_completion_matrix(cls, students=students.items, assignment_limit=5)
     learning_memory_health = None
     teacher_learning_actions = None
@@ -505,6 +520,7 @@ def class_detail(class_id):
                          stats=stats,
                          students=students,
                          learning_rows=learning_rows,
+                         student_average_scores=student_average_scores,
                          assignment_matrix=assignment_matrix,
                          learning_memory_health=learning_memory_health,
                          teacher_learning_actions=teacher_learning_actions,
@@ -545,7 +561,7 @@ def class_assignment_detail(class_id, assignment_id):
     students_query = User.query.filter(
         class_student_filter(cls),
         User.usertype == '学生',
-    ).order_by(desc(User.user_ascore))
+    ).order_by(desc(student_average_score_sql()))
     students_paginated = students_query.paginate(page=page, per_page=per_page, error_out=False)
     
     student_records = []
@@ -555,7 +571,9 @@ def class_assignment_detail(class_id, assignment_id):
         best_submission = Submission.query.filter_by(
             student_id=student.student_id, 
             assignment_id=assignment.id
-        ).order_by(Submission.score.desc()).first()
+        ).order_by(normalized_submission_score_sql(
+            Submission.score, Submission.submitted_at,
+        ).desc()).first()
         
         # 获取总提交次数
         submit_count = Submission.query.filter_by(
@@ -613,7 +631,9 @@ def class_comparison():
                 User.class_id == cls.id,
                 and_(User.class_id.is_(None), User.class_name == cls.name),
             )
-            avg_score = db.session.query(func.avg(Submission.score))\
+            avg_score = db.session.query(func.avg(normalized_submission_score_sql(
+                Submission.score, Submission.submitted_at,
+            )))\
                        .join(User).filter(student_scope,
                                         User.usertype == '学生',
                                         Submission.assignment_id == assignment.id)\

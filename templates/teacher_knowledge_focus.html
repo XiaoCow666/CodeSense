@@ -51,7 +51,8 @@
 
         <div class="alert alert-info d-flex flex-wrap justify-content-between align-items-center gap-2" role="status">
             <div>
-                <strong>{{ focus.meta.knowledge_label }}班级信号：{{ focus.meta.focus_signal.status }}</strong>
+                {% set signal_labels = {'insufficient_sample': '样本不足', 'needs_attention': '需要关注', 'covered': '整体掌握良好'} %}
+                <strong>{{ focus.meta.knowledge_label }}班级情况：{{ signal_labels[focus.meta.focus_signal.status] }}</strong>
                 <span class="small ms-2">
                     样本 {{ focus.meta.focus_signal.student_sample_size }} 人，
                     平均掌握度 {{ focus.meta.focus_signal.average_mastery if focus.meta.focus_signal.average_mastery is not none else '暂无' }}，

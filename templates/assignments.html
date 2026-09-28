@@ -23,16 +23,16 @@
         <div class="d-flex justify-content-between align-items-center flex-wrap">
             <!-- 搜索表单 -->
             <form action="{{ url_for('assignments.manage_assignments') }}" method="get" class="d-flex me-2 flex-grow-1">
-                <input type="text" class="form-control me-2" placeholder="搜索作业标题或描述..." name="search"
+                <input type="text" class="form-control me-2" placeholder="搜索作业标题或描述..." name="search" aria-label="搜索作业"
                     value="{{ search_term if search_term else '' }}">
                 <input type="hidden" name="sort_by" value="{{ sort_by if sort_by else '' }}">
                 <input type="hidden" name="sort_order" value="{{ sort_order if sort_order else '' }}">
-                <button type="submit" class="btn btn-primary">
+                <button type="submit" class="btn btn-primary flex-shrink-0 text-nowrap">
                     <i class="bi bi-search"></i> 搜索
                 </button>
                 {% if search_term %}
                 <a href="{{ url_for('assignments.manage_assignments', sort_by=sort_by, sort_order=sort_order) }}"
-                    class="btn btn-secondary ms-2">
+                    class="btn btn-secondary ms-2 flex-shrink-0 text-nowrap">
                     <i class="bi bi-x-circle"></i> 清除
                 </a>
                 {% endif %}
@@ -187,7 +187,7 @@
         </td>
         <td>
             <small class="text-muted">提交: {{ assignment.count }}</small><br>
-            <small class="text-info">平均: {{ '%.2f' % assignment.average_score if assignment.average_score else '0.00'
+            <small class="text-info">平均: {{ '%.2f' % assignment_average_scores.get(assignment.id, 0) if assignment_average_scores.get(assignment.id) else '0.00'
                 }}</small>
         </td>
         <td>

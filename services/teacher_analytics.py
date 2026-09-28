@@ -1,9 +1,9 @@
 from datetime import datetime as dt, time, timedelta
 
-from models import Assignment, Class, StudentRoster, Submission, User, db
+from models import Assignment, Class, StudentRoster, Submission, User, db, student_average_score_sql
 from sqlalchemy import or_
 from utils.access import assignment_target_class_filter, class_student_filter
-from utils.scoring import EXCELLENT_SCORE_THRESHOLD, LOW_SCORE_THRESHOLD
+from utils.scoring import EXCELLENT_SCORE_THRESHOLD, LOW_SCORE_THRESHOLD, normalize_submission_score
 
 
 ACTIVE_WINDOW_DAYS = 7
@@ -112,7 +112,7 @@ def build_assignment_completion_matrix(cls, students=None, assignment_limit=5):
         students = User.query.filter(
             class_student_filter(cls),
             User.usertype == '学生',
-        ).order_by(User.user_ascore.desc()).all()
+        ).order_by(student_average_score_sql().desc()).all()
     else:
         students = list(students)
 
@@ -132,7 +132,9 @@ def build_assignment_completion_matrix(cls, students=None, assignment_limit=5):
             if current is None:
                 submissions_by_key[key] = submission
             elif submission.score is not None and (
-                current.score is None or submission.score > current.score
+                current.score is None or normalize_submission_score(
+                    submission.score, submission.submitted_at,
+                ) > normalize_submission_score(current.score, current.submitted_at)
             ):
                 submissions_by_key[key] = submission
 
@@ -145,7 +147,9 @@ def build_assignment_completion_matrix(cls, students=None, assignment_limit=5):
             submitted = submission is not None
             if submitted:
                 completed_count += 1
-            best_score = submission.score if submission else None
+            best_score = normalize_submission_score(
+                submission.score, submission.submitted_at,
+            ) if submission else None
             status = _cell_status(best_score, submitted)
             cells.append({
                 'assignment': assignment,
@@ -187,7 +191,7 @@ def build_assignment_completion_matrix(cls, students=None, assignment_limit=5):
     }
 
 
-def _risk_tags_for_student(student, latest_submission, submission_count, now):
+def _risk_tags_for_student(student, latest_submission, submission_count, now, average_score):
     tags = []
     inactive_before = now - timedelta(days=ACTIVE_WINDOW_DAYS)
 
@@ -196,10 +200,12 @@ def _risk_tags_for_student(student, latest_submission, submission_count, now):
     elif latest_submission and latest_submission.submitted_at < inactive_before:
         tags.append('近期未活跃')
 
-    latest_score = latest_submission.score if latest_submission else None
+    latest_score = normalize_submission_score(
+        latest_submission.score, latest_submission.submitted_at,
+    ) if latest_submission else None
     if (
-        student.user_ascore is not None
-        and 0 < student.user_ascore < LOW_SCORE_THRESHOLD
+        average_score is not None
+        and 0 < average_score < LOW_SCORE_THRESHOLD
     ) or (
         latest_score is not None
         and latest_score < LOW_SCORE_THRESHOLD
@@ -209,12 +215,12 @@ def _risk_tags_for_student(student, latest_submission, submission_count, now):
     return tags
 
 
-def _status_for_student(student, tags):
+def _status_for_student(tags, average_score):
     if '未提交' in tags:
         return '未开始'
     if tags:
         return '需关注'
-    if student.user_ascore is not None and student.user_ascore >= EXCELLENT_SCORE_THRESHOLD:
+    if average_score is not None and average_score >= EXCELLENT_SCORE_THRESHOLD:
         return '优秀'
     return '正常'
 
@@ -226,26 +232,35 @@ def build_class_learning_rows(cls, students=None, now=None):
         students = User.query.filter(
             class_student_filter(cls),
             User.usertype == '学生',
-        ).order_by(User.user_ascore.desc()).all()
+        ).order_by(student_average_score_sql().desc()).all()
     else:
         students = list(students)
 
     student_ids = _student_ids(students)
     latest_by_student = _latest_submissions_by_student(student_ids)
     count_by_student = _submission_counts_by_student(student_ids)
+    average_scores = dict(db.session.query(
+        User.student_id, student_average_score_sql(),
+    ).filter(User.student_id.in_(student_ids)).all()) if student_ids else {}
 
     rows = []
     for student in students:
         latest_submission = latest_by_student.get(student.student_id)
         submission_count = count_by_student.get(student.student_id, 0)
-        tags = _risk_tags_for_student(student, latest_submission, submission_count, now)
+        average_score = average_scores.get(student.student_id)
+        tags = _risk_tags_for_student(
+            student, latest_submission, submission_count, now, average_score,
+        )
         rows.append({
             'student': student,
             'submit_count': submission_count,
             'latest_submission': latest_submission,
-            'latest_score': latest_submission.score if latest_submission else None,
+            'latest_score': normalize_submission_score(
+                latest_submission.score, latest_submission.submitted_at,
+            ) if latest_submission else None,
+            'average_score': average_score,
             'latest_submitted_at': latest_submission.submitted_at if latest_submission else None,
-            'status': _status_for_student(student, tags),
+            'status': _status_for_student(tags, average_score),
             'risk_tags': tags,
         })
     return rows
@@ -341,7 +356,7 @@ def build_teacher_dashboard_data(teacher, now=None):
         'student_count': len(students),
         'student_rows': sorted(
             rows_by_student_id.values(),
-            key=lambda row: (row['student'].user_ascore or 0),
+            key=lambda row: (row['average_score'] or 0),
             reverse=True,
         ),
         'total_submissions': total_submissions,

@@ -132,16 +132,16 @@
         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
             <!-- 搜索表单 -->
             <form action="{{ url_for('assignments.student_assignments') }}" method="get" class="d-flex me-2 flex-grow-1">
-                <input type="text" class="form-control me-2" placeholder="搜索作业标题、描述，或输入意图（如“我想练排序”、“我分数低的作业”）..." name="search"
+                <input type="text" class="form-control me-2" aria-label="搜索作业标题、描述或学习意图" placeholder="搜索作业标题、描述，或输入意图（如“我想练排序”、“我分数低的作业”）..." name="search"
                     value="{{ search_term if search_term else '' }}">
                 <input type="hidden" name="sort" value="{{ sort_by if sort_by else 'id' }}">
                 <input type="hidden" name="order" value="{{ sort_order if sort_order else 'desc' }}">
-                <button type="submit" class="btn btn-primary d-flex align-items-center gap-1">
+                <button type="submit" class="btn btn-primary d-flex align-items-center gap-1 flex-shrink-0 text-nowrap">
                     <i class="bi bi-search"></i> <span>搜索</span>
                 </button>
                 {% if search_term %}
                 <a href="{{ url_for('assignments.student_assignments', sort=sort_by, order=sort_order) }}"
-                    class="btn btn-secondary ms-2 d-flex align-items-center gap-1">
+                    class="btn btn-secondary ms-2 d-flex align-items-center gap-1 flex-shrink-0 text-nowrap">
                     <i class="bi bi-x-circle"></i> <span>清除</span>
                 </a>
                 {% endif %}

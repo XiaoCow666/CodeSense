@@ -89,6 +89,26 @@
         display: flex;
         gap: 0.5rem;
     }
+    .class-list-heading {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+    .class-list-heading h1 { margin-bottom: 0; }
+    .class-list-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+    .class-list-actions .btn { white-space: nowrap; }
+    @media (max-width: 768px) {
+        .class-list-heading { flex-direction: column; align-items: stretch; }
+        .class-list-actions {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .class-list-actions .btn,
+        .class-list-actions form { width: 100%; }
+        .class-list-actions form .btn { white-space: normal; }
+    }
 </style>
 {% endblock %}
 
@@ -96,9 +116,9 @@
 <div class="container">
     <div class="row">
         <div class="col-12">
-            <div class="d-flex justify-content-between align-items-center mb-4">
+            <div class="class-list-heading">
                 <h1>班级管理</h1>
-                <div class="d-flex gap-2">
+                <div class="class-list-actions">
                     {% if session.get('usertype') == '管理员' %}
                     <form action="{{ url_for('classes.sync_classes') }}" method="POST" class="d-inline">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -286,7 +306,7 @@
                             {% for student in item.top_students %}
                             <div class="student-item">
                                 <span>{{ student.full_name }}</span>
-                                <span class="badge badge-primary">{{ "%.1f"|format(student.user_ascore) }}</span>
+                                <span class="badge badge-primary">{{ "%.1f"|format(top_student_scores.get(student.student_id) or 0) }}</span>
                             </div>
                             {% endfor %}
                         </div>

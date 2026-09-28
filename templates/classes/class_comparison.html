@@ -244,8 +244,8 @@
                             item.stats.student_count > 0 else 0 }}%</td>
                         <td>
                             {% set comprehensive_score = (item.stats.avg_score * 0.4 + (item.stats.active_students /
-                            item.stats.student_count * 100 * 0.05) + (item.stats.total_submissions /
-                            item.stats.student_count * 0.1)) if item.stats.student_count > 0 else 0 %}
+                            item.stats.student_count * 100 * 0.5) + ([item.stats.total_submissions /
+                            item.stats.student_count * 20, 100]|min * 0.1)) if item.stats.student_count > 0 else 0 %}
                             <span class="badge badge-primary">{{ "%.1f"|format(comprehensive_score) }}</span>
                         </td>
                     </tr>
@@ -264,7 +264,7 @@
                     <li><strong>平均分</strong>：班级所有学生的平均得分</li>
                     <li><strong>活跃学生</strong>：至少提交过一次作业的学生数量</li>
                     <li><strong>参与率</strong>：活跃学生占班级总人数的比例</li>
-                    <li><strong>综合评分</strong>：基于平均分(40%)、参与率(50%)和人均提交数(10%)的综合指标</li>
+                    <li><strong>综合评分</strong>：平均分占 40%，参与率占 50%，人均提交数占 10%（人均 5 次及以上计满该项）。</li>
                 </ul>
             </div>
         </div>

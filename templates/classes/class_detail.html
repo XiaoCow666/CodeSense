@@ -210,7 +210,7 @@
                 </p>
                 <form action="{{ url_for('classes.reset_student_join_code', class_id=cls.id) }}" method="POST"
                     class="mt-2" onsubmit="return confirm('确定重置学生加入码吗？旧加入码将立即失效。');">
-                    {% if csrf_token is defined %}{{ csrf_token() }}{% endif %}
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button type="submit" class="btn btn-sm btn-light">
                         <i class="bi bi-arrow-clockwise"></i> 重置学生加入码
                     </button>
@@ -543,8 +543,9 @@
                             </span>
                         </td>
                         <td>
-                            <span class="badge {% if student.user_ascore >= 80 %}bg-success{% elif student.user_ascore >= 60 %}bg-warning text-dark{% else %}bg-danger{% endif %}">
-                                {{ "%.1f"|format(student.user_ascore|float) }}
+                            {% set average_score = student_average_scores.get(student.student_id) or 0 %}
+                            <span class="badge {% if average_score >= 80 %}bg-success{% elif average_score >= 60 %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+                                {{ "%.1f"|format(average_score|float) }}
                             </span>
                         </td>
                         <td>
