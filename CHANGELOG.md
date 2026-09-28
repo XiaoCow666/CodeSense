@@ -10,7 +10,7 @@ This file records release-level information for users and maintainers. Versions 
 
 Future unreleased changes will be listed here.
 
-## [2.0.0] - 2026-09-27
+## [2.0.0] - 2026-09-28
 
 ### Added
 
@@ -28,6 +28,7 @@ Future unreleased changes will be listed here.
 - 新提交的百分制评分在沙箱、AI 反馈和统计中保持一致；教师作业统计与学生个人统计从已评测记录重新计算。
 - 学生提交详情清楚展示 AI 分项建议与评估理由；评测尚未完成时显示当前状态。
 - 历史五分制记录和当前百分制记录分别按记录时间读取，班级能力统计保留真实低分。
+- 学生与班级能力图只统计附有具体理由的 AI 分项；缺少有效班级记录时不显示班级曲线，真实零分仍保留。
 
 [2.0.0]: https://github.com/XiaoCow666/CodeSense/releases/tag/v2.0.0
 

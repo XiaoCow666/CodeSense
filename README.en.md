@@ -30,7 +30,7 @@
 
 > **Release status: formal release** · **Current version: `v2.0.0`**
 >
-> `v2.0.0` connects student graph recommendations and learning-memory recovery to a shared action center. Teachers can move from class aggregates into knowledge-focused practice. New submissions keep a consistent 0–100 score across sandbox results, AI feedback, and student and assignment summaries. Submission details show AI dimension feedback with its explanation and the status of pending evaluations. Releases use `vMAJOR.MINOR.PATCH` and are tracked in GitHub Releases/Tags and [CHANGELOG.md](CHANGELOG.md).
+> `v2.0.0` connects student graph recommendations and learning-memory recovery to a shared action center. Teachers can move from class aggregates into knowledge-focused practice. New submissions keep a consistent 0–100 score across sandbox results, AI feedback, and student and assignment summaries. Submission details show AI dimension feedback with its explanation and the status of pending evaluations. Student and class ability charts use AI dimension scores with written reasons; the class curve is hidden when those records are unavailable. Releases use `vMAJOR.MINOR.PATCH` and are tracked in GitHub Releases/Tags and [CHANGELOG.md](CHANGELOG.md).
 
 ## Contents
 
