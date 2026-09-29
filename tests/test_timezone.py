@@ -13,3 +13,7 @@ def test_format_display_datetime_preserves_explicit_timezone_conversion():
     value = datetime(2026, 9, 4, 5, 33, 19, tzinfo=timezone.utc)
 
     assert format_display_datetime(value, "%Y-%m-%d %H:%M") == "2026-09-04 13:33"
+
+
+def test_format_display_datetime_converts_iso_utc_feedback_timestamp():
+    assert format_display_datetime("2026-09-28T19:04:10Z") == "2026-09-29 03:04:10"

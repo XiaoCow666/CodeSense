@@ -21,12 +21,12 @@
   <a href="https://github.com/XiaoCow666/CodeSense/stargazers"><img src="https://img.shields.io/github/stars/XiaoCow666/CodeSense?style=flat-square&logo=github" alt="GitHub stars"></a>
   <a href="https://github.com/XiaoCow666/CodeSense/network/members"><img src="https://img.shields.io/github/forks/XiaoCow666/CodeSense?style=flat-square&logo=github" alt="GitHub forks"></a>
   <a href="https://github.com/XiaoCow666/CodeSense/blob/main/LICENSE"><img src="https://img.shields.io/github/license/XiaoCow666/CodeSense?style=flat-square" alt="License"></a>
-  <img src="https://img.shields.io/badge/version-v2.0.0-2563eb?style=flat-square" alt="v2.0.0">
+  <img src="https://img.shields.io/badge/version-v2.0.1-2563eb?style=flat-square" alt="v2.0.1">
   <img src="https://img.shields.io/badge/Python-3.8--3.14-3776ab?style=flat-square&logo=python&logoColor=white" alt="Python 3.8–3.14">
   <img src="https://img.shields.io/badge/Flask-2.3.3-000000?style=flat-square&logo=flask&logoColor=white" alt="Flask 2.3.3">
 </p>
 
-> 当前版本：<a href="https://github.com/XiaoCow666/CodeSense/releases/tag/v2.0.0"><code>v2.0.0</code></a>。
+> 当前版本：<a href="https://github.com/XiaoCow666/CodeSense/releases/tag/v2.0.1"><code>v2.0.1</code></a>。
 >
 > 这是 CodeSense Standard Edition 的当前正式版本。发布级变更会记录在 [CHANGELOG.md](CHANGELOG.md)、Git tag 和 GitHub Release 中。
 
@@ -103,6 +103,10 @@
 
 <p align="center">
   <img src="docs/assets/codesense-v2.0.0-learning-action-loop.png" alt="CodeSense v2.0.0 学生学习建议与教师班级教学行动信息图" width="100%">
+</p>
+
+<p align="center">
+  <img src="docs/assets/codesense-v2.0.1-page-experience.png" alt="CodeSense v2.0.1 学生、教师与管理员页面体验信息图" width="100%">
 </p>
 
 ## 为什么做这个项目
@@ -466,7 +470,7 @@ CodeSense 使用语义化版本号：
 - <code>MINOR</code>：向后兼容的功能增加；
 - <code>PATCH</code>：向后兼容的问题修复和小幅调整。
 
-当前正式版本是 [v2.0.0](https://github.com/XiaoCow666/CodeSense/releases/tag/v2.0.0)。学生可以从行动中心继续知识点练习或更新个人学习记忆；教师可以根据管理班级的汇总信号安排针对性教学。知识记忆与知识证据用于学习参考，分数由评测流程和教师判断决定。
+当前正式版本是 [v2.0.1](https://github.com/XiaoCow666/CodeSense/releases/tag/v2.0.1)。学生可以在手机上阅读作业、提交记录与知识画像，从行动中心继续知识点练习或更新个人学习记忆；教师可以查看班级答题明细并整理作业内容；管理员可以查看反馈进度和导入结果。评测等待页会持续检查实际状态，也可以随时返回提交记录。知识记忆与知识证据用于学习参考，分数由评测流程和教师判断决定。
 
 ## Star History
 

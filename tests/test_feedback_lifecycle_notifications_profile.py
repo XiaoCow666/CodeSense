@@ -84,6 +84,10 @@ class FeedbackLifecycleNotificationsProfileTestCase(unittest.TestCase):
 
         self.logout()
         self.assertEqual(self.login('lifecycle_admin', 'admin_password').status_code, 302)
+        dashboard = self.client.get('/admin_dashboard')
+        self.assertEqual(dashboard.status_code, 200)
+        self.assertNotIn('lifecycle@example.com'.encode(), dashboard.data)
+        self.assertNotIn('"schema_version"'.encode(), dashboard.data)
         review = self.client.get('/admin/feedback?status=received&category=bug')
         self.assertEqual(review.status_code, 200)
         self.assertIn('状态变更通知测试'.encode('utf-8'), review.data)

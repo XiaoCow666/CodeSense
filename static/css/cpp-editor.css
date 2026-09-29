@@ -70,7 +70,7 @@
 /* 编辑器容器 */
 .editor-container {
     position: relative;
-    flex: 1;
+    flex: 0 0 auto;
     min-height: 100px;
     height: 500px; /* 默认高度，会被JavaScript覆盖 */
 }
@@ -197,4 +197,4 @@
         flex-direction: column;
         gap: 4px;
     }
-} 
+}

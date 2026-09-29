@@ -123,6 +123,81 @@
         height: 300px;
         margin-bottom: 1.5rem;
     }
+
+    @media (max-width: 640px) {
+        .knowledge-profile-table,
+        .knowledge-profile-table tbody,
+        .submission-record-table,
+        .submission-record-table tbody {
+            display: block;
+            width: 100%;
+        }
+
+        .knowledge-profile-table thead,
+        .submission-record-table thead {
+            display: none;
+        }
+
+        .knowledge-profile-table tr,
+        .submission-record-table tr {
+            display: block;
+            margin-bottom: 0.75rem;
+            padding: 0.5rem;
+            border: 1px solid #e2e8f0;
+            border-radius: 0.7rem;
+        }
+
+        .knowledge-profile-table td,
+        .submission-record-table td {
+            display: flex;
+            justify-content: space-between;
+            gap: 0.75rem;
+            width: 100%;
+            border-bottom: 0;
+            overflow-wrap: anywhere;
+        }
+
+        .knowledge-profile-table td::before,
+        .submission-record-table td::before {
+            content: attr(data-label);
+            flex: 0 0 5.5rem;
+            color: #64748b;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .submission-record-table td:last-child {
+            justify-content: flex-start;
+            flex-wrap: wrap;
+        }
+
+        .student-identity-table thead {
+            display: none;
+        }
+
+        .student-identity-table,
+        .student-identity-table tbody,
+        .student-identity-table tr,
+        .student-identity-table td {
+            display: block;
+            width: 100%;
+        }
+
+        .student-identity-table td {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 1rem;
+            overflow-wrap: anywhere;
+        }
+
+        .student-identity-table td::before {
+            content: attr(data-label);
+            flex: 0 0 5.5rem;
+            color: #64748b;
+            font-weight: 600;
+        }
+    }
 </style>
 {% endblock %}
 
@@ -159,7 +234,7 @@
             <div class="card-title"><i class="bi bi-person-lines-fill"></i> 基本信息</div>
         </div>
         <div class="card-body">
-            <table class="table">
+            <table class="table student-identity-table">
                 <thead>
                     <tr>
                         <th>用户名</th>
@@ -171,13 +246,13 @@
                 </thead>
                 <tbody>
                     <tr>
-                        <td>{{ user.username }}</td>
-                        <td>{{ user.student_id }}</td>
-                        <td>{{ user.submit_count }}</td>
-                        <td><span
+                        <td data-label="用户名">{{ user.username }}</td>
+                        <td data-label="学号">{{ user.student_id }}</td>
+                        <td data-label="练习次数">{{ user.submit_count }}</td>
+                        <td data-label="综合能力"><span
                                 class="badge {{ 'bg-success' if comprehensive_score and comprehensive_score >= 80 else 'bg-warning' if comprehensive_score and comprehensive_score >= 60 else 'bg-secondary' }}">{{
                                 "%.1f"|format(comprehensive_score) if comprehensive_score else '0.0' }}</span></td>
-                        <td><span class="badge bg-primary">{{ strongest_dim if strongest_dim else '暂无' }}</span></td>
+                        <td data-label="核心优势"><span class="badge bg-primary">{{ strongest_dim if strongest_dim else '暂无' }}</span></td>
                     </tr>
                 </tbody>
             </table>
@@ -208,7 +283,7 @@
     </div>
     <div class="card-body">
         <div class="table-responsive">
-            <table class="table table-sm table-hover">
+            <table class="table table-sm table-hover knowledge-profile-table">
                 <thead>
                     <tr>
                         <th>知识点</th>
@@ -220,10 +295,10 @@
                 <tbody>
                     {% for row in knowledge_profile_rows %}
                     <tr data-knowledge-point="{{ row.key }}">
-                        <td>{{ row.name }}</td>
-                        <td>{{ "%.1f"|format(row.score|float) }}/100</td>
-                        <td>{{ row.total_attempts }}</td>
-                        <td>{{ "%.0f"|format(row.accuracy|float) }}%</td>
+                        <td data-label="知识点">{{ row.name }}</td>
+                        <td data-label="掌握度">{{ "%.1f"|format(row.score|float) }}/100</td>
+                        <td data-label="尝试次数">{{ row.total_attempts }}</td>
+                        <td data-label="正确率">{{ "%.0f"|format(row.accuracy|float) }}%</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -256,7 +331,7 @@
     </div>
     <div class="card-body">
         <div class="table-responsive">
-            <table class="table">
+            <table class="table submission-record-table">
                 <thead>
                     <tr>
                         <th scope="col">题目ID</th>
@@ -270,9 +345,9 @@
                 <tbody>
                     {% for submission in submissions %}
                     <tr>
-                        <td>{{ submission.assignment_id }}</td>
-                        <td>{{ submission.assignment.title }}</td>
-                        <td>
+                        <td data-label="题目ID">{{ submission.assignment_id }}</td>
+                        <td data-label="题目标题">{{ submission.assignment.title }}</td>
+                        <td data-label="提交评分">
                             {% if submission.score is not none %}
                             {% set score = submission.score|submission_score(submission.submitted_at) %}
                             <span class="badge {% if score >= 80 %}bg-success{% elif score >= 60 %}bg-warning text-dark{% else %}bg-danger{% endif %}">
@@ -282,14 +357,14 @@
                             <span class="badge badge-secondary">未评分</span>
                             {% endif %}
                         </td>
-                        <td>
+                        <td data-label="评估建议">
                             {% if submission.ai_feedback %}
                             <span class="badge badge-primary"><i class="bi bi-check-circle-fill"></i> 有</span>
                             {% else %}
                             <span class="badge badge-secondary"><i class="bi bi-x-circle"></i> 无</span>
                             {% endif %}
                         </td>
-                        <td>
+                        <td data-label="复核状态">
                             {% set review_summary = review_summaries.get(submission.id) %}
                             {% if review_summary %}
                             <span class="badge badge-primary">{{ review_summary.status_label }}</span>
@@ -300,7 +375,7 @@
                             <span class="text-muted">暂无</span>
                             {% endif %}
                         </td>
-                        <td>
+                        <td data-label="操作">
                             <a href="{{ url_for('assignments.view_submission', submission_id=submission.id) }}"
                                 class="btn btn-sm btn-secondary">
                                 <i class="bi bi-eye"></i> 查看

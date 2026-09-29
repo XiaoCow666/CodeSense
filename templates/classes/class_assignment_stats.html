@@ -30,12 +30,57 @@
         font-weight: 500;
         padding: 0.35rem 0.65rem;
     }
+
+    @media (max-width: 767px) {
+        .assignment-stats-heading {
+            align-items: flex-start !important;
+            flex-direction: column;
+        }
+
+        .header-card, .table-container {
+            padding: 1rem;
+        }
+
+        .stat-badge {
+            margin: 0 0.5rem 0.5rem 0;
+        }
+
+        .assignment-stats-table thead {
+            display: none;
+        }
+
+        .assignment-stats-table tbody tr {
+            display: block;
+            margin-bottom: 1rem;
+            padding: 0.75rem;
+            border: 1px solid #e5e7eb;
+            border-radius: 0.75rem;
+        }
+
+        .assignment-stats-table tbody td {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 1rem;
+            padding: 0.5rem 0;
+            text-align: right;
+            border: 0;
+            overflow-wrap: anywhere;
+        }
+
+        .assignment-stats-table tbody td::before {
+            content: attr(data-label);
+            flex: 0 0 6rem;
+            color: #64748b;
+            text-align: left;
+        }
+    }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="container">
-    <div class="d-flex justify-content-between align-items-center mb-4">
+    <div class="assignment-stats-heading d-flex justify-content-between align-items-center gap-3 mb-4">
         <h1>作业答题详情</h1>
         <a href="{{ url_for('classes.class_detail', class_id=cls.id) }}" class="btn btn-outline-secondary">
             <i class="bi bi-arrow-left"></i> 返回班级详情
@@ -56,7 +101,7 @@
     <!-- 学生答题明细列表 -->
     <div class="table-container">
         <div class="table-responsive">
-            <table class="table table-hover align-middle">
+            <table class="assignment-stats-table table table-hover align-middle">
                 <thead class="table-light">
                     <tr>
                         <th width="15%">学号</th>
@@ -73,16 +118,16 @@
                     {% set student = record.student %}
                     {% set submission = record.best_submission %}
                     <tr>
-                        <td>{{ student.student_id }}</td>
-                        <td><strong>{{ student.full_name or student.username }}</strong></td>
-                        <td>
+                        <td data-label="学号">{{ student.student_id }}</td>
+                        <td data-label="姓名"><strong>{{ student.full_name or student.username }}</strong></td>
+                        <td data-label="提交次数">
                             {% if record.submit_count > 0 %}
                             <span class="badge bg-info">{{ record.submit_count }} 次</span>
                             {% else %}
                             <span class="text-muted">未提交</span>
                             {% endif %}
                         </td>
-                        <td>
+                        <td data-label="最高/最新得分">
                             {% if submission %}
                             {% if submission.score is not none %}
                                 {% set score = submission.score|submission_score(submission.submitted_at) %}
@@ -96,7 +141,7 @@
                             -
                             {% endif %}
                         </td>
-                        <td>
+                        <td data-label="沙箱状态">
                             {% if submission and submission.sandbox_status %}
                             {% if submission.sandbox_status == 'passed' %}
                             <span class="badge bg-success status-badge">全部通过</span>
@@ -114,14 +159,14 @@
                             -
                             {% endif %}
                         </td>
-                        <td>
+                        <td data-label="最后提交时间">
                             {% if submission %}
                             {{ submission.submitted_at.strftime('%Y-%m-%d %H:%M:%S') }}
                             {% else %}
                             -
                             {% endif %}
                         </td>
-                        <td>
+                        <td data-label="操作">
                             {% if submission %}
                             <a href="{{ url_for('assignments.view_submission', submission_id=submission.id) }}"
                                 class="btn btn-sm btn-outline-primary" target="_blank">

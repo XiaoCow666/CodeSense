@@ -108,7 +108,7 @@
         <dt>类型</dt>
         <dd>{{ record.category_label }}</dd>
         <dt>提交时间</dt>
-        <dd><time datetime="{{ record.submitted_at }}">{{ record.submitted_at }}</time></dd>
+        <dd><time datetime="{{ record.submitted_at }}">{{ record.submitted_at|localtime }}（北京时间）</time></dd>
         <dt>状态</dt>
         <dd>{{ record.status_label }}</dd>
     </dl>
@@ -117,7 +117,7 @@
         <h2 id="feedback-progress-title" class="visually-hidden">处理进度</h2>
         <ol class="feedback-timeline">
             {% for item in record.status_history %}
-            <li><strong>{{ item.status_label }}</strong> · <time datetime="{{ item.at }}">{{ item.at }}</time></li>
+            <li><strong>{{ item.status_label }}</strong> · <time datetime="{{ item.at }}">{{ item.at|localtime }}（北京时间）</time></li>
             {% endfor %}
         </ol>
     </section>

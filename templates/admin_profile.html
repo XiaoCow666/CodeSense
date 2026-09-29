@@ -50,6 +50,7 @@
         font-size: 2rem;
         font-weight: 700;
         margin-bottom: 0.5rem;
+        overflow-wrap: anywhere;
     }
     
     .profile-subtitle {
@@ -207,6 +208,22 @@
         right: 1rem;
         font-size: 2rem;
         opacity: 0.2;
+    }
+
+    @media (max-width: 640px) {
+        .profile-header {
+            padding: 1.5rem;
+            padding-top: 5rem;
+        }
+
+        .profile-name {
+            font-size: clamp(1.35rem, 6vw, 2rem);
+        }
+
+        .profile-stats {
+            gap: 1rem;
+            justify-content: space-between;
+        }
     }
 </style>
 {% endblock %}

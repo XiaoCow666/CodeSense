@@ -34,7 +34,11 @@ DISPLAY_TIMEZONE = _display_timezone()
 def to_display_datetime(value):
     """Convert a stored UTC datetime to the configured display timezone."""
 
-    if value is None or not isinstance(value, datetime):
+    if value is None:
+        return value
+    if isinstance(value, str):
+        value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if not isinstance(value, datetime):
         return value
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)

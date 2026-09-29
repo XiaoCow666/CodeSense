@@ -2,6 +2,39 @@
 
 {% block title %}班级批量导入结果 - CodeSense 酷森思{% endblock %}
 
+{% block extra_css %}
+<style>
+    @media (max-width: 767px) {
+        .class-import-result-table thead {
+            display: none;
+        }
+
+        .class-import-result-table tbody tr {
+            display: block;
+            margin: 0.75rem;
+            padding: 0.75rem;
+            border: 1px solid #e5e7eb;
+            border-radius: 0.75rem;
+        }
+
+        .class-import-result-table tbody td {
+            display: block;
+            padding: 0.45rem 0.25rem !important;
+            border: 0;
+            overflow-wrap: anywhere;
+        }
+
+        .class-import-result-table tbody td::before {
+            display: block;
+            margin-bottom: 0.2rem;
+            color: #64748b;
+            content: attr(data-label);
+            font-size: 0.82rem;
+        }
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="container py-4">
     <nav aria-label="breadcrumb">
@@ -61,7 +94,7 @@
         </div>
         <div class="card-body p-0">
             <div class="table-responsive">
-                <table class="table table-striped align-middle mb-0">
+                <table class="class-import-result-table table table-striped align-middle mb-0">
                     <thead class="table-light">
                         <tr>
                             <th class="ps-4" style="width: 80px;">行号</th>
@@ -76,18 +109,18 @@
                     <tbody>
                         {% for r in results %}
                         <tr>
-                            <td class="ps-4 text-muted">#{{ r.row_num }}</td>
-                            <td><strong>{{ r.class_name }}</strong></td>
-                            <td>
+                            <td class="ps-4 text-muted" data-label="行号">#{{ r.row_num }}</td>
+                            <td data-label="班级名称"><strong>{{ r.class_name }}</strong></td>
+                            <td data-label="学校 / 学院 / 专业">
                                 <span class="badge bg-light text-dark">{{ r.school }}</span>
                                 <span class="text-muted">/</span>
                                 <span class="badge bg-light text-dark">{{ r.college }}</span>
                                 <span class="text-muted">/</span>
                                 <span class="badge bg-light text-dark">{{ r.major }}</span>
                             </td>
-                            <td>{{ r.grade }}级</td>
-                            <td><code>{{ r.teacher_name }}</code></td>
-                            <td>
+                            <td data-label="年级">{{ r.grade }}级</td>
+                            <td data-label="教师"><code>{{ r.teacher_name }}</code></td>
+                            <td data-label="处理状态">
                                 {% if r.status == 'inserted' %}
                                     <span class="badge bg-success"><i class="bi bi-plus-circle me-1"></i>新建班级</span>
                                 {% elif r.status == 'updated' %}
@@ -96,7 +129,7 @@
                                     <span class="badge bg-danger"><i class="bi bi-x-circle me-1"></i>跳过失败</span>
                                 {% endif %}
                             </td>
-                            <td class="pe-4 {% if r.status == 'error' %}text-danger{% else %}text-muted{% endif %}">
+                            <td data-label="说明/备注" class="pe-4 {% if r.status == 'error' %}text-danger{% else %}text-muted{% endif %}">
                                 {{ r.message }}
                             </td>
                         </tr>

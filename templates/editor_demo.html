@@ -1,0 +1,59 @@
+{% extends "layout.html" %}
+{% from "components/code_editor_new.html" import code_editor %}
+
+{% block title %}{{ demo_title }} - CodeSense 酷森思{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/cpp-editor.css') }}">
+<style>
+    .editor-demo {
+        max-width: 960px;
+        margin: 2rem auto 4rem;
+    }
+
+    .editor-demo-intro {
+        margin-bottom: 1.5rem;
+        padding: clamp(1.5rem, 4vw, 2.5rem);
+        border-radius: 1rem;
+        background: linear-gradient(125deg, #132b57, #2856b1);
+        color: #fff;
+    }
+
+    .editor-demo-intro h1 {
+        margin-bottom: 0.75rem;
+        font-size: clamp(1.65rem, 4vw, 2.5rem);
+        font-weight: 700;
+    }
+
+    .editor-demo-intro p {
+        margin-bottom: 0;
+        color: #e3ecff;
+    }
+
+    .editor-demo-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="editor-demo" aria-labelledby="editor-demo-title">
+    <div class="editor-demo-intro">
+        <h1 id="editor-demo-title">{{ demo_title }}</h1>
+        <p>{{ demo_description }}</p>
+    </div>
+
+    {{ code_editor('demo-code', '#include <iostream>\n\nint main() {\n    std::cout << "Hello, CodeSense!" << std::endl;\n    return 0;\n}', 420) }}
+
+    <div class="editor-demo-actions">
+        <a class="btn btn-primary" href="{{ url_for('auth.login') }}">进入学习平台</a>
+        <a class="btn btn-outline-primary" href="{{ url_for('main.help') }}">查看使用帮助</a>
+    </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/cpp-editor.js') }}"></script>
+{% endblock %}

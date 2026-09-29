@@ -83,7 +83,7 @@
         color: #4a5568;
         max-width: 500px;
         line-height: 1.6;
-        margin-bottom: 3rem;
+        margin-bottom: 1rem;
     }
 
     .progress-steps {
@@ -168,6 +168,11 @@
         font-size: 0.9rem;
         font-weight: 500;
     }
+
+    #retry-status[hidden],
+    #resubmit-code[hidden] {
+        display: none !important;
+    }
 </style>
 {% endblock %}
 
@@ -182,25 +187,26 @@
         </div>
 
         <div id="evaluation-status" role="status" aria-live="polite" aria-atomic="true" aria-busy="true">
-            <h1 class="status-text" id="status-heading">AI 编程助手正在为您打分...</h1>
-            <p class="sub-text">大语言模型正在对您的代码进行深度语义分析，并同步在云端沙箱运行测试用例。这通常需要 10-20 秒，请勿刷新页面。</p>
+            <h1 class="status-text" id="status-heading">正在评测您的提交...</h1>
+            <p class="sub-text">页面会自动检查评测结果。您也可以离开此页，稍后从提交记录查看结果。</p>
         </div>
+        <a class="btn btn-outline-primary mb-5" href="{{ url_for('users.view_submissions') }}">查看提交记录</a>
 
-        <div class="progress-steps" id="evaluation-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="评测进度">
+        <div class="progress-steps" id="evaluation-progress" role="group" aria-label="评测流程">
             <div class="progress-line"></div>
             <div class="progress-line-active" id="progress-line"></div>
 
             <div class="step-item active" id="step-ai">
                 <div class="step-icon"><i class="bi bi-brain"></i></div>
-                <div class="step-label">模型评估</div>
+                <div class="step-label">评测进行中</div>
             </div>
             <div class="step-item" id="step-sandbox">
                 <div class="step-icon"><i class="bi bi-terminal-fill"></i></div>
-                <div class="step-label">沙箱测试</div>
+                <div class="step-label">等待结果</div>
             </div>
             <div class="step-item" id="step-result">
                 <div class="step-icon"><i class="bi bi-graph-up-arrow"></i></div>
-                <div class="step-label">分析结果</div>
+                <div class="step-label">查看反馈</div>
             </div>
         </div>
 
@@ -215,7 +221,7 @@
             <a href="{{ url_for('users.view_submissions') }}" class="btn btn-link px-2 py-2">
                 查看提交记录
             </a>
-            <a href="{{ url_for('assignments.submit_code', assignment_id=submission.assignment_id) }}"
+            <a id="resubmit-code" href="{{ url_for('assignments.submit_code', assignment_id=submission.assignment_id) }}" hidden
                 class="btn btn-primary px-5 py-2 shadow-sm">
                 重新提交
             </a>
@@ -230,39 +236,11 @@
     const pollInterval = 2000;
     const maxPollAttempts = 60;
     let pollAttempts = 0;
-    let secondsElapsed = 0;
     let pollTimer = null;
     const finalResultUrl = "{{ url_for('assignments.view_submission', submission_id=submission.id) }}";
 
-    function updateProgressBar() {
-        secondsElapsed += 2;
-        const progressLine = document.getElementById('progress-line');
-        const progressBar = document.getElementById('evaluation-progress');
-        if (!progressLine || !progressBar) return;
-
-        if (secondsElapsed >= 5 && secondsElapsed < 12) {
-            progressLine.style.width = '40%';
-            progressBar.setAttribute('aria-valuenow', '40');
-            const aiStep = document.getElementById('step-ai');
-            if (aiStep.classList.contains('active')) {
-                aiStep.classList.remove('active');
-                aiStep.classList.add('completed');
-                document.getElementById('step-sandbox').classList.add('active');
-            }
-        } else if (secondsElapsed >= 13) {
-            progressLine.style.width = '80%';
-            progressBar.setAttribute('aria-valuenow', '80');
-            const sandboxStep = document.getElementById('step-sandbox');
-            if (sandboxStep.classList.contains('active')) {
-                sandboxStep.classList.remove('active');
-                sandboxStep.classList.add('completed');
-                document.getElementById('step-result').classList.add('active');
-            }
-        }
-    }
-
-    function showPollingError(message) {
-        document.getElementById('status-heading').innerText = '任务状态暂时不可用';
+    function showPollingError(message, canResubmit = false) {
+        document.getElementById('status-heading').innerText = canResubmit ? '评测任务失败' : '任务状态暂时不可用';
         document.getElementById('error-message').innerText = message;
         document.getElementById('error-container').style.display = 'block';
         document.querySelector('.loader-wrapper').style.display = 'none';
@@ -272,6 +250,7 @@
         if (retryButton) {
             retryButton.hidden = false;
         }
+        document.getElementById('resubmit-code').hidden = !canResubmit;
         const alert = document.querySelector('#error-container [role="alert"]');
         if (alert) alert.focus();
         else if (retryButton) retryButton.focus();
@@ -284,12 +263,11 @@
             pollTimer = null;
         }
         pollAttempts = 0;
-        secondsElapsed = 0;
         document.getElementById('error-container').style.display = 'none';
+        document.getElementById('resubmit-code').hidden = true;
         document.querySelector('.loader-wrapper').style.display = '';
         document.querySelector('.progress-steps').style.opacity = '1';
         document.getElementById('progress-line').style.width = '0%';
-        document.getElementById('evaluation-progress').setAttribute('aria-valuenow', '0');
         document.getElementById('evaluation-status').setAttribute('aria-busy', 'true');
         document.getElementById('status-heading').innerText = '正在重新检查评测状态...';
         document.getElementById('step-ai').className = 'step-item active';
@@ -300,7 +278,7 @@
 
     async function checkSubmissionStatus() {
         if (pollAttempts >= maxPollAttempts) {
-            showPollingError('暂时无法确认评测结果，请稍后刷新或重新提交。');
+            showPollingError('暂时无法确认评测结果，请稍后重新检查状态或查看提交记录。');
             return;
         }
         pollAttempts += 1;
@@ -313,24 +291,23 @@
 
             if (data.status === 'evaluated') {
                 document.getElementById('progress-line').style.width = '100%';
-                document.getElementById('evaluation-progress').setAttribute('aria-valuenow', '100');
                 document.getElementById('evaluation-status').setAttribute('aria-busy', 'false');
+                document.getElementById('status-heading').innerText = '评测完成，正在打开结果...';
                 if (window.CodeSenseUI) window.CodeSenseUI.announce('评测完成，正在打开结果。');
                 setTimeout(() => {
                     window.location.href = finalResultUrl;
                 }, 800);
             } else if (data.status === 'failed') {
-                showPollingError('评测任务失败，请重新提交。');
+                showPollingError('评测任务失败，请重新提交。', true);
             } else if (data.queue_status === 'unavailable') {
-                showPollingError('评测队列暂时不可用，请稍后刷新或重新提交。');
+                showPollingError('评测队列暂时不可用，请稍后重新检查状态或查看提交记录。');
             } else {
-                updateProgressBar();
                 pollTimer = setTimeout(checkSubmissionStatus, pollInterval);
             }
         } catch (error) {
             console.warn('评测状态暂时无法获取');
             if (pollAttempts >= maxPollAttempts) {
-                showPollingError('暂时无法确认评测结果，请稍后刷新或重新提交。');
+                showPollingError('暂时无法确认评测结果，请稍后重新检查状态或查看提交记录。');
             } else {
                 pollTimer = setTimeout(checkSubmissionStatus, pollInterval);
             }

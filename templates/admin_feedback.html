@@ -21,10 +21,12 @@
 
     .feedback-list {
         display: grid;
+        grid-template-columns: minmax(0, 1fr);
         gap: 1rem;
     }
 
     .feedback-record {
+        min-width: 0;
         padding: 1.25rem;
         border: 1px solid #e5e7eb;
         border-radius: 0.85rem;
@@ -153,7 +155,8 @@
     }
 
     .feedback-status-field textarea {
-        min-width: min(28rem, 80vw);
+        width: 100%;
+        min-width: 0;
         min-height: 4rem;
         resize: vertical;
     }
@@ -176,6 +179,11 @@
     }
 
     @media (max-width: 600px) {
+        .feedback-status-field {
+            width: 100%;
+            min-width: 0;
+        }
+
         .feedback-record dl {
             grid-template-columns: 1fr;
             gap: 0.2rem;
@@ -228,7 +236,7 @@
                 <div class="feedback-record-meta">
                     <span>{{ record.category_label }}</span>
                     <span class="feedback-status">{{ record.status_label }}</span>
-                    <time datetime="{{ record.submitted_at }}">{{ record.submitted_at }}</time>
+                    <time datetime="{{ record.submitted_at }}">{{ record.submitted_at|localtime }}（北京时间）</time>
                 </div>
             </div>
             <h2 id="feedback-{{ record.feedback_id }}-title">{{ record.subject }}</h2>
@@ -248,7 +256,7 @@
             </details>
             <ol class="feedback-history" aria-label="处理进度">
                 {% for item in record.status_history %}
-                <li><span>{{ item.status_label }}</span> · <time datetime="{{ item.at }}">{{ item.at }}</time></li>
+                <li><span>{{ item.status_label }}</span> · <time datetime="{{ item.at }}">{{ item.at|localtime }}（北京时间）</time></li>
                 {% endfor %}
             </ol>
             <form class="feedback-status-form" method="POST"

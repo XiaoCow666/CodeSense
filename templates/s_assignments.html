@@ -113,6 +113,64 @@
         font-size: 0.875rem;
         font-weight: 500;
     }
+
+    @media (max-width: 640px) {
+        .assignment-table-wrap {
+            overflow: visible;
+        }
+
+        .assignment-table thead {
+            display: none;
+        }
+
+        .assignment-table,
+        .assignment-table tbody,
+        .assignment-table tr,
+        .assignment-table td {
+            display: block;
+            width: 100%;
+        }
+
+        .assignment-table tr {
+            margin-bottom: 1rem;
+            padding: 0.5rem 0;
+            border: 1px solid #e2e8f0;
+            border-radius: 0.75rem;
+            background: #fff;
+            box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05);
+        }
+
+        .assignment-table td {
+            display: flex;
+            justify-content: space-between;
+            gap: 1rem;
+            border-bottom: 0;
+            overflow-wrap: anywhere;
+        }
+
+        .assignment-table td::before {
+            content: attr(data-label);
+            flex: 0 0 6rem;
+            color: #64748b;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .assignment-table td.assignment-title {
+            display: block;
+            padding-top: 0.25rem;
+            font-size: 1.1rem;
+            line-height: 1.45;
+        }
+
+        .assignment-table td.assignment-title::before {
+            display: none;
+        }
+
+        .assignment-table .progress {
+            min-width: 5rem;
+        }
+    }
 </style>
 {% endblock %}
 
@@ -219,8 +277,8 @@
     </div>
     <div class="card-body">
         {% if assignments %}
-        <div class="table-responsive">
-            <table class="table">
+        <div class="table-responsive assignment-table-wrap">
+            <table class="table assignment-table">
                 <thead>
                     <tr>
                         <th width="60">ID</th>
@@ -235,8 +293,8 @@
                 <tbody>
                     {% for assignment in assignments %}
                     <tr>
-                        <td>{{ assignment.id }}</td>
-                        <td>
+                        <td data-label="作业编号">{{ assignment.id }}</td>
+                        <td class="assignment-title">
                             <a href="{{ url_for('assignments.view_assignment', assignment_id=assignment.id) }}"
                                 class="fw-bold">
                                 {{ assignment.title }}
@@ -251,14 +309,14 @@
                             <span class="badge bg-light text-secondary mt-1">常规编码练习</span>
                             {% endif %}
                         </td>
-                        <td>{{ assignment.creator.full_name if assignment.creator else '未知' }}</td>
-                        <td>
+                        <td data-label="出题教师">{{ assignment.creator.full_name if assignment.creator else '未知' }}</td>
+                        <td data-label="发布日期">
                             <small class="text-muted">
                                 {{ assignment.created_time.strftime('%Y-%m-%d %H:%M') if assignment.created_time else
                                 '未知' }}
                             </small>
                         </td>
-                        <td>
+                        <td data-label="截止时间">
                             {% if assignment.due_date %}
                             {% set total_seconds = (assignment.due_date - assignment.created_time).total_seconds() if
                             assignment.created_time else 86400 * 7 %}
@@ -284,11 +342,11 @@
         <span class="text-muted small">无截止日期</span>
         {% endif %}
         </td>
-        <td>
+        <td data-label="提交与平均分">
             <small class="text-muted">提交: {{ assignment.count }}</small><br>
             <small class="text-info">平均: {{ "%.1f"|format(assignment.average_score|float) }}</small>
         </td>
-        <td>
+        <td data-label="个人最高分">
             {% if assignment.max_student_score %}
             <span class="badge {% if assignment.max_student_score >= 80 %}bg-success{% elif assignment.max_student_score >= 60 %}bg-warning text-dark{% else %}bg-danger{% endif %}">
                 {{ "%.1f"|format(assignment.max_student_score|float) }}

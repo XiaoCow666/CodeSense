@@ -148,7 +148,7 @@
         <li class="notification-card {% if not notification.read %}is-unread{% endif %}">
             <div class="notification-card-header">
                 <h2>{{ notification.title }}{% if not notification.read %} <span class="visually-hidden">（未读）</span>{% endif %}</h2>
-                <time datetime="{{ notification.created_at }}">{{ notification.created_at }}</time>
+                <time datetime="{{ notification.created_at }}">{{ notification.created_at|localtime }}（北京时间）</time>
             </div>
             {% if notification.kind == 'submission_review' %}
             <span class="badge bg-primary mb-2">提交复核</span>

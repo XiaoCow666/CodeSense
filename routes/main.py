@@ -141,13 +141,21 @@ def _learning_graph_fallback(scope):
 @main.route('/test_editor')
 def test_editor():
     """编辑器测试页面"""
-    return render_template('test_editor.html')
+    return render_template(
+        'editor_demo.html',
+        demo_title='代码编辑器体验',
+        demo_description='在下方输入 C++ 代码，体验格式化、主题切换和全屏编辑。',
+    )
 
 # 添加C++代码编辑器示例路由
 @main.route('/cpp_editor_demo')
 def cpp_editor_demo():
     """C++代码编辑器示例页面"""
-    return render_template('cpp_editor_demo.html')
+    return render_template(
+        'editor_demo.html',
+        demo_title='C++ 编辑器演示',
+        demo_description='使用 C++ 示例代码了解编辑器操作，再进入作业完成练习。',
+    )
 
 # 添加积木编程（Parsons Problems）演示路由
 @main.route('/parsons_demo')
@@ -473,9 +481,13 @@ def admin_dashboard():
 
         now = datetime.datetime.utcnow()
         recent_activities = []
-        for log in SystemLog.query.order_by(
-            SystemLog.created_at.desc()
-        ).limit(10).all():
+        activity_types = (
+            '用户登录', '用户登出', '用户注册', '邮箱验证',
+            '添加作业', '删除作业', '导入作业', '数据导出',
+        )
+        for log in SystemLog.query.filter(
+            SystemLog.log_type.in_(activity_types)
+        ).order_by(SystemLog.created_at.desc()).limit(10).all():
             created_at = log.created_at or now
             elapsed_seconds = max(0, int((now - created_at).total_seconds()))
             if elapsed_seconds >= 86400:

@@ -1,5 +1,40 @@
 {% extends "layout.html" %}
 
+{% block title %}学生名单导入结果 - CodeSense 酷森思{% endblock %}
+
+{% block extra_css %}
+<style>
+    @media (max-width: 767px) {
+        .student-import-result-table thead {
+            display: none;
+        }
+
+        .student-import-result-table tbody tr {
+            display: block;
+            margin: 0.75rem;
+            padding: 0.75rem;
+            border: 1px solid #e5e7eb;
+            border-radius: 0.75rem;
+        }
+
+        .student-import-result-table tbody td {
+            display: block;
+            padding: 0.45rem 0.25rem !important;
+            border: 0;
+            overflow-wrap: anywhere;
+        }
+
+        .student-import-result-table tbody td::before {
+            display: block;
+            margin-bottom: 0.2rem;
+            color: #64748b;
+            content: attr(data-label);
+            font-size: 0.82rem;
+        }
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="container py-4">
     <nav aria-label="breadcrumb">
@@ -59,7 +94,7 @@
         </div>
         <div class="card-body p-0">
             <div class="table-responsive">
-                <table class="table table-striped align-middle mb-0">
+                <table class="student-import-result-table table table-striped align-middle mb-0">
                     <thead class="table-light">
                         <tr>
                             <th class="ps-4" style="width: 80px;">行号</th>
@@ -72,10 +107,10 @@
                     <tbody>
                         {% for r in results %}
                         <tr>
-                            <td class="ps-4 text-muted">#{{ r.row_num }}</td>
-                            <td><code>{{ r.student_id }}</code></td>
-                            <td><strong>{{ r.full_name }}</strong></td>
-                            <td>
+                            <td class="ps-4 text-muted" data-label="行号">#{{ r.row_num }}</td>
+                            <td data-label="学号"><code>{{ r.student_id }}</code></td>
+                            <td data-label="姓名"><strong>{{ r.full_name }}</strong></td>
+                            <td data-label="处理状态">
                                 {% if r.status == 'inserted' %}
                                     <span class="badge bg-info text-dark"><i class="bi bi-person-plus me-1"></i>录入待激活</span>
                                 {% elif r.status == 'updated' %}
@@ -86,7 +121,7 @@
                                     <span class="badge bg-danger"><i class="bi bi-x-circle me-1"></i>跳过失败</span>
                                 {% endif %}
                             </td>
-                            <td class="pe-4 {% if r.status == 'error' %}text-danger{% else %}text-muted{% endif %}">
+                            <td data-label="说明/备注" class="pe-4 {% if r.status == 'error' %}text-danger{% else %}text-muted{% endif %}">
                                 {{ r.message }}
                             </td>
                         </tr>
