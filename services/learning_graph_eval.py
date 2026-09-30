@@ -27,6 +27,18 @@ def evaluate_student_learning_graph(graph, *, assignment_id, expected):
     expected_nodes = {assignment_node, *knowledge_nodes}
     expected_edges = set()
 
+    for resource in expected.get("learning_resources", []):
+        resource_node = f"resource:{resource['resource_id']}"
+        expected_nodes.add(resource_node)
+        expected_edges.add((
+            assignment_node, resource_node, "provides", "student_assignments",
+        ))
+        expected_edges.add((
+            resource_node,
+            f"knowledge:{resource['knowledge_point']}",
+            "explains", "student_assignments",
+        ))
+
     for code in expected.get("knowledge_points", []):
         expected_edges.add(
             (

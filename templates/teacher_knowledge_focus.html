@@ -81,6 +81,14 @@
                             <div><i class="bi bi-people" aria-hidden="true"></i> 当前范围：{{ assignment.target_classes|join('、') }}</div>
                             <div><i class="bi bi-link-45deg" aria-hidden="true"></i> 标签来源版本：{{ assignment.source_version[:12] }}</div>
                         </div>
+                        {% if assignment.learning_resources %}
+                        <div class="small" aria-label="当前学习资料">
+                            <strong>可用学习资料</strong>
+                            {% for resource in assignment.learning_resources %}
+                            <a class="d-block" href="{{ url_for('assignments.view_assignment', assignment_id=assignment.assignment_id) }}#learning-resource-{{ resource.id }}">{{ resource.title }} · 版本 {{ resource.source_version[:12] }}</a>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
                         <div class="d-flex flex-wrap gap-2 mt-auto">
                             <a href="{{ url_for('assignments.view_assignment', assignment_id=assignment.assignment_id) }}" class="btn btn-outline-primary btn-sm">查看作业</a>
                             {% if assignment.can_manage %}

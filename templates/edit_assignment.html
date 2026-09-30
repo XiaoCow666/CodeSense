@@ -155,6 +155,89 @@
                     </form>
                 </div>
             </section>
+            <section class="card mt-4" id="assignment-learning-resources" aria-labelledby="assignment-learning-resources-title">
+                <div class="card-header">
+                    <h4 id="assignment-learning-resources-title" class="mb-0">作业学习资料</h4>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small">资料仅向有权查看本作业的学生和教师展示，也会作为本作业 AI 辅导的引用。修改会生成新版本；撤回后停止展示和引用。</p>
+                    {% for resource in learning_resources %}
+                    <article class="border rounded p-3 mb-3" aria-labelledby="learning-resource-{{ resource.id }}-title">
+                        <h5 id="learning-resource-{{ resource.id }}-title">{{ resource.title }}</h5>
+                        <p class="small text-muted">{{ knowledge_point_labels.get(resource.knowledge_point, resource.knowledge_point) }} · 版本 {{ resource.revision }} · {{ '已撤回' if resource.status == 'withdrawn' else '当前使用' }}</p>
+                        {% set revisions = resource_revisions.get(resource.id, []) %}
+                        {% if revisions %}
+                        <details class="mb-3">
+                            <summary>查看修改记录</summary>
+                            <ol class="small mt-2 mb-0">
+                                {% for revision in revisions %}
+                                <li>版本 {{ revision.revision }} · {{ '发布' if revision.action == 'created' else '修改' if revision.action == 'updated' else '撤回' }} · {{ revision.created_at.strftime('%Y-%m-%d %H:%M') }} · 来源 {{ revision.source_version[:12] }}</li>
+                                {% endfor %}
+                            </ol>
+                        </details>
+                        {% endif %}
+                        {% if resource.status == 'active' %}
+                        <form method="POST" action="{{ url_for('assignments.update_assignment_learning_resources', assignment_id=assignment.id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="action" value="update">
+                            <input type="hidden" name="resource_id" value="{{ resource.id }}">
+                            <input type="hidden" name="expected_revision" value="{{ resource.revision }}">
+                            <div class="mb-2">
+                                <label class="form-label" for="resource-title-{{ resource.id }}">标题</label>
+                                <input class="form-control" id="resource-title-{{ resource.id }}" name="title" maxlength="120" required value="{{ resource.title }}">
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label" for="resource-point-{{ resource.id }}">关联知识点</label>
+                                <select class="form-select" id="resource-point-{{ resource.id }}" name="knowledge_point" required>
+                                    {% for source in knowledge_point_sources %}
+                                    <option value="{{ source.knowledge_point }}" {% if source.knowledge_point == resource.knowledge_point %}selected{% endif %}>{{ knowledge_point_labels.get(source.knowledge_point, source.knowledge_point) }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label" for="resource-content-{{ resource.id }}">资料正文</label>
+                                <textarea class="form-control" id="resource-content-{{ resource.id }}" name="content" rows="3" maxlength="2400" required>{{ resource.content }}</textarea>
+                            </div>
+                            <button class="btn btn-outline-primary" type="submit">保存新版本</button>
+                        </form>
+                        <form class="mt-2" method="POST" action="{{ url_for('assignments.update_assignment_learning_resources', assignment_id=assignment.id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="action" value="withdraw">
+                            <input type="hidden" name="resource_id" value="{{ resource.id }}">
+                            <input type="hidden" name="expected_revision" value="{{ resource.revision }}">
+                            <button class="btn btn-outline-danger" type="submit">撤回资料</button>
+                        </form>
+                        {% endif %}
+                    </article>
+                    {% else %}
+                    <p role="status">这份作业还没有学习资料。先关联知识点，再添加引导学生思考的资料。</p>
+                    {% endfor %}
+                    {% if knowledge_point_sources %}
+                    <form method="POST" action="{{ url_for('assignments.update_assignment_learning_resources', assignment_id=assignment.id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="create">
+                        <h5>添加学习资料</h5>
+                        <div class="mb-2">
+                            <label class="form-label" for="new-resource-title">标题</label>
+                            <input class="form-control" id="new-resource-title" name="title" maxlength="120" required>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label" for="new-resource-point">关联知识点</label>
+                            <select class="form-select" id="new-resource-point" name="knowledge_point" required>
+                                {% for source in knowledge_point_sources %}
+                                <option value="{{ source.knowledge_point }}">{{ knowledge_point_labels.get(source.knowledge_point, source.knowledge_point) }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label" for="new-resource-content">资料正文</label>
+                            <textarea class="form-control" id="new-resource-content" name="content" rows="3" maxlength="2400" required></textarea>
+                        </div>
+                        <button class="btn btn-primary" type="submit">发布资料</button>
+                    </form>
+                    {% endif %}
+                </div>
+            </section>
         </div>
     </div>
 </div>

@@ -243,6 +243,27 @@
     {% endif %}
 </div>
 
+<section class="card mt-4" id="assignment-learning-resources" aria-labelledby="assignment-learning-resources-title">
+    <div class="card-header"><h2 id="assignment-learning-resources-title" class="h4 mb-0">学习资料</h2></div>
+    <div class="card-body">
+        {% if learning_resources %}
+        <div class="row g-3">
+            {% for resource in learning_resources %}
+            <article class="col-12 col-lg-6" aria-labelledby="learning-resource-{{ resource.id }}-title">
+                <div class="border rounded p-3 h-100">
+                    <h3 id="learning-resource-{{ resource.id }}-title" class="h5">{{ resource.title }}</h3>
+                    <p class="small text-muted mb-2">{{ knowledge_point_labels.get(resource.knowledge_point, resource.knowledge_point) }} · 来源版本 {{ resource.source_version[:12] }}</p>
+                    <p class="mb-0" style="white-space: pre-wrap">{{ resource.content }}</p>
+                </div>
+            </article>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="mb-0 text-muted" role="status">教师还没有为这份作业添加学习资料。你可以先查看题目中的知识点提示。</p>
+        {% endif %}
+    </div>
+</section>
+
 {% if knowledge_evidence is defined %}
 {% set knowledge_audience = 'admin' if session.get('usertype') == '管理员' else 'teacher' if session.get('usertype') == '教师' else 'student' %}
 {{ knowledge_evidence_panel(knowledge_evidence, audience=knowledge_audience, panel_id='assignment-knowledge-evidence', retry_url=url_for('api.get_assignment_knowledge_evidence', assignment_id=assignment.id)) }}

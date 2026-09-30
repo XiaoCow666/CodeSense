@@ -38,6 +38,7 @@ _ALLOWED_RETRIEVAL_MODES = frozenset(
 )
 _SOURCE_LABELS = {
     "assignment_knowledge_point": "作业知识点",
+    "assignment_learning_resource": "教师学习资料",
 }
 _DEFAULT_SOURCE_LABEL = "作业知识证据"
 _FALLBACK_CODES = {
@@ -183,6 +184,9 @@ def _project_evidence(
             ),
             "created_at": _safe_created_at(raw_item.get("created_at")),
         }
+        source_version = _safe_text(raw_item.get("source_version"), limit=64)
+        if source_version:
+            item["source_version"] = source_version
         if include_source_type and source_type in _SOURCE_LABELS:
             item["source_type"] = source_type
         projected.append(item)

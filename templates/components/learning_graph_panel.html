@@ -28,6 +28,7 @@
     <div class="learning-graph-panel__summary" aria-label="知识路径摘要">
         <span><strong>{{ meta.get('assignment_count', 0) }}</strong> 份作业</span>
         <span><strong>{{ meta.get('knowledge_point_count', 0) }}</strong> 个知识点</span>
+        <span><strong>{{ meta.get('resource_count', 0) }}</strong> 份学习资料</span>
         {% if role == 'teacher' %}
         <span><strong>{{ meta.get('sample_size', 0) }}</strong> 名学生样本</span>
         {% else %}
@@ -71,10 +72,10 @@
             <h3>下一步先练什么</h3>
             <div class="learning-graph-recommendations">
                 {% for item in graph_recommendations[:4] %}
-                <a class="learning-graph-recommendation" href="{{ url_for('assignments.submit_code', assignment_id=item.assignment_id) }}">
+                <a class="learning-graph-recommendation" href="{% if item.get('resource_id') %}{{ url_for('assignments.view_assignment', assignment_id=item.assignment_id) }}#learning-resource-{{ item.resource_id }}{% else %}{{ url_for('assignments.submit_code', assignment_id=item.assignment_id) }}{% endif %}">
                     <span>
                         <strong>{{ item.label }}</strong>
-                        <small>{{ item.reason }}</small>
+                        <small>{{ item.reason }}{% if item.get('resource_id') %} · 先读学习资料{% endif %}</small>
                     </span>
                     <i class="bi bi-arrow-up-right" aria-hidden="true"></i>
                 </a>

@@ -53,6 +53,13 @@ from services.submission_reviews import (
 from services.notifications import create_notification
 from services.knowledge_evidence import build_knowledge_evidence_view
 from services.knowledge_rag import retrieve_assignment_knowledge
+from services.assignment_learning_resources import (
+    list_assignment_learning_resources,
+    list_assignment_resource_revisions,
+    save_assignment_learning_resource,
+    withdraw_assignment_learning_resource,
+    withdraw_assignment_resources_for_codes,
+)
 from io import BytesIO, StringIO
 import csv
 from sqlalchemy import desc, func, select
@@ -551,6 +558,7 @@ def view_assignment(assignment_id):
         assignment.id,
         audience=knowledge_audience,
     )
+    learning_resources = list_assignment_learning_resources(assignment.id)
     if usertype in ('管理员', '教师'):
         # 教师只能看到自己管理班级的提交；出题教师可以继续查看该题目的
         # 全部提交，便于维护自己发布的题目。
@@ -595,6 +603,8 @@ def view_assignment(assignment_id):
             class_progress=assignment.get_class_progress(progress_scope),
             usertype=usertype,
             knowledge_evidence=knowledge_evidence,
+            learning_resources=learning_resources,
+            knowledge_point_labels=KnowledgePointScore.KNOWLEDGE_POINTS,
         )
 
     student_id = current_user.student_id
@@ -622,6 +632,8 @@ def view_assignment(assignment_id):
         max_score=max(scores) if scores else 0,
         usertype=usertype,
         knowledge_evidence=knowledge_evidence,
+        learning_resources=learning_resources,
+        knowledge_point_labels=KnowledgePointScore.KNOWLEDGE_POINTS,
     )
 
 
@@ -1959,6 +1971,9 @@ def edit_assignment(assignment_id):
         KnowledgePointScore.KNOWLEDGE_POINTS.items(),
         key=lambda item: item[1],
     )
+    learning_resources = list_assignment_learning_resources(
+        assignment.id, include_withdrawn=True,
+    )
     return render_template(
         'edit_assignment.html',
         form=form,
@@ -1966,6 +1981,68 @@ def edit_assignment(assignment_id):
         knowledge_point_sources=knowledge_point_sources,
         knowledge_point_labels=KnowledgePointScore.KNOWLEDGE_POINTS,
         knowledge_point_options=knowledge_point_options,
+        learning_resources=learning_resources,
+        resource_revisions=list_assignment_resource_revisions(
+            assignment.id, [resource.id for resource in learning_resources],
+        ),
+    )
+
+
+@assignments.route(
+    '/teacher/edit/<int:assignment_id>/learning-resources',
+    methods=['POST'],
+)
+@login_required
+@teacher_required
+def update_assignment_learning_resources(assignment_id):
+    assignment = Assignment.query.get_or_404(assignment_id)
+    if not can_manage_assignment(assignment, current_user):
+        abort(403)
+
+    action = (request.form.get('action') or '').strip()
+    raw_resource_id = (request.form.get('resource_id') or '').strip()
+    if action not in {'create', 'update', 'withdraw'}:
+        abort(400)
+    if action == 'create' and raw_resource_id:
+        abort(400)
+    if action != 'create' and (
+        not raw_resource_id.isascii()
+        or not raw_resource_id.isdecimal()
+        or len(raw_resource_id) > 12
+    ):
+        abort(400)
+    resource_id = int(raw_resource_id) if raw_resource_id else None
+    raw_revision = (request.form.get('expected_revision') or '').strip()
+    if action != 'create' and (
+        not raw_revision.isascii()
+        or not raw_revision.isdecimal()
+        or len(raw_revision) > 12
+    ):
+        abort(400)
+    expected_revision = int(raw_revision) if raw_revision else None
+    try:
+        if action == 'withdraw':
+            withdraw_assignment_learning_resource(
+                assignment, current_user, resource_id,
+                expected_revision=expected_revision,
+            )
+            flash('学习资料已撤回。', 'success')
+        else:
+            save_assignment_learning_resource(
+                assignment,
+                current_user,
+                title=request.form.get('title'),
+                content=request.form.get('content'),
+                knowledge_point=request.form.get('knowledge_point'),
+                resource_id=resource_id,
+                expected_revision=expected_revision,
+            )
+            flash('学习资料已保存。', 'success')
+    except ValueError as error:
+        flash(str(error), 'warning')
+    return redirect(
+        url_for('assignments.edit_assignment', assignment_id=assignment.id)
+        + '#assignment-learning-resources'
     )
 
 
@@ -2035,6 +2112,14 @@ def update_assignment_knowledge_points(assignment_id):
                 auto_detected=False,
             )
         )
+
+    removed_codes = {
+        sources_by_id[source_id].knowledge_point
+        for source_id in remove_source_ids
+    } - remaining_codes - ({add_knowledge_point} if add_knowledge_point else set())
+    withdraw_assignment_resources_for_codes(
+        assignment, current_user, removed_codes,
+    )
 
     db.session.commit()
     flash('作业知识点来源已更新。', 'success')

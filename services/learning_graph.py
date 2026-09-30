@@ -21,6 +21,7 @@ from sqlalchemy import and_, or_
 from models import (
     Assignment,
     AssignmentKnowledgePoint,
+    AssignmentLearningResource,
     Class,
     KnowledgePointScore,
     User,
@@ -101,6 +102,52 @@ def _assignment_knowledge_rows(assignment_ids):
         )
         .all()
     )
+
+
+def _assignment_resource_rows(assignment_ids, grouped, *, allowed_codes=None):
+    if not assignment_ids:
+        return []
+    rows = AssignmentLearningResource.query.filter(
+        AssignmentLearningResource.assignment_id.in_(assignment_ids),
+        AssignmentLearningResource.status == "active",
+    ).order_by(AssignmentLearningResource.id.asc()).all()
+    return [
+        row for row in rows
+        if row.knowledge_point in grouped.get(row.assignment_id, {})
+        and (allowed_codes is None or row.knowledge_point in allowed_codes)
+    ]
+
+
+def _resource_projection(rows, *, scope):
+    nodes = []
+    edges = []
+    for row in rows:
+        resource_id = f"resource:{row.id}"
+        source_ref = f"assignment-resource:{row.id}"
+        nodes.append({
+            "id": resource_id,
+            "type": "learning_resource",
+            "resource_id": row.id,
+            "assignment_id": row.assignment_id,
+            "knowledge_point": row.knowledge_point,
+            "label": row.title,
+            "source_version": row.source_version,
+        })
+        for source, target, relation_type in (
+            (_assignment_id(row.assignment_id), resource_id, "provides"),
+            (resource_id, _knowledge_id(row.knowledge_point), "explains"),
+        ):
+            edges.append({
+                "source": source,
+                "target": target,
+                "relation_type": relation_type,
+                "provenance": "assignment_learning_resource",
+                "scope": scope,
+                "is_inferred": False,
+                "source_refs": [source_ref],
+                "source_version": row.source_version,
+            })
+    return nodes, edges
 
 
 def _group_assignment_knowledge(rows):
@@ -242,6 +289,10 @@ def build_student_learning_graph(*, student_id, assignment_id=None, limit=DEFAUL
     grouped = _group_assignment_knowledge(
         _assignment_knowledge_rows(assignment_ids)
     )
+    resources = _assignment_resource_rows(assignment_ids, grouped)
+    resource_by_assignment_code = {
+        (row.assignment_id, row.knowledge_point): row.id for row in resources
+    }
     codes = sorted({code for knowledge in grouped.values() for code in knowledge})
     scores = (
         KnowledgePointScore.query.filter(
@@ -306,9 +357,17 @@ def build_student_learning_graph(*, student_id, assignment_id=None, limit=DEFAUL
                         "label": _knowledge_label(code),
                         "reason": "尚未形成稳定掌握度" if mastery is None else "最近掌握度较低",
                         "action": "practice_assignment",
+                        "resource_id": resource_by_assignment_code.get(
+                            (assignment.id, code)
+                        ),
                     }
                 )
 
+    resource_nodes, resource_edges = _resource_projection(
+        resources, scope="student_assignments",
+    )
+    nodes.extend(resource_nodes)
+    edges.extend(resource_edges)
     edges.extend(_co_occurrence_edges(grouped, scope="student_assignments"))
     for code in codes:
         if code in score_by_code:
@@ -347,6 +406,7 @@ def build_student_learning_graph(*, student_id, assignment_id=None, limit=DEFAUL
             "sample_size": len(assignments),
             "assignment_count": len(assignments),
             "knowledge_point_count": len(codes),
+            "resource_count": len(resources),
             "virtual_nodes": ["student:mastery"],
             "privacy": "student_private",
         },
@@ -685,6 +745,9 @@ def build_teacher_knowledge_coverage(*, viewer_id, class_id=None, limit=DEFAULT_
         }
         for assignment_id, knowledge in grouped.items()
     }
+    resources = _assignment_resource_rows(
+        assignment_ids, filtered_grouped, allowed_codes=set(limited_codes),
+    )
     edges = []
     for assignment_id, knowledge in filtered_grouped.items():
         for code, detail in sorted(knowledge.items()):
@@ -703,6 +766,11 @@ def build_teacher_knowledge_coverage(*, viewer_id, class_id=None, limit=DEFAULT_
                 }
             )
     edges.extend(_co_occurrence_edges(filtered_grouped, scope="teacher_class"))
+    resource_nodes, resource_edges = _resource_projection(
+        resources, scope="teacher_class",
+    )
+    nodes.extend(resource_nodes)
+    edges.extend(resource_edges)
     return {
         "nodes": nodes,
         "edges": edges,
@@ -714,6 +782,7 @@ def build_teacher_knowledge_coverage(*, viewer_id, class_id=None, limit=DEFAULT_
             "sample_size": len(students),
             "assignment_count": len(assignments),
             "knowledge_point_count": len(limited_codes),
+            "resource_count": len(resources),
             "privacy": "class_aggregate",
         },
     }
@@ -788,6 +857,15 @@ def build_teacher_knowledge_focus(
     )
 
     result = []
+    resources_by_assignment = {}
+    for resource in _assignment_resource_rows(
+        assignment_ids, grouped, allowed_codes={code},
+    ):
+        resources_by_assignment.setdefault(resource.assignment_id, []).append({
+            "id": resource.id,
+            "title": resource.title,
+            "source_version": resource.source_version,
+        })
     for assignment in assignments:
         detail = grouped.get(assignment.id, {}).get(code)
         if detail is None:
@@ -810,6 +888,7 @@ def build_teacher_knowledge_focus(
                 "source_refs": detail["source_refs"],
                 "source_version": detail["source_versions"][0],
                 "can_manage": can_manage_assignment(assignment, viewer),
+                "learning_resources": resources_by_assignment.get(assignment.id, [])[:3],
             }
         )
         if len(result) >= _bounded_limit(limit):

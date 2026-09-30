@@ -33,7 +33,7 @@ MONITOR_OVERFLOW_LABEL = "__other__"
 class KnowledgePrivacyFilter:
     """Redact common contact and credential patterns before indexing."""
 
-    SAFE_METADATA_KEYS = frozenset({"created_at", "evidence_id", "record_id"})
+    SAFE_METADATA_KEYS = frozenset({"created_at", "evidence_id", "record_id", "source_version"})
     _SAFE_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9:_-]{0,127}\Z")
     _SAFE_TIMESTAMP_PATTERN = re.compile(
         r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}"
@@ -83,6 +83,9 @@ class KnowledgePrivacyFilter:
                     sanitized[key] = value
             elif key == "created_at":
                 if isinstance(value, str) and cls._SAFE_TIMESTAMP_PATTERN.fullmatch(value):
+                    sanitized[key] = value
+            elif key == "source_version":
+                if isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value):
                     sanitized[key] = value
         return sanitized
 

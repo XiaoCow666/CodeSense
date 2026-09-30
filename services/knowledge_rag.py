@@ -14,7 +14,12 @@ import logging
 import os
 import time
 
-from models import AssignmentKnowledgePoint, KnowledgePointScore, db
+from models import (
+    AssignmentKnowledgePoint,
+    AssignmentLearningResource,
+    KnowledgePointScore,
+    db,
+)
 from services.knowledge_optimization import (
     BudgetedEmbedder,
     EmbeddingBudgetExceeded,
@@ -31,6 +36,7 @@ from services.knowledge_reliability import (
     default_retrieval_timeout_ms,
 )
 from services.knowledge_vector_store import KnowledgeRetrievalTimeout, NgramCountEmbedder
+from services.assignment_learning_resources import list_assignment_learning_resources
 
 
 MAX_EVIDENCE = 8
@@ -235,6 +241,11 @@ def retrieve_assignment_knowledge(
             .limit(MAX_INDEX_DOCUMENTS)
             .all()
         )
+        records.extend(
+            list_assignment_learning_resources(assignment_id)[
+                :MAX_INDEX_DOCUMENTS - len(records)
+            ]
+        )
         if time.monotonic() > deadline:
             raise KnowledgeRetrievalTimeout("knowledge record lookup exceeded deadline")
     except KnowledgeRetrievalTimeout:
@@ -265,6 +276,25 @@ def retrieve_assignment_knowledge(
 
     documents = []
     for record in records:
+        if isinstance(record, AssignmentLearningResource):
+            raw_document = KnowledgeDocument(
+                document_id=f"assignment-resource:{record.id}",
+                title=record.title,
+                content=record.content,
+                source_type="assignment_learning_resource",
+                priority=1.0,
+                metadata={
+                    "created_at": _created_at_value(record),
+                    "evidence_id": f"assignment-resource:{record.id}",
+                    "record_id": record.id,
+                    "source_version": record.source_version,
+                },
+            )
+            document = KnowledgePrivacyFilter.sanitize_document(raw_document)
+            if document != raw_document:
+                privacy_filtered_count += 1
+            documents.append(document)
+            continue
         code = str(record.knowledge_point or "").strip()
         if not code:
             continue
@@ -355,6 +385,7 @@ def retrieve_assignment_knowledge(
             "title": citation.title,
             "content": citation.content,
             "created_at": citation.metadata.get("created_at"),
+            "source_version": citation.metadata.get("source_version"),
         }
         for citation in citations
     ]

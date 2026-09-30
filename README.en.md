@@ -23,14 +23,14 @@
   <a href="https://github.com/XiaoCow666/CodeSense/stargazers"><img src="https://img.shields.io/github/stars/XiaoCow666/CodeSense?style=flat-square&logo=github" alt="GitHub stars"></a>
   <a href="https://github.com/XiaoCow666/CodeSense/network/members"><img src="https://img.shields.io/github/forks/XiaoCow666/CodeSense?style=flat-square&logo=github" alt="GitHub forks"></a>
   <a href="https://github.com/XiaoCow666/CodeSense/blob/main/LICENSE"><img src="https://img.shields.io/github/license/XiaoCow666/CodeSense?style=flat-square" alt="License"></a>
-  <img src="https://img.shields.io/badge/version-v2.0.1-2563eb?style=flat-square" alt="v2.0.1">
+  <img src="https://img.shields.io/badge/version-v2.1.0-2563eb?style=flat-square" alt="v2.1.0">
   <img src="https://img.shields.io/badge/Python-3.8--3.14-3776ab?style=flat-square&logo=python&logoColor=white" alt="Python 3.8–3.14">
   <img src="https://img.shields.io/badge/Flask-2.3.3-000000?style=flat-square&logo=flask&logoColor=white" alt="Flask 2.3.3">
 </p>
 
-> **Release status: formal release** · **Current version: `v2.0.1`**
+> **Release status: formal release** · **Current version: `v2.1.0`**
 >
-> `v2.0.1` improves mobile reading for assignments, submissions, knowledge profiles, class details, feedback, and import results. The evaluation waiting page follows the actual task state and links back to submission history. Feedback and notification times show Beijing time, and the public code editor demo is available again. The graph, learning-memory, and percentage-score workflows introduced in `v2.0.0` remain available. Releases use `vMAJOR.MINOR.PATCH` and are tracked in GitHub Releases/Tags and [CHANGELOG.md](CHANGELOG.md).
+> `v2.1.0` lets teachers publish, revise, and withdraw learning resources for assignment knowledge points. Students can open them from their knowledge path, and AI guidance cites the current source version. Withdrawn resources stop appearing in student views and AI evidence. `v2.0.1` improves mobile reading for assignments, submissions, knowledge profiles, class details, feedback, and import results. The evaluation waiting page follows the actual task state and links back to submission history. Feedback and notification times show Beijing time, and the public code editor demo is available again. The graph, learning-memory, and percentage-score workflows introduced in `v2.0.0` remain available. Releases use `vMAJOR.MINOR.PATCH` and are tracked in GitHub Releases/Tags and [CHANGELOG.md](CHANGELOG.md).
 
 ## Contents
 
@@ -80,6 +80,10 @@ These screenshots are from the runnable pages in the repository, not concept moc
 
 <p align="center">
   <img src="docs/assets/codesense-v2.0.0-learning-action-loop.png" alt="CodeSense v2.0.0 student learning suggestions and teacher class actions" width="100%">
+</p>
+
+<p align="center">
+  <img src="docs/assets/codesense-v2.1.0-learning-resources.png" alt="CodeSense v2.1.0 learning resources for teachers, students, and AI guidance" width="100%">
 </p>
 
 <p align="center">
@@ -398,7 +402,7 @@ CodeSense follows semantic versioning:
 - `MINOR`: backward-compatible feature additions;
 - `PATCH`: backward-compatible fixes and small adjustments.
 
-The current version is **`v2.0.1`**. Students can read assignments, submission history, and knowledge profiles on mobile screens and return to submission history while an evaluation is running. Teachers can review class responses more clearly, and administrators can inspect feedback and import results on mobile screens. Every release updates [CHANGELOG.md](CHANGELOG.md) and uses a matching Git tag and GitHub Release.
+The current version is **`v2.1.0`**. Teachers can add learning resources to an assignment, students can open them from the knowledge path, and AI guidance cites the current version. A withdrawal removes the resource from current learning and guidance views.  Students can read assignments, submission history, and knowledge profiles on mobile screens and return to submission history while an evaluation is running. Teachers can review class responses more clearly, and administrators can inspect feedback and import results on mobile screens. Every release updates [CHANGELOG.md](CHANGELOG.md) and uses a matching Git tag and GitHub Release.
 
 ## Star History
 

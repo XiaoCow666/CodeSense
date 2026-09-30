@@ -1336,6 +1336,53 @@ class AssignmentKnowledgePoint(db.Model):
         db.session.commit() 
 
 
+class AssignmentLearningResource(db.Model):
+    __tablename__ = 'assignment_learning_resources'
+
+    id = db.Column(db.Integer, primary_key=True)
+    assignment_id = db.Column(
+        db.Integer, db.ForeignKey('assignments.id', ondelete='CASCADE'),
+        nullable=False, index=True,
+    )
+    knowledge_point = db.Column(db.String(50), nullable=False)
+    title = db.Column(db.String(120), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    creator_id = db.Column(db.String(20), db.ForeignKey('users.student_id'), nullable=False)
+    revision = db.Column(db.Integer, nullable=False, default=1)
+    source_version = db.Column(db.String(64), nullable=False)
+    status = db.Column(db.String(20), nullable=False, default='active')
+    created_at = db.Column(db.DateTime, nullable=False, default=dt.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=dt.utcnow)
+    withdrawn_at = db.Column(db.DateTime, nullable=True)
+
+    __table_args__ = (
+        Index('ix_assignment_learning_resource_scope', 'assignment_id', 'status'),
+    )
+
+
+class AssignmentLearningResourceRevision(db.Model):
+    __tablename__ = 'assignment_learning_resource_revisions'
+
+    id = db.Column(db.Integer, primary_key=True)
+    resource_id = db.Column(
+        db.Integer,
+        db.ForeignKey('assignment_learning_resources.id', ondelete='CASCADE'),
+        nullable=False, index=True,
+    )
+    revision = db.Column(db.Integer, nullable=False)
+    title = db.Column(db.String(120), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    knowledge_point = db.Column(db.String(50), nullable=False)
+    source_version = db.Column(db.String(64), nullable=False)
+    action = db.Column(db.String(20), nullable=False)
+    editor_id = db.Column(db.String(20), db.ForeignKey('users.student_id'), nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=dt.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint('resource_id', 'revision', name='uq_assignment_resource_revision'),
+    )
+
+
 class StudentLearningVector(db.Model):
     """学生私有学习来源及其版本化稀疏向量。"""
     __tablename__ = 'student_learning_vectors'

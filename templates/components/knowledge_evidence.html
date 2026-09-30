@@ -38,7 +38,7 @@
             <div class="knowledge-evidence-detail__body">
                 <p>{{ item.get('content') or '暂无证据摘要。' }}</p>
                 <span class="knowledge-evidence-detail__source">
-                    {{ item.get('source_label') or '作业知识证据' }}{% if item.get('created_at') %} · {{ item.get('created_at') }}{% endif %}
+                    {{ item.get('source_label') or '作业知识证据' }}{% if item.get('source_version') %} · 来源版本 {{ item.get('source_version')[:12] }}{% endif %}{% if item.get('created_at') %} · {{ item.get('created_at') }}{% endif %}
                 </span>
             </div>
         </details>

@@ -17,6 +17,7 @@ from models import (
     db,
 )
 from services.student_vector_store import (
+    StudentVectorAccessError,
     StudentVectorRebuildError,
     get_student_vector_snapshot,
     list_student_learning_sources,
@@ -205,11 +206,12 @@ def test_search_filters_student_and_assignment_scope_before_similarity(
             "指针生命周期",
             assignment_id=ids["assignment_one"],
         )
-        other_assignment = search_student_learning_vectors(
-            ids["student_one"],
-            "递归边界",
-            assignment_id=ids["assignment_two"],
-        )
+        with pytest.raises(StudentVectorAccessError):
+            search_student_learning_vectors(
+                ids["student_one"],
+                "递归边界",
+                assignment_id=ids["assignment_two"],
+            )
 
         assert own["status"] == "grounded"
         assert own["evidence"][0]["assignment_id"] == ids["assignment_one"]
@@ -217,7 +219,6 @@ def test_search_filters_student_and_assignment_scope_before_similarity(
         assert own["metrics"]["freshness_status"] == "fresh"
         assert own["metrics"]["revoked_count"] == 0
         assert other_student["status"] == "no_result"
-        assert other_assignment["status"] == "no_result"
 
 
 def test_assignment_scope_is_applied_before_vector_rows_are_loaded(
@@ -325,6 +326,30 @@ def test_user_revoked_source_is_excluded_from_rebuild_source_count(
 
         assert rebuilt["source_count"] == rebuilt["active_count"]
         assert rebuilt["source_count"] == 1
+
+
+def test_all_revoked_sources_report_empty_after_rebuild(
+    seeded_student_vector_context,
+):
+    app, ids = seeded_student_vector_context
+    with app.app_context():
+        rebuild_student_vector_index(ids["student_one"])
+        rows = StudentLearningVector.query.filter_by(
+            student_id=ids["student_one"], status="active",
+        ).all()
+        assert len(rows) == 2
+        for row in rows:
+            revoke_student_vector_source(
+                ids["student_one"], row.source_type, row.source_id,
+            )
+
+        snapshot = rebuild_student_vector_index(ids["student_one"])
+        result = search_student_learning_vectors(ids["student_one"], "递归边界")
+
+        assert snapshot["status"] == "empty"
+        assert snapshot["active_count"] == snapshot["source_count"] == 0
+        assert result["status"] == "no_result"
+        assert result["evidence"] == []
 
 
 def test_user_revocation_survives_source_version_change(

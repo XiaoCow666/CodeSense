@@ -10,6 +10,21 @@ This file records release-level information for users and maintainers. Versions 
 
 Future unreleased changes will be listed here.
 
+## [2.1.0] - 2026-09-30
+
+### Added
+
+- 教师可以在作业编辑页发布与当前知识点关联的学习资料，更新后保留版本记录。
+- 学生可以从知识路径直接打开资料，在作业页阅读；AI 辅导会引用当前资料及来源版本。
+- 教师可撤回资料；撤回或移除关联知识点后，学生页面、知识路径和 AI 引用不再展示该资料。
+
+### Improved
+
+- 学生向量检索先核对作业访问范围；所有个人来源均已撤回时，显示空数据状态。
+- 图谱离线评测可以核对资料节点、关系及撤回后的结果。
+
+[2.1.0]: https://github.com/XiaoCow666/CodeSense/releases/tag/v2.1.0
+
 ## [2.0.1] - 2026-09-29
 
 ### Improved

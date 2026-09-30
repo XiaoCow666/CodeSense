@@ -23,6 +23,7 @@ from models import (
 )
 from services.knowledge_reliability import KnowledgePrivacyFilter
 from services.knowledge_vector_store import NgramCountEmbedder
+from utils.access import can_access_assignment
 
 
 MAX_SUBMISSION_SOURCES = 24
@@ -272,7 +273,7 @@ def rebuild_student_vector_index(student_id, *, embedder=None):
             and active_keys == expected_active_keys
             and not provided_embedder
         ):
-            state.status = "ready" if sources else "empty"
+            state.status = "ready" if active_keys else "empty"
             state.source_count = len(active_keys)
             state.updated_at = now
             state.failure_code = None
@@ -328,12 +329,12 @@ def rebuild_student_vector_index(student_id, *, embedder=None):
             state = StudentVectorIndexState(student_id=normalized_student_id)
             db.session.add(state)
         state.revision = next_revision
-        state.status = "ready" if sources else "empty"
         state.source_count = StudentLearningVector.query.filter_by(
             student_id=normalized_student_id,
             scope_type=STUDENT_SCOPE,
             status=ACTIVE,
         ).count()
+        state.status = "ready" if state.source_count else "empty"
         state.last_built_at = now
         state.failure_code = None
         state.updated_at = now
@@ -481,6 +482,11 @@ def search_student_learning_vectors(
     """只在当前学生作用域内查询学习来源。"""
 
     normalized_student_id = _student_id(student_id)
+    if assignment_id is not None:
+        assignment = db.session.get(Assignment, assignment_id)
+        student = db.session.get(User, normalized_student_id)
+        if assignment is None or not can_access_assignment(assignment, student):
+            raise StudentVectorAccessError("assignment is outside the student scope")
     bounded_limit = max(1, min(int(limit), MAX_RESULTS))
     state = StudentVectorIndexState.query.filter_by(
         student_id=normalized_student_id
