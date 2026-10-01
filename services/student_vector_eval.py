@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from services.knowledge_vector_store import NgramCountEmbedder
+from services.student_vector_store import MIN_SIMILARITY, MAX_RESULTS
 
 
 DEFAULT_FIXTURE = (
@@ -89,11 +90,11 @@ def evaluate_student_vector_fixture(
         scored = []
         for source in scoped_sources:
             score = _cosine_similarity(query_vector, embedder.embed(source["content"]))
-            if score <= 0.0:
+            if score < MIN_SIMILARITY:
                 continue
             scored.append((score, str(source["source_id"]), source))
         scored.sort(key=lambda item: (-item[0], item[1]))
-        top_k = max(1, int(case.get("top_k", 5)))
+        top_k = max(1, min(int(case.get("top_k", MAX_RESULTS)), MAX_RESULTS))
         selected = scored[:top_k]
         actual_ids = [item[1] for item in selected]
         expected_ids = set(case.get("relevant_source_ids", []))
@@ -180,6 +181,14 @@ def evaluate_student_vector_fixture(
             3,
         ),
         "case_results": case_results,
+        "minimum_similarity": MIN_SIMILARITY,
+        "max_results": MAX_RESULTS,
+        "failure_samples": [
+            result for result in case_results
+            if not result['status_match'] or (
+                result['recall_at_k'] is not None and result['recall_at_k'] < 1.0
+            )
+        ],
     }
 
 

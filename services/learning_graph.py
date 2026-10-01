@@ -26,6 +26,10 @@ from models import (
     KnowledgePointScore,
     User,
 )
+from services.student_vector_store import (
+    current_student_memory_rows,
+    get_student_vector_action_state,
+)
 from utils.access import (
     authoritative_class_name,
     assignment_target_class_filter,
@@ -368,6 +372,26 @@ def build_student_learning_graph(*, student_id, assignment_id=None, limit=DEFAUL
     )
     nodes.extend(resource_nodes)
     edges.extend(resource_edges)
+    memory_count = 0
+    memory_state = get_student_vector_action_state(student.student_id)
+    if memory_state['status'] == 'ready' or memory_state['has_usable_previous_revision']:
+        memory_rows, _ = current_student_memory_rows(student.student_id)
+        for row in memory_rows:
+            if row.source_type != 'submission_feedback' or row.assignment_id not in assignment_ids:
+                continue
+            memory_node = f'learning-memory:{row.id}'
+            nodes.append({
+                'id': memory_node, 'type': 'learning_memory',
+                'assignment_id': row.assignment_id, 'label': row.source_title,
+                'source_version': row.source_version,
+            })
+            edges.append({
+                'source': memory_node, 'target': _assignment_id(row.assignment_id),
+                'relation_type': 'reflects_on', 'scope': 'student_private',
+                'provenance': 'submission_feedback', 'is_inferred': False,
+                'source_refs': [row.source_id], 'source_version': row.source_version,
+            })
+            memory_count += 1
     edges.extend(_co_occurrence_edges(grouped, scope="student_assignments"))
     for code in codes:
         if code in score_by_code:
@@ -407,6 +431,7 @@ def build_student_learning_graph(*, student_id, assignment_id=None, limit=DEFAUL
             "assignment_count": len(assignments),
             "knowledge_point_count": len(codes),
             "resource_count": len(resources),
+            "learning_memory_count": memory_count,
             "virtual_nodes": ["student:mastery"],
             "privacy": "student_private",
         },

@@ -191,6 +191,50 @@ def _embedding_payload(embedder, text: str) -> str:
     return json.dumps(normalized, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
+def _read_embedding(payload):
+    """A bad source must not disable retrieval of the remaining sources."""
+    try:
+        values = json.loads(payload)
+        if not isinstance(values, dict) or not values:
+            return None
+        if any(
+            not isinstance(key, str) or isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value) or value <= 0
+            for key, value in values.items()
+        ):
+            return None
+        return values
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def current_student_memory_rows(student_id, *, assignment_id=None):
+    """Check live ownership, source state and version before vector ranking.
+
+    Existing submission ownership rules remain authoritative. No new source
+    types are imported, and this read does not silently rebuild the index.
+    """
+    normalized = _student_id(student_id)
+    _, query, _ = _student_vector_queries(normalized, assignment_id)
+    rows = query.order_by(StudentLearningVector.id.asc()).all()
+    live = {
+        _source_key(source.source_type, source.source_id, source.source_version)
+        for source in _build_sources(normalized)
+    }
+    current = [row for row in rows if _source_key(
+        row.source_type, row.source_id, row.source_version,
+    ) in live]
+    return current, len(rows) - len(current)
+
+
+def _submission_id(row):
+    if row.source_type != 'submission_feedback':
+        return None
+    prefix, _, value = row.source_id.partition(':')
+    return int(value) if prefix == 'submission' and value.isdigit() else None
+
+
 def _source_key(source_type, source_id, source_version):
     return source_type, source_id, source_version
 
@@ -271,6 +315,7 @@ def rebuild_student_vector_index(student_id, *, embedder=None):
             and state.status in {"ready", "empty"}
             and not _index_is_stale(state, now=now)
             and active_keys == expected_active_keys
+            and all(_read_embedding(row.embedding) for row in existing_rows if row.status == ACTIVE)
             and not provided_embedder
         ):
             state.status = "ready" if active_keys else "empty"
@@ -558,11 +603,17 @@ def search_student_learning_vectors(
         assignment_id,
     )
     scope_candidate_count = scope_query.count()
-    rows = filtered_query.all()
+    rows, outdated_count = current_student_memory_rows(
+        normalized_student_id, assignment_id=assignment_id,
+    )
     query_vector = NgramCountEmbedder().embed(query)
     scored = []
+    invalid_count = 0
     for row in rows:
-        embedding = json.loads(row.embedding)
+        embedding = _read_embedding(row.embedding)
+        if embedding is None:
+            invalid_count += 1
+            continue
         score = _cosine_similarity(query_vector, embedding)
         if score < MIN_SIMILARITY:
             continue
@@ -579,6 +630,7 @@ def search_student_learning_vectors(
             "title": row.source_title,
             "content": row.content[:360],
             "assignment_id": row.assignment_id,
+            "submission_id": _submission_id(row),
             "scope": row.scope_type,
             "source_version": row.source_version,
             "index_revision": row.index_revision,
@@ -591,6 +643,8 @@ def search_student_learning_vectors(
         "evidence": evidence,
         "metrics": {
             "candidate_count": len(rows),
+            "outdated_source_count": outdated_count,
+            "invalid_source_count": invalid_count,
             "scope_candidate_count": scope_candidate_count,
             "hit_count": len(evidence),
             "retrieval_mode": "vector" if evidence else "no_result",
@@ -781,6 +835,7 @@ def project_student_learning_evidence(retrieval):
                 "title": item.get("title"),
                 "content": item.get("content"),
                 "assignment_id": item.get("assignment_id"),
+                "submission_id": item.get("submission_id"),
                 "scope": item.get("scope"),
                 "source_type": item.get("source_type"),
                 "source_version": item.get("source_version"),
@@ -804,10 +859,15 @@ def render_student_learning_receipt(retrieval):
     lines = ["\n\n### 参考我的学习记录"]
     for item in retrieval.get("evidence", []):
         version = str(item.get("source_version") or "")[:12]
+        submission_id = item.get('submission_id')
+        origin = (
+            f" [回到原提交](/view_submission/{submission_id})"
+            if isinstance(submission_id, int) and submission_id > 0 else ''
+        )
         lines.append(
             f"- {item.get('citation')} {item.get('title')}"
             f"（来源：{item.get('source_type')}；作用域：仅当前学生；"
-            f"版本：{version}；索引版本：{item.get('index_revision', 0)}）"
+            f"版本：{version}；索引版本：{item.get('index_revision', 0)}）{origin}"
         )
     if metrics.get("index_status") == "failed":
         lines.append("- 本次使用上一版可用的个人学习记录；更新失败，请回到首页重试。")

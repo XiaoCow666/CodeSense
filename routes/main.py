@@ -61,13 +61,15 @@ from services.action_center import build_action_center
 from services.profile import get_profile_settings, PROFILE_VISIBILITY_PUBLIC
 from services.student_vector_store import (
     StudentVectorRebuildError,
+    StudentVectorAccessError,
     get_student_vector_snapshot,
     list_student_learning_sources,
     rebuild_student_vector_index_with_retry,
     revoke_student_vector_source,
+    search_student_learning_vectors,
 )
 from utils.auth import admin_required
-from utils.access import authoritative_class_name, assignment_target_class_filter, can_access_student
+from utils.access import authoritative_class_name, assignment_target_class_filter, can_access_student, can_access_assignment
 from utils.export_safety import safe_export_cell
 from utils.maturity_calculator import calculate_maturity_components
 from utils.sse import sse_event, sse_response
@@ -601,6 +603,54 @@ def admin_dashboard():
         )
 
 
+def _memory_return_url():
+    if request.form.get('return_to') == 'learning_memory':
+        return url_for('main.student_learning_memory',
+                       q=(request.form.get('q') or '')[:200],
+                       assignment_id=request.form.get('assignment_id', type=int))
+    return url_for('main.home')
+
+
+@main.route('/student/learning-memory')
+@login_required
+def student_learning_memory():
+    """Find personal feedback, then return to the original learning task."""
+    if current_user.usertype != '学生':
+        abort(403)
+    raw_assignment = request.args.get('assignment_id')
+    assignment_id = request.args.get('assignment_id', type=int)
+    if raw_assignment and (assignment_id is None or assignment_id <= 0):
+        abort(400)
+    assignment = db.session.get(Assignment, assignment_id) if assignment_id else None
+    if assignment_id and not can_access_assignment(assignment, current_user):
+        abort(403)
+    query = (request.args.get('q') or '').strip()
+    if len(query) > 200:
+        abort(400)
+    result = None
+    error = False
+    try:
+        if query:
+            result = search_student_learning_vectors(
+                current_user.student_id, query, assignment_id=assignment_id,
+            )
+        snapshot = get_student_vector_snapshot(current_user.student_id)
+    except StudentVectorAccessError:
+        abort(403)
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception('Learning memory review unavailable')
+        snapshot = {}
+        error = True
+    response = current_app.make_response(render_template(
+        'student_learning_memory.html', query=query, assignment=assignment,
+        result=result, memory=snapshot, memory_error=error,
+    ))
+    response.headers['Cache-Control'] = 'private, no-store'
+    response.headers['Referrer-Policy'] = 'same-origin'
+    return response
+
+
 @main.route('/student/rebuild-learning-memory', methods=['POST'])
 @login_required
 def rebuild_student_learning_memory():
@@ -623,7 +673,7 @@ def rebuild_student_learning_memory():
             f"学习记忆已更新，共保留 {snapshot['active_count']} 条本人记录。",
             'success',
         )
-    return redirect(url_for('main.home'))
+    return redirect(_memory_return_url())
 
 
 @main.route('/student/learning-memory/revoke', methods=['POST'])
@@ -657,7 +707,7 @@ def revoke_student_learning_memory_source():
         source_id,
     )
     flash('学习来源已撤回，后续学习记忆更新也会保留此选择。', 'success')
-    return redirect(url_for('main.home'))
+    return redirect(_memory_return_url())
 
 
 @main.route('/teacher_dashboard')

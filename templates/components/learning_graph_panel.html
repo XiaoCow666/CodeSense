@@ -29,6 +29,9 @@
         <span><strong>{{ meta.get('assignment_count', 0) }}</strong> 份作业</span>
         <span><strong>{{ meta.get('knowledge_point_count', 0) }}</strong> 个知识点</span>
         <span><strong>{{ meta.get('resource_count', 0) }}</strong> 份学习资料</span>
+        {% if role == 'student' and meta.get('learning_memory_count') %}
+        <span><a href="{{ url_for('main.student_learning_memory') }}">{{ meta.learning_memory_count }} 条原题复盘线索</a></span>
+        {% endif %}
         {% if role == 'teacher' %}
         <span><strong>{{ meta.get('sample_size', 0) }}</strong> 名学生样本</span>
         {% else %}
@@ -57,6 +60,7 @@
                 <small class="text-muted">
                     {% if mastery is none %}还没有足够练习记录{% elif mastery < 60 %}建议优先复习{% elif mastery < 80 %}继续练习巩固{% else %}掌握较稳定{% endif %}
                 </small>
+                <a class="small d-block mt-2" href="{{ url_for('main.student_learning_memory', q=node.get('label', node.get('code'))) }}">回顾相关学习记录</a>
             </article>
             {% endfor %}
         </div>
