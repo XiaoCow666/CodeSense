@@ -9,6 +9,8 @@
   --cs-accent: #237B75;
   --cs-accent-soft: #EAF4F2;
   --cs-input: #F0F3F3;
+  --bs-primary: var(--cs-accent);
+  --bs-primary-rgb: 35, 123, 117;
   /* 主色调 */
   --primary-color: var(--cs-accent);
   --primary-hover: #1C625D;
@@ -26,7 +28,7 @@
   --success: #10b981;
   --warning: #f59e0b;
   --danger: #ef4444;
-  --info: #3b82f6;
+  --info: #2E8E86;
 
   /* 字体 */
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
@@ -48,6 +50,33 @@
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
   --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+}
+
+/* Bootstrap's compiled utilities keep their original blue without these bridges. */
+.bg-primary,
+.badge.bg-primary {
+  background-color: var(--cs-accent) !important;
+}
+
+.text-primary,
+.link-primary {
+  color: var(--cs-accent) !important;
+}
+
+.border-primary {
+  border-color: var(--cs-accent) !important;
+}
+
+.btn-outline-primary {
+  color: var(--cs-accent);
+  border-color: var(--cs-accent);
+}
+
+.btn-outline-primary:hover,
+.btn-outline-primary:focus-visible {
+  color: var(--cs-surface);
+  background-color: var(--cs-accent);
+  border-color: var(--cs-accent);
 }
 
 /* 重置样式 */
@@ -114,6 +143,7 @@ a:hover {
 }
 
 .navbar-brand-logo {
+  filter: hue-rotate(-45deg) saturate(.75);
   width: auto;
   height: 34px;
   margin-right: 0 !important;
@@ -369,7 +399,7 @@ a:hover {
 .form-control:focus {
   outline: none;
   border-color: var(--primary-color);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+  box-shadow: 0 0 0 3px rgba(35, 123, 117, 0.15);
 }
 
 .form-error {
@@ -461,7 +491,7 @@ a:hover {
 }
 
 .badge-primary {
-  background-color: rgba(37, 99, 235, 0.1);
+  background-color: rgba(35, 123, 117, 0.1);
   color: var(--primary-color);
 }
 
@@ -514,7 +544,7 @@ a:hover {
 }
 
 .alert-info {
-  background-color: rgba(59, 130, 246, 0.1);
+  background-color: rgba(46, 142, 134, 0.1);
   color: var(--info);
   border-left: 3px solid var(--info);
 }
@@ -708,7 +738,7 @@ a:hover {
    ========================================================================== */
 
 .maturity-hero {
-    background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+    background: var(--cs-ink);
     color: white;
     padding: 3rem 2rem;
     border-radius: 1rem;
@@ -725,7 +755,7 @@ a:hover {
     right: -10%;
     width: 300px;
     height: 300px;
-    background: radial-gradient(circle, rgba(59, 130, 246, 0.2) 0%, transparent 70%);
+    background: transparent;
     border-radius: 50%;
 }
 
@@ -740,9 +770,7 @@ a:hover {
     font-weight: 800;
     margin: 0;
     line-height: 1;
-    background: linear-gradient(to bottom, #fff, #94a3b8);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
+    color: var(--cs-surface);
 }
 
 .maturity-label {
@@ -895,9 +923,9 @@ a:hover {
     max-width: 720px;
     margin: 4rem auto;
     padding: 3rem 2rem;
-    border: 1px solid #dbeafe;
+    border: 1px solid #EAF4F2;
     border-radius: 1.25rem;
-    background: linear-gradient(145deg, #eff6ff, #ffffff 62%);
+    background: var(--cs-surface);
     box-shadow: var(--shadow-md);
     text-align: center;
 }
@@ -990,9 +1018,9 @@ a:hover {
 
 .review-queue-filter:hover,
 .review-queue-filter.is-active {
-    color: #1d4ed8;
-    border-color: #93c5fd;
-    background: #eff6ff;
+    color: #1C625D;
+    border-color: #A9D0CA;
+    background: #F5F7F8;
 }
 
 .review-queue-table-wrap {
@@ -1058,12 +1086,12 @@ a:hover {
 .ai-feedback-signal legend {
     float: none;
     width: auto;
-    color: #4c1d95;
+    color: #23343D;
     font-weight: 600;
 }
 
 .review-dashboard-card {
-    border-left: 4px solid #2563eb;
+    border-left: 4px solid #237B75;
 }
 
 @media (max-width: 640px) {
@@ -1092,9 +1120,9 @@ a:hover {
 .learning-graph-panel {
     margin: 0 0 2rem;
     padding: 1.5rem;
-    border: 1px solid #dbe7f5;
+    border: 1px solid #DDE5E6;
     border-radius: var(--radius-lg);
-    background: linear-gradient(135deg, #f8fbff 0%, #ffffff 66%);
+    background: var(--cs-surface);
     box-shadow: 0 8px 24px rgba(30, 64, 175, 0.06);
 }
 
@@ -1114,7 +1142,7 @@ a:hover {
 
 .learning-graph-panel__eyebrow {
     margin: 0 0 0.25rem;
-    color: #2563eb;
+    color: #237B75;
     font-size: 0.78rem;
     font-weight: 700;
     letter-spacing: 0.04em;
@@ -1122,7 +1150,7 @@ a:hover {
 
 .learning-graph-panel__title {
     margin: 0;
-    color: #172554;
+    color: #23343D;
     font-size: 1.35rem;
     font-weight: 750;
 }
@@ -1136,7 +1164,7 @@ a:hover {
 }
 
 .teacher-learning-actions {
-    border: 1px solid #dbe7f5;
+    border: 1px solid #DDE5E6;
     border-radius: var(--radius-lg);
     background: #ffffff;
     box-shadow: var(--shadow-sm);
@@ -1155,7 +1183,7 @@ a:hover {
     padding: 1rem;
     border: 1px solid #e2e8f0;
     border-radius: 0.75rem;
-    background: #f8fbff;
+    background: #F5F7F8;
 }
 
 .teacher-learning-action-card h3,
@@ -1198,8 +1226,8 @@ a:hover {
     padding: 1.25rem;
     border: 1px solid #dbe5f2;
     border-radius: 1rem;
-    background: linear-gradient(135deg, #f8fbff 0%, #ffffff 78%);
-    box-shadow: 0 0.5rem 1.5rem rgba(37, 99, 235, 0.06);
+    background: var(--cs-surface);
+    box-shadow: 0 0.5rem 1.5rem rgba(35, 123, 117, 0.06);
 }
 
 .student-learning-memory-panel__header {
@@ -1240,7 +1268,7 @@ a:hover {
     gap: 0.35rem;
     border-radius: 999px;
     padding: 0.35rem 0.65rem;
-    color: #1f4f8f;
+    color: #1C625D;
     background: #eaf2ff;
     font-size: 0.8rem;
     white-space: nowrap;
@@ -1364,10 +1392,10 @@ a:hover {
 .learning-graph-panel__privacy {
     flex: 0 0 auto;
     padding: 0.35rem 0.65rem;
-    border: 1px solid #bfdbfe;
+    border: 1px solid #CDE5E1;
     border-radius: 999px;
-    color: #1d4ed8;
-    background: #eff6ff;
+    color: #1C625D;
+    background: #F5F7F8;
     font-size: 0.75rem;
     white-space: nowrap;
 }
@@ -1387,7 +1415,7 @@ a:hover {
 }
 
 .learning-graph-panel__summary strong {
-    color: #1e40af;
+    color: #1C625D;
     font-size: 1rem;
 }
 
@@ -1445,7 +1473,7 @@ a:hover {
     height: 100%;
     min-width: 0;
     border-radius: inherit;
-    background: linear-gradient(90deg, #60a5fa, #2563eb);
+    background: var(--cs-accent);
 }
 
 .learning-graph-next {
@@ -1470,23 +1498,23 @@ a:hover {
     justify-content: space-between;
     gap: 1rem;
     padding: 0.7rem 0.8rem;
-    border: 1px solid #dbeafe;
+    border: 1px solid #EAF4F2;
     border-radius: 0.65rem;
-    color: #1e3a8a;
-    background: #eff6ff;
+    color: #23343D;
+    background: #F5F7F8;
     text-decoration: none;
 }
 
 .learning-graph-recommendation:hover,
 .learning-graph-recommendation:focus-visible {
-    color: #1e3a8a;
-    border-color: #93c5fd;
-    background: #dbeafe;
+    color: #23343D;
+    border-color: #A9D0CA;
+    background: #EAF4F2;
 }
 
 .learning-graph-recommendation.is-static:hover {
-    color: #1e3a8a;
-    background: #eff6ff;
+    color: #23343D;
+    background: #F5F7F8;
 }
 
 .learning-graph-recommendation strong,
@@ -1516,7 +1544,7 @@ a:hover {
 }
 
 .learning-graph-coverage-value {
-    color: #1d4ed8;
+    color: #1C625D;
     font-size: 1.7rem;
     font-weight: 750;
     line-height: 1;
@@ -1556,7 +1584,7 @@ a:hover {
     align-items: flex-start;
     gap: 0.75rem;
     padding: 1rem;
-    border: 1px dashed #bfdbfe;
+    border: 1px dashed #CDE5E1;
     border-radius: 0.75rem;
     color: #475569;
     background: rgba(239, 246, 255, 0.65);
@@ -1565,12 +1593,12 @@ a:hover {
 
 .learning-graph-empty > i {
     margin-top: 0.15rem;
-    color: #2563eb;
+    color: #237B75;
     font-size: 1.25rem;
 }
 
 .learning-graph-empty strong {
-    color: #1e3a8a;
+    color: #23343D;
 }
 
 .learning-graph-panel__note {

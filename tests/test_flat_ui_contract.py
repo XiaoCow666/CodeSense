@@ -1,4 +1,6 @@
 from pathlib import Path
+import re
+from bs4 import BeautifulSoup
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -24,3 +26,33 @@ def test_shared_theme_exposes_flat_semantic_colors():
     assert "background-color: var(--cs-surface);" in css
     assert "background-color: var(--cs-accent);" in css
     assert "outline: 3px solid var(--cs-accent);" in css
+
+
+def test_first_party_pages_do_not_use_gradients():
+    gradient = re.compile(r"(?:linear|radial)-gradient\(", re.I)
+    offenders = []
+    for directory, suffix in (("static", ".css"), ("templates", ".html")):
+        for path in (ROOT / directory).rglob(f"*{suffix}"):
+            if "vendor" in path.parts:
+                continue
+            for number, line in enumerate(
+                path.read_text(encoding="utf-8", errors="replace").splitlines(), 1
+            ):
+                if gradient.search(line):
+                    offenders.append(f"{path.relative_to(ROOT)}:{number}")
+    assert not offenders, "Gradient declarations remain in: " + ", ".join(offenders)
+
+
+def test_bootstrap_primary_utilities_follow_the_shared_accent():
+    css = CSS.read_text(encoding="utf-8")
+    for selector in (".bg-primary", ".text-primary", ".btn-outline-primary"):
+        assert selector in css
+    assert "--bs-primary: var(--cs-accent);" in css
+
+
+def test_login_explains_the_product_before_scripts_run():
+    template = (ROOT / "templates" / "login.html").read_text(encoding="utf-8")
+    banner = BeautifulSoup(template, "html.parser").select_one(".left-banner")
+    assert banner is not None
+    assert banner.select_one("h1") is not None
+    assert "编程" in banner.get_text()

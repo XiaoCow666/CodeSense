@@ -49,6 +49,10 @@
     overscroll-behavior: contain;
 }
 
+.code-studio-assistant .ai-chat-messages > .knowledge-evidence-panel--compact {
+    margin: 0 0 1.25rem;
+}
+
 .code-studio-assistant .ai-message-wrapper {
     min-width: 0;
     gap: 0.55rem;
@@ -97,6 +101,11 @@
     width: calc(100% - 40px);
     min-width: 0;
     margin-left: 40px;
+}
+
+.code-studio-assistant #code-studio-analysis-evidence {
+    width: 100%;
+    margin: 0.75rem 0 0;
 }
 
 .code-studio-assistant .knowledge-evidence-receipt {

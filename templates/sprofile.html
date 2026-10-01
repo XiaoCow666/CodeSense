@@ -45,7 +45,7 @@
     }
 
     .profile-kp-card {
-        border: 1px solid #e7edf6;
+        border: 1px solid #DDE5E6;
         border-radius: 14px;
         background: #fff;
     }
@@ -78,8 +78,8 @@
     .profile-ai-card {
         height: 100%;
         border-radius: 12px;
-        background: linear-gradient(145deg, #f8fbff 0%, #ffffff 72%);
-        border: 1px solid #e7edf6;
+        background: var(--cs-surface);
+        border: 1px solid #DDE5E6;
     }
 </style>
 {% endblock %}
@@ -344,10 +344,10 @@
                         skillsData.student.efficiency,
                         skillsData.student.readability
                     ],
-                    backgroundColor: 'rgba(59, 130, 246, 0.4)',
-                    borderColor: 'rgba(59, 130, 246, 1)',
+                    backgroundColor: 'rgba(46, 142, 134, 0.4)',
+                    borderColor: 'rgba(46, 142, 134, 1)',
                     borderWidth: 2,
-                    pointBackgroundColor: 'rgba(59, 130, 246, 1)',
+                    pointBackgroundColor: 'rgba(46, 142, 134, 1)',
                 },
                 ...(skillsData.class_average ? [{
                     label: '全班平均',
@@ -377,13 +377,13 @@
         datasets: [{
             label: '综合能力值',
             data: metaHistory,
-            borderColor: '#3b82f6',
-            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+            borderColor: '#2E8E86',
+            backgroundColor: 'rgba(46, 142, 134, 0.1)',
             fill: true,
             tension: 0.4,
             pointRadius: 6,
             pointBackgroundColor: '#fff',
-            pointBorderColor: '#3b82f6',
+            pointBorderColor: '#2E8E86',
             pointBorderWidth: 3
         }]
     };

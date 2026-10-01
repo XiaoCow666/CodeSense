@@ -52,7 +52,7 @@
 .modern-editor-language i {
     margin-right: 0.5rem;
     font-size: 1rem;
-    color: #6366f1;
+    color: #237B75;
 }
 
 .dark-theme .modern-editor-language {
@@ -83,13 +83,13 @@
 
 .modern-editor-tool:hover {
     background-color: #f3f4f6;
-    color: #6366f1;
+    color: #237B75;
     border-color: #d1d5db;
 }
 
 .modern-editor-tool:focus {
     outline: none;
-    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.3);
+    box-shadow: 0 0 0 2px rgba(35, 123, 117, 0.3);
 }
 
 .dark-theme .modern-editor-tool {
@@ -99,7 +99,7 @@
 
 .dark-theme .modern-editor-tool:hover {
     background-color: #3e3e3e;
-    color: #6366f1;
+    color: #237B75;
 }
 
 /* 编辑器容器 */
@@ -221,9 +221,9 @@
 
 /* 提高textarea的可访问性样式 */
 .modern-editor textarea.form-control:focus-visible {
-    outline: 2px solid #6366f1;
+    outline: 2px solid #237B75;
     outline-offset: 2px;
-    border-color: #6366f1;
+    border-color: #237B75;
 }
 
 /* 高对比度模式支持 */

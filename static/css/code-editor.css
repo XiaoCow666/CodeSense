@@ -28,7 +28,7 @@
 
 .editor-language {
     font-weight: 600;
-    color: #3b82f6;
+    color: #2E8E86;
     display: flex;
     align-items: center;
 }
@@ -65,8 +65,8 @@
 }
 
 .editor-btn.active {
-    background-color: #dbeafe;
-    color: #2563eb;
+    background-color: #EAF4F2;
+    color: #237B75;
 }
 
 /* 下拉菜单 */
@@ -155,7 +155,7 @@
     height: 40px;
     border: 3px solid #e5e7eb;
     border-radius: 50%;
-    border-top-color: #3b82f6;
+    border-top-color: #2E8E86;
     animation: spin 1s linear infinite;
 }
 
@@ -228,8 +228,8 @@
 }
 
 .code-editor.dark-theme .editor-btn.active {
-    background-color: #1e3a8a;
-    color: #60a5fa;
+    background-color: #23343D;
+    color: #78ADA6;
 }
 
 .code-editor.dark-theme .editor-textarea {
@@ -256,7 +256,7 @@
 
 .code-editor.dark-theme .spinner {
     border-color: #374151;
-    border-top-color: #60a5fa;
+    border-top-color: #78ADA6;
 }
 
 .code-editor.dark-theme .loading-text {
