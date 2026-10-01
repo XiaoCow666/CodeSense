@@ -1,7 +1,6 @@
 """Static contracts for the shared knowledge evidence assignment panel."""
 
 from pathlib import Path
-from bs4 import BeautifulSoup
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -72,13 +71,10 @@ def test_compact_evidence_is_a_keyboard_operable_disclosure():
 
 def test_analysis_evidence_stays_inside_scrollable_chat_messages():
     submit = (ROOT / "templates" / "submit_code.html").read_text(encoding="utf-8")
-    document = BeautifulSoup(submit, "html.parser")
-    mount = document.select_one("#code-studio-analysis-evidence")
-    assert mount is not None
-    assert mount.find_parent(id="ai-chat-messages") is not None
     chat_section = submit.split('id="ai-chat-messages"', 1)[1].split(
         'class="ai-chat-input-area"', 1
     )[0]
+    assert 'id="code-studio-analysis-evidence"' in chat_section
     assert "panel_id='code-studio-knowledge-evidence'" in chat_section
 
 

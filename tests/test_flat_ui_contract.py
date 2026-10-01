@@ -1,6 +1,5 @@
 from pathlib import Path
 import re
-from bs4 import BeautifulSoup
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -52,7 +51,7 @@ def test_bootstrap_primary_utilities_follow_the_shared_accent():
 
 def test_login_explains_the_product_before_scripts_run():
     template = (ROOT / "templates" / "login.html").read_text(encoding="utf-8")
-    banner = BeautifulSoup(template, "html.parser").select_one(".left-banner")
-    assert banner is not None
-    assert banner.select_one("h1") is not None
-    assert "编程" in banner.get_text()
+    banner = template.split('class="left-banner"', 1)[1].split(
+        'class="right-panel"', 1
+    )[0]
+    assert re.search(r"<h1>[^<]*编程[^<]*</h1>", banner)
