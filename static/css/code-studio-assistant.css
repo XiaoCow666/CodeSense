@@ -1,0 +1,236 @@
+/* Code Studio assistant: a quiet reading column beside the editor. */
+.code-studio-container {
+    min-width: 0;
+}
+
+.code-studio-container > * {
+    min-width: 0;
+}
+
+.code-studio-assistant {
+    height: clamp(560px, calc(100vh - 190px), 760px);
+    min-height: 0;
+    max-height: none;
+    background: var(--cs-surface);
+    border: 1px solid var(--cs-line);
+    border-radius: 14px;
+    box-shadow: none;
+}
+
+.code-studio-assistant .ai-assistant-header {
+    min-height: 60px;
+    padding: 0.9rem 1.25rem;
+    background: var(--cs-surface);
+    color: var(--cs-ink);
+    border-bottom: 1px solid var(--cs-line);
+}
+
+.code-studio-assistant .ai-assistant-header h5 {
+    font-size: 1rem;
+}
+
+.code-studio-assistant #clear-chat {
+    color: var(--cs-muted);
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+}
+
+.code-studio-assistant #clear-chat:hover {
+    color: var(--cs-accent);
+    background: var(--cs-accent-soft);
+}
+
+.code-studio-assistant .ai-chat-messages {
+    min-width: 0;
+    min-height: 0;
+    padding: 1.25rem;
+    background: var(--cs-surface);
+    overscroll-behavior: contain;
+}
+
+.code-studio-assistant .ai-message-wrapper {
+    min-width: 0;
+    gap: 0.55rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+}
+
+.code-studio-assistant .ai-message-avatar {
+    width: 30px;
+    height: 30px;
+    font-size: 0.95rem;
+    background: var(--cs-accent-soft);
+    color: var(--cs-accent);
+    box-shadow: none;
+    margin: 0;
+}
+
+.code-studio-assistant .ai-message-content {
+    min-width: 0;
+    max-width: calc(100% - 40px);
+    padding: 0.7rem 0.85rem;
+    background: var(--cs-surface);
+    color: var(--cs-ink);
+    border: 1px solid var(--cs-line);
+    border-radius: 10px;
+    box-shadow: none;
+    overflow-wrap: anywhere;
+}
+
+.code-studio-assistant .assistant-message .ai-message-content {
+    flex: 1 1 calc(100% - 40px);
+    max-width: calc(100% - 40px);
+    border: 0;
+    padding: 0.15rem 0;
+}
+
+.code-studio-assistant .user-message .ai-message-content {
+    max-width: min(82%, 32rem);
+    background: var(--cs-accent-soft);
+    color: var(--cs-ink);
+    border: 0;
+}
+
+.code-studio-assistant .knowledge-evidence-receipt-mount {
+    flex: 0 0 calc(100% - 40px);
+    width: calc(100% - 40px);
+    min-width: 0;
+    margin-left: 40px;
+}
+
+.code-studio-assistant .knowledge-evidence-receipt {
+    min-width: 0;
+    padding: 0.7rem 0.85rem;
+    background: var(--cs-bg);
+    border-radius: 9px;
+    color: var(--cs-muted);
+    font-size: 0.78rem;
+    overflow-wrap: anywhere;
+}
+
+.code-studio-assistant .knowledge-evidence-receipt__title {
+    margin: 0 0 0.35rem;
+    color: var(--cs-ink);
+    font-size: 0.82rem;
+    font-weight: 600;
+}
+
+.code-studio-assistant .knowledge-evidence-receipt__status p {
+    margin: 0.25rem 0 0;
+}
+
+.code-studio-assistant .knowledge-evidence-receipt__details {
+    display: grid;
+    gap: 0.35rem;
+    margin-top: 0.5rem;
+}
+
+.code-studio-assistant .knowledge-evidence-receipt__detail summary {
+    cursor: pointer;
+    overflow-wrap: anywhere;
+}
+
+.code-studio-assistant .knowledge-evidence-receipt__body {
+    padding: 0.4rem 0 0.6rem 1rem;
+}
+
+.code-studio-assistant .ai-chat-input-area {
+    padding: 0.85rem 1.25rem;
+    border-top: 1px solid var(--cs-line);
+}
+
+.code-studio-assistant .ai-chat-input-wrapper {
+    gap: 0.6rem;
+}
+
+.code-studio-assistant .ai-chat-textarea {
+    min-width: 0;
+    border: 1px solid var(--cs-line);
+    border-radius: 9px;
+    background: var(--cs-input);
+    font-size: 0.88rem;
+}
+
+.code-studio-assistant .ai-send-button {
+    width: 48px;
+    height: 48px;
+    border-radius: 9px;
+    background: var(--cs-accent);
+    box-shadow: none;
+}
+
+.code-studio-assistant .ai-send-button:hover:not(:disabled) {
+    background: #1c625d;
+    transform: none;
+    box-shadow: none;
+}
+
+.code-studio-assistant .ai-welcome-message {
+    padding: 2rem 0.5rem;
+}
+
+.code-studio-assistant .ai-welcome-icon {
+    font-size: 2rem;
+}
+
+.code-studio-assistant .ai-quick-prompts {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 130px), 1fr));
+}
+
+.code-studio-assistant .ai-quick-prompt-btn {
+    border: 1px solid var(--cs-line);
+    border-radius: 8px;
+    color: var(--cs-accent);
+    box-shadow: none;
+}
+
+.code-studio-assistant .ai-quick-prompt-btn:hover {
+    color: var(--cs-ink);
+    background: var(--cs-accent-soft);
+    border-color: var(--cs-accent);
+    transform: none;
+    box-shadow: none;
+}
+
+.code-studio-assistant .ai-message-content pre,
+.code-studio-assistant .ai-message-content table {
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+@media (max-width: 991px) {
+    .code-studio-assistant {
+        height: min(720px, 82vh);
+        min-height: 520px;
+    }
+}
+
+@media (max-width: 480px) {
+    .code-studio-assistant .ai-chat-messages {
+        padding: 1rem;
+    }
+
+    .code-studio-assistant .ai-chat-input-area {
+        padding: 0.75rem 1rem;
+    }
+
+    .code-studio-assistant .ai-message-content,
+    .code-studio-assistant .assistant-message .ai-message-content {
+        max-width: calc(100% - 36px);
+    }
+
+    .code-studio-assistant .knowledge-evidence-receipt-mount {
+        flex-basis: calc(100% - 36px);
+        width: calc(100% - 36px);
+        margin-left: 36px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .code-studio-assistant .ai-message-wrapper,
+    .code-studio-assistant .ai-send-button {
+        animation: none;
+        transition: none;
+    }
+}

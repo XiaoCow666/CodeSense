@@ -754,6 +754,7 @@
         }
     }
 </style>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/code-studio-assistant.css') }}">
 {% endblock %}
 
 {% block content %}
@@ -887,7 +888,7 @@
         </div>
 
         <!-- AI助手聊天界面 -->
-        <div class="ai-assistant-panel">
+        <div class="ai-assistant-panel code-studio-assistant">
             <div class="ai-assistant-header">
                 <h5 class="mb-0">
                     <i class="bi bi-robot"></i> AI编程助手
