@@ -43,7 +43,7 @@
     gap: 8px;
 }
 
-.arena-title i { color: #2563eb; }
+.arena-title i { color: #237B75; }
 
 .arena-timer {
     font-family: 'JetBrains Mono', monospace;
@@ -62,9 +62,9 @@
     min-width: 0;
     margin-bottom: 16px;
     padding: 14px 18px;
-    border: 1px solid #dbe4f0;
+    border: 1px solid #DDE5E6;
     border-radius: 10px;
-    background: linear-gradient(135deg, #f8fbff 0%, #ffffff 100%);
+    background: var(--cs-surface);
     color: #334155;
 }
 
@@ -83,7 +83,7 @@
 .session-lifecycle-kicker {
     font-size: 13px;
     font-weight: 700;
-    color: #1e3a8a;
+    color: #23343D;
 }
 
 .session-lifecycle-badge {
@@ -109,8 +109,8 @@
 }
 
 .session-lifecycle[data-session-status="completed"] .session-lifecycle-badge {
-    background: #dbeafe;
-    color: #1d4ed8;
+    background: #EAF4F2;
+    color: #1C625D;
 }
 
 .session-lifecycle-meta,
@@ -152,7 +152,7 @@
     width: 0;
     height: 100%;
     border-radius: inherit;
-    background: #2563eb;
+    background: #237B75;
     transition: width 180ms ease;
 }
 
@@ -217,9 +217,9 @@
 }
 
 .step-circle.active {
-    background: #2563eb;
+    background: #237B75;
     color: #fff;
-    border-color: #2563eb;
+    border-color: #237B75;
 }
 
 .step-circle.completed {
@@ -244,7 +244,7 @@
     white-space: nowrap;
 }
 
-.step-label.active { color: #2563eb; font-weight: 600; }
+.step-label.active { color: #237B75; font-weight: 600; }
 .step-label.completed { color: #10b981; }
 
 /* --- Main Content --- */
@@ -419,7 +419,7 @@
     gap: 6px;
 }
 
-.panel-header h3 i { color: #2563eb; font-size: 14px; }
+.panel-header h3 i { color: #237B75; font-size: 14px; }
 
 .stage2-header-meta {
     display: flex;
@@ -435,8 +435,8 @@
 .stage2-answer-progress {
     padding: 3px 8px;
     border-radius: 999px;
-    background: #eff6ff;
-    color: #1d4ed8;
+    background: #F5F7F8;
+    color: #1C625D;
     font-weight: 600;
     white-space: nowrap;
 }
@@ -445,10 +445,10 @@
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    border: 1px solid #dbeafe;
+    border: 1px solid #EAF4F2;
     border-radius: 999px;
-    background: #eff6ff;
-    color: #2563eb;
+    background: #F5F7F8;
+    color: #237B75;
     padding: 4px 8px;
     font-size: 11px;
     line-height: 1;
@@ -458,12 +458,12 @@
 }
 
 .panel-collapse-toggle:hover {
-    background: #dbeafe;
-    border-color: #93c5fd;
+    background: #EAF4F2;
+    border-color: #A9D0CA;
 }
 
 .panel-collapse-toggle:focus-visible {
-    outline: 2px solid #60a5fa;
+    outline: 2px solid #78ADA6;
     outline-offset: 2px;
 }
 
@@ -531,8 +531,8 @@
 
 .description-textarea:focus {
     outline: none;
-    border-color: #2563eb;
-    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    border-color: #237B75;
+    box-shadow: 0 0 0 3px rgba(35, 123, 117, 0.1);
 }
 
 .description-textarea::placeholder { color: #9ca3af; }
@@ -587,7 +587,7 @@
 }
 
 .block-solution {
-    border-color: #2563eb;
+    border-color: #237B75;
     border-style: dashed;
 }
 
@@ -611,7 +611,7 @@
 .code-block {
     background: #fff;
     border: 1px solid #e5e7eb;
-    border-left: 3px solid #2563eb;
+    border-left: 3px solid #237B75;
     border-radius: 4px;
     padding: 8px 12px;
     margin-bottom: 4px;
@@ -625,7 +625,7 @@
 }
 
 .code-block:hover {
-    border-color: #2563eb;
+    border-color: #237B75;
     box-shadow: 0 2px 4px rgba(0,0,0,0.08);
 }
 
@@ -679,9 +679,9 @@
 }
 
 .indent-btn:hover {
-    background: #2563eb;
+    background: #237B75;
     color: #fff;
-    border-color: #2563eb;
+    border-color: #237B75;
 }
 
 /* --- Stage 3: Chat --- */
@@ -721,7 +721,7 @@
     background: #f3f4f6;
 }
 
-.chat-avatar.teacher { background: #eff6ff; }
+.chat-avatar.teacher { background: #F5F7F8; }
 .chat-avatar.student { background: #f0fdf4; }
 .chat-avatar.bad-student { background: #fef3c7; }
 
@@ -749,7 +749,7 @@
 }
 
 .chat-bubble.user-msg {
-    background: #2563eb;
+    background: #237B75;
     color: #fff;
     border-bottom-right-radius: 2px;
 }
@@ -816,7 +816,7 @@
     font-family: inherit;
 }
 
-.chat-input:focus { border-color: #2563eb; }
+.chat-input:focus { border-color: #237B75; }
 .chat-input::placeholder { color: #9ca3af; }
 
 /* --- Stage 3: Public Forum --- */
@@ -855,10 +855,10 @@
 .forum-goal-card {
     flex: 0 0 auto;
     padding: 14px 16px;
-    border: 1px solid #dbeafe;
+    border: 1px solid #EAF4F2;
     border-radius: 14px;
-    background: linear-gradient(135deg, #f8fbff 0%, #ffffff 72%);
-    box-shadow: 0 4px 14px rgba(37, 99, 235, 0.06);
+    background: var(--cs-surface);
+    box-shadow: 0 4px 14px rgba(35, 123, 117, 0.06);
 }
 
 .forum-goal-summary {
@@ -880,8 +880,8 @@
     right: 0;
     padding: 3px 7px;
     border-radius: 999px;
-    background: #eff6ff;
-    color: #2563eb;
+    background: #F5F7F8;
+    color: #237B75;
     font-size: 10px;
     font-weight: 700;
 }
@@ -892,7 +892,7 @@
 
 .forum-goal-summary:focus-visible,
 .stage3-guide-summary:focus-visible {
-    outline: 2px solid #2563eb;
+    outline: 2px solid #237B75;
     outline-offset: 3px;
     border-radius: 6px;
 }
@@ -913,7 +913,7 @@
 }
 
 .forum-goal-kicker {
-    color: #2563eb;
+    color: #237B75;
     font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.04em;
@@ -925,7 +925,7 @@
 
 .forum-goal-head h4 {
     margin: 4px 0 0;
-    color: #172554;
+    color: #23343D;
     font-size: 15px;
     line-height: 1.35;
 }
@@ -934,8 +934,8 @@
     flex: 0 0 auto;
     padding: 4px 9px;
     border-radius: 999px;
-    background: #dbeafe;
-    color: #1d4ed8;
+    background: #EAF4F2;
+    color: #1C625D;
     font-size: 11px;
     font-weight: 700;
     white-space: nowrap;
@@ -964,7 +964,7 @@
 .forum-goal-progress-bar {
     height: 100%;
     border-radius: inherit;
-    background: linear-gradient(90deg, #2563eb, #22c55e);
+    background: var(--cs-accent);
     transition: width 0.35s ease;
 }
 
@@ -978,7 +978,7 @@
 }
 
 .forum-goal-progress-meta span:first-child {
-    color: #1d4ed8;
+    color: #1C625D;
     font-weight: 800;
 }
 
@@ -986,8 +986,8 @@
     margin-top: 10px;
     padding: 8px 10px;
     border-radius: 9px;
-    background: #eff6ff;
-    color: #1e3a8a;
+    background: #F5F7F8;
+    color: #23343D;
     font-size: 12px;
     line-height: 1.5;
 }
@@ -1024,14 +1024,14 @@
 }
 
 .forum-goal-step.is-active {
-    border-color: #93c5fd;
-    background: #f8fbff;
-    color: #1e40af;
+    border-color: #A9D0CA;
+    background: #F5F7F8;
+    color: #1C625D;
 }
 
 .forum-goal-step.is-active::before {
     content: '→';
-    color: #2563eb;
+    color: #237B75;
 }
 
 .forum-goal-step.is-done {
@@ -1068,7 +1068,7 @@
     align-items: flex-start;
     gap: 4px;
     padding: 12px 14px;
-    border: 1px solid #dbe4f0;
+    border: 1px solid #DDE5E6;
     border-radius: 10px;
     background: #f8fafc;
     color: #1e293b;
@@ -1078,20 +1078,20 @@
 }
 
 .forum-target-btn:hover {
-    border-color: #93c5fd;
-    background: #eff6ff;
+    border-color: #A9D0CA;
+    background: #F5F7F8;
 }
 
 .forum-target-btn:focus-visible {
-    outline: 2px solid #2563eb;
+    outline: 2px solid #237B75;
     outline-offset: 2px;
 }
 
 .forum-target-btn.is-selected,
 .forum-target-btn[aria-pressed="true"] {
-    border-color: #2563eb;
-    background: #dbeafe;
-    box-shadow: 0 0 0 1px #2563eb;
+    border-color: #237B75;
+    background: #EAF4F2;
+    box-shadow: 0 0 0 1px #237B75;
 }
 
 .forum-target-label {
@@ -1170,11 +1170,11 @@
 }
 
 .forum-avatar.role-user {
-    background: #eff6ff;
+    background: #F5F7F8;
 }
 
 .forum-avatar.role-teacher_agent {
-    background: #eef2ff;
+    background: #EAF4F2;
 }
 
 .forum-avatar.role-student_agent {
@@ -1192,8 +1192,8 @@
 }
 
 .forum-event.is-user .forum-card {
-    background: #eff6ff;
-    border-color: #bfdbfe;
+    background: #F5F7F8;
+    border-color: #CDE5E1;
 }
 
 .forum-meta {
@@ -1233,8 +1233,8 @@
 }
 
 .forum-kind.kind-user_message {
-    background: #dbeafe;
-    color: #1d4ed8;
+    background: #EAF4F2;
+    color: #1C625D;
 }
 
 .forum-kind.kind-agent_message {
@@ -1265,7 +1265,7 @@
 .forum-reply-action {
     border: none;
     background: transparent;
-    color: #2563eb;
+    color: #237B75;
     font-size: 12px;
     font-weight: 600;
     cursor: pointer;
@@ -1273,7 +1273,7 @@
 }
 
 .forum-reply-action:hover {
-    color: #1d4ed8;
+    color: #1C625D;
     text-decoration: underline;
 }
 
@@ -1325,7 +1325,7 @@
 }
 
 .stage3-guide-summary > span:first-child i {
-    color: #2563eb;
+    color: #237B75;
 }
 
 .stage3-guide-summary-hint {
@@ -1416,7 +1416,7 @@
 
 .code-fix-input:focus {
     outline: none;
-    border-color: #2563eb;
+    border-color: #237B75;
 }
 
 /* --- Buttons --- */
@@ -1436,12 +1436,12 @@
 }
 
 .arena-btn-primary {
-    background: #2563eb;
+    background: #237B75;
     color: #fff;
 }
 
 .arena-btn-primary:hover {
-    background: #1d4ed8;
+    background: #1C625D;
 }
 
 .arena-btn-primary:disabled {
@@ -1472,7 +1472,7 @@
     height: 34px;
     padding: 0;
     border-radius: 50%;
-    background: #2563eb;
+    background: #237B75;
     color: #fff;
     border: none;
     cursor: pointer;
@@ -1483,18 +1483,18 @@
     flex-shrink: 0;
 }
 
-.arena-btn-send:hover { background: #1d4ed8; }
+.arena-btn-send:hover { background: #1C625D; }
 .arena-btn-send:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* --- Hint --- */
 .hint-bubble {
-    background: #eff6ff;
-    border: 1px solid #bfdbfe;
+    background: #F5F7F8;
+    border: 1px solid #CDE5E1;
     border-radius: 6px;
     padding: 10px 14px;
     margin: 8px 0;
     font-size: 13px;
-    color: #1e40af;
+    color: #1C625D;
     line-height: 1.5;
     display: flex;
     align-items: flex-start;
@@ -1502,7 +1502,7 @@
 }
 
 .hint-bubble i {
-    color: #2563eb;
+    color: #237B75;
     flex-shrink: 0;
     margin-top: 2px;
 }
@@ -1515,7 +1515,7 @@
     margin-bottom: 0;
 }
 .hint-bubble code {
-    background: rgba(37, 99, 235, 0.1);
+    background: rgba(35, 123, 117, 0.1);
     padding: 2px 4px;
     border-radius: 4px;
     font-family: var(--arena-mono, monospace);
@@ -1736,7 +1736,7 @@
 .algorithm-summary-panel {
     background: #f8fafc;
     border: 1px solid #e2e8f0;
-    border-left: 4px solid #2563eb;
+    border-left: 4px solid #237B75;
     border-radius: 6px;
     margin-bottom: 12px;
     overflow: hidden;
@@ -1748,7 +1748,7 @@
     border-bottom: 1px solid #e2e8f0;
     font-size: 13px;
     font-weight: 600;
-    color: #1e3a8a;
+    color: #23343D;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -1845,10 +1845,10 @@
     gap: 12px;
     margin: 2px 0 10px;
     padding: 10px 12px;
-    border: 1px solid #dbeafe;
+    border: 1px solid #EAF4F2;
     border-radius: 8px;
-    background: linear-gradient(90deg, #eff6ff, #f8fbff);
-    color: #1e3a8a;
+    background: var(--cs-accent-soft);
+    color: #23343D;
 }
 
 .stage1-answer-toolbar > div {
@@ -1874,18 +1874,18 @@
     flex: 0 0 auto;
     padding: 3px 8px;
     border-radius: 999px;
-    background: #dbeafe;
-    color: #1d4ed8 !important;
+    background: #EAF4F2;
+    color: #1C625D !important;
     font-size: 11px !important;
     white-space: nowrap;
 }
 
 .stage1-collapsible-panel {
     margin-bottom: 12px;
-    border: 1px solid #bfdbfe;
-    border-left: 4px solid #3b82f6;
+    border: 1px solid #CDE5E1;
+    border-left: 4px solid #2E8E86;
     border-radius: 8px;
-    background: #eff6ff;
+    background: #F5F7F8;
     overflow: hidden;
 }
 
@@ -1898,7 +1898,7 @@
     padding: 10px 12px;
     border: 0;
     background: transparent;
-    color: #1e3a8a;
+    color: #23343D;
     font: inherit;
     font-size: 13px;
     font-weight: 600;
@@ -1912,7 +1912,7 @@
 
 .stage1-collapse-header:focus-visible,
 .algorithm-summary-header:focus-visible {
-    outline: 2px solid #60a5fa;
+    outline: 2px solid #78ADA6;
     outline-offset: -2px;
 }
 
@@ -1923,7 +1923,7 @@
 .stage1-collapse-header i:first-child,
 .stage1-collapse-header > span > i {
     margin-right: 5px;
-    color: #2563eb;
+    color: #237B75;
 }
 
 .stage1-collapse-header small {
@@ -1934,7 +1934,7 @@
 
 .stage1-collapsible-body {
     padding: 0 14px 12px;
-    color: #1e40af;
+    color: #1C625D;
     font-size: 13px;
     line-height: 1.65;
 }
@@ -2000,7 +2000,7 @@
     padding: 10px 12px;
     border: 0;
     background: transparent;
-    color: #38bdf8;
+    color: #6AB5A9;
     cursor: pointer;
     font-family: inherit;
     font-size: 13px;
@@ -2008,7 +2008,7 @@
     text-align: left;
 }
 .dev-debug-toggle:focus-visible {
-    outline: 2px solid #38bdf8;
+    outline: 2px solid #6AB5A9;
     outline-offset: -2px;
 }
 .dev-debug-title {
@@ -2064,10 +2064,10 @@
     transform: scale(0.97);
 }
 .dev-debug-btn-primary {
-    background: #2563eb;
+    background: #237B75;
 }
 .dev-debug-btn-primary:hover {
-    background: #3b82f6;
+    background: #2E8E86;
 }
 .dev-debug-btn-success {
     background: #16a34a;
@@ -2125,7 +2125,7 @@
     margin-top: 4px;
 }
 .dev-debug-trace-key {
-    color: #7dd3fc;
+    color: #A9D0CA;
     font-weight: 600;
 }
 .dev-debug-trace-value {
@@ -2221,9 +2221,9 @@
 }
 
 .quiz-choice-option.selected {
-    border-color: #3b82f6;
-    background: #eff6ff;
-    box-shadow: 0 0 0 1px #3b82f6;
+    border-color: #2E8E86;
+    background: #F5F7F8;
+    box-shadow: 0 0 0 1px #2E8E86;
 }
 
 .quiz-choice-option input[type="radio"] {
@@ -2272,8 +2272,8 @@
 }
 
 .quiz-fill-input:focus {
-    border-color: #3b82f6;
-    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+    border-color: #2E8E86;
+    box-shadow: 0 0 0 2px rgba(46, 142, 134, 0.15);
 }
 
 .quiz-step-feedback {
@@ -2472,10 +2472,10 @@
     }
 
     .mobile-tab-btn.active {
-        color: #2563eb;
-        border-bottom-color: #2563eb;
+        color: #237B75;
+        border-bottom-color: #237B75;
         font-weight: 600;
-        background: rgba(37, 99, 235, 0.03);
+        background: rgba(35, 123, 117, 0.03);
     }
 
     /* 主布局转换为单栏 */

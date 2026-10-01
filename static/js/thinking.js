@@ -507,7 +507,7 @@
                 qLabel.style.display = 'flex';
                 qLabel.style.alignItems = 'flex-start';
                 qLabel.style.gap = '6px';
-                qLabel.innerHTML = `<span class="qa-index" style="background: #3b82f6; color: white; border-radius: 50%; width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; flex-shrink: 0; margin-top: 2px;">${i + 1}</span> <span>${escapeHtml(q)}</span>`;
+                qLabel.innerHTML = `<span class="qa-index" style="background: #237B75; color: white; border-radius: 50%; width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; flex-shrink: 0; margin-top: 2px;">${i + 1}</span> <span>${escapeHtml(q)}</span>`;
                 
                 const qTextarea = document.createElement('textarea');
                 qTextarea.className = 'description-textarea qa-answer-textarea';

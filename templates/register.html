@@ -22,7 +22,7 @@
     <style>
         body {
             background-color: #f9fafb;
-            background-image: linear-gradient(135deg, #f9fafb 0%, #eef2ff 100%);
+            background-image: none;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -47,7 +47,7 @@
             right: -100px;
             width: 200px;
             height: 200px;
-            background: linear-gradient(135deg, rgba(37, 99, 235, 0.1) 0%, rgba(37, 99, 235, 0.05) 100%);
+            background: var(--cs-accent-soft);
             border-radius: 50%;
             z-index: 0;
         }
@@ -59,7 +59,7 @@
             left: -80px;
             width: 140px;
             height: 140px;
-            background: linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(245, 158, 11, 0.05) 100%);
+            background: #F6EEDC;
             border-radius: 50%;
         }
         
@@ -121,9 +121,9 @@
         }
         
         .form-control:focus {
-            border-color: #2563eb;
+            border-color: #237B75;
             outline: none;
-            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+            box-shadow: 0 0 0 3px rgba(35, 123, 117, 0.1);
         }
         
         .form-control.is-invalid {
@@ -176,13 +176,13 @@
         
         .btn-primary {
             color: #ffffff;
-            background-color: #2563eb;
-            border: 1px solid #2563eb;
+            background-color: #237B75;
+            border: 1px solid #237B75;
         }
         
         .btn-primary:hover {
-            background-color: #1d4ed8;
-            border-color: #1d4ed8;
+            background-color: #1C625D;
+            border-color: #1C625D;
         }
         
         .auth-footer {
@@ -193,7 +193,7 @@
         }
         
         .auth-footer a {
-            color: #2563eb;
+            color: #237B75;
             text-decoration: none;
             font-weight: 500;
         }
@@ -333,7 +333,7 @@
             
             {{ form.class_name(type="hidden", value="") }}
             <div class="form-group">
-                <div class="alert" style="color:#1f2937;background-color:#eef2ff;">
+                <div class="alert" style="color:#1f2937;background-color:#EAF4F2;">
                     <i class="bi bi-info-circle"></i>
                     <strong>账号模式会自动识别：</strong><br>
                     填写学号：按教师导入的学生名单注册并自动入班。<br>

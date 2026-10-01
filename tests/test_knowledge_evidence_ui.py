@@ -40,17 +40,42 @@ def test_evidence_styles_define_tokens_focus_mobile_and_reduced_motion():
     )
 
     for token in (
-        "#14213D",
-        "#2F80ED",
-        "#F7FAFC",
-        "#0F766E",
-        "#B45309",
+        "var(--cs-ink)",
+        "var(--cs-accent)",
+        "var(--cs-accent-soft)",
+        "var(--cs-line)",
     ):
         assert token in css
     assert ":focus-visible" in css
     assert ":focus-within" in css
     assert "@media (max-width: 767px)" in css
     assert "@media (prefers-reduced-motion: reduce)" in css
+
+
+def test_compact_evidence_is_a_keyboard_operable_disclosure():
+    macro = (ROOT / "templates" / "components" / "knowledge_evidence.html").read_text(
+        encoding="utf-8"
+    )
+    submit = (ROOT / "templates" / "submit_code.html").read_text(encoding="utf-8")
+
+    assert 'class="knowledge-evidence-panel__compact-disclosure"' in macro
+    assert 'class="knowledge-evidence-panel__compact-summary"' in macro
+    assert "<summary" in macro
+    assert "knowledge-evidence-retry" in macro
+    assert "knowledge-evidence-citation" in macro
+    assert "knowledge-evidence-detail__source" in macro
+    for element_id in ("ai-chat-messages", "ai-chat-input", "ai-send-button", "clear-chat"):
+        assert f'id="{element_id}"' in submit
+    assert 'class="ai-assistant-panel code-studio-assistant"' in submit
+
+
+def test_analysis_evidence_stays_inside_scrollable_chat_messages():
+    submit = (ROOT / "templates" / "submit_code.html").read_text(encoding="utf-8")
+    chat_section = submit.split('id="ai-chat-messages"', 1)[1].split(
+        'class="ai-chat-input-area"', 1
+    )[0]
+    assert 'id="code-studio-analysis-evidence"' in chat_section
+    assert "panel_id='code-studio-knowledge-evidence'" in chat_section
 
 
 def test_submission_and_code_studio_reuse_the_evidence_workspace():

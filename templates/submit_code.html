@@ -35,12 +35,13 @@
     }
 
     .assignment-header {
-        background: linear-gradient(135deg, #4b6cb7 0%, #182848 100%);
-        color: white;
+        background: var(--cs-surface);
+        color: var(--cs-ink);
+        border: 1px solid var(--cs-line);
         border-radius: 0.75rem;
         padding: 1.25rem;
         margin-bottom: 1.5rem;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        box-shadow: none;
     }
 
     .assignment-header h1 {
@@ -109,7 +110,7 @@
         justify-content: space-between;
         align-items: center;
         padding: 1.25rem 1.5rem;
-        background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%);
+        background: var(--cs-surface);
         color: white;
         flex-shrink: 0;
         border-bottom: 3px solid rgba(255, 255, 255, 0.2);
@@ -125,7 +126,7 @@
         flex: 1;
         overflow-y: auto;
         padding: 1.5rem;
-        background: linear-gradient(to bottom, #f9fafb 0%, #f3f4f6 100%);
+        background: var(--cs-bg);
     }
 
     /* 自定义滚动条 */
@@ -185,14 +186,14 @@
     }
 
     .user-message .ai-message-avatar {
-        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+        background: var(--cs-accent-soft);
         color: white;
         margin-left: 0.875rem;
         order: 2;
     }
 
     .assistant-message .ai-message-avatar {
-        background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+        background: var(--cs-accent-soft);
         color: white;
         margin-right: 0.875rem;
     }
@@ -209,7 +210,7 @@
     }
 
     .user-message .ai-message-content {
-        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+        background: var(--cs-accent-soft);
         color: white;
         border-bottom-right-radius: 4px;
     }
@@ -256,15 +257,15 @@
 
     .ai-chat-textarea:focus {
         outline: none;
-        border-color: #8b5cf6;
-        box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+        border-color: #397F79;
+        box-shadow: 0 0 0 3px rgba(57, 127, 121, 0.1);
     }
 
     .ai-send-button {
         width: 48px;
         height: 48px;
         border-radius: 50%;
-        background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+        background: var(--cs-accent);
         border: none;
         color: white;
         display: flex;
@@ -274,12 +275,12 @@
         transition: all 0.2s;
         flex-shrink: 0;
         font-size: 1.1rem;
-        box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
+        box-shadow: 0 4px 12px rgba(57, 127, 121, 0.3);
     }
 
     .ai-send-button:hover:not(:disabled) {
         transform: scale(1.08) translateY(-1px);
-        box-shadow: 0 6px 16px rgba(139, 92, 246, 0.4);
+        box-shadow: 0 6px 16px rgba(57, 127, 121, 0.4);
     }
 
     .ai-send-button:active:not(:disabled) {
@@ -310,7 +311,7 @@
         width: 7px;
         height: 7px;
         border-radius: 50%;
-        background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+        background: var(--cs-accent);
         animation: typingDot 1.4s infinite;
     }
 
@@ -377,7 +378,7 @@
         border: 2px solid #e5e7eb;
         border-radius: 12px;
         background: white;
-        color: #6366f1;
+        color: #237B75;
         font-size: 0.875rem;
         font-weight: 500;
         cursor: pointer;
@@ -386,11 +387,11 @@
     }
 
     .ai-quick-prompt-btn:hover {
-        background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+        background: var(--cs-accent-soft);
         color: white;
         border-color: transparent;
         transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+        box-shadow: 0 4px 12px rgba(35, 123, 117, 0.3);
     }
 
     /* Markdown样式优化 */
@@ -467,7 +468,7 @@
     /* 流式输出打字机光标效果 */
     .ai-message-content[data-streaming="true"]::after {
         content: '▋';
-        color: #8b5cf6;
+        color: #397F79;
         animation: blink 1s step-end infinite;
         margin-left: 2px;
     }
@@ -504,7 +505,7 @@
         font-size: 1.75rem;
         font-weight: 700;
         margin: 0.5rem 0;
-        color: #4b6cb7;
+        color: #237B75;
     }
 
     .submission-history-panel {
@@ -608,7 +609,7 @@
 
     #ai-response h2 {
         font-size: 1.5em;
-        color: #3498db;
+        color: #397F79;
     }
 
     #ai-response h3 {
@@ -673,7 +674,7 @@
     }
 
     #ai-response blockquote {
-        border-left: 4px solid #3498db;
+        border-left: 4px solid #397F79;
         margin: 1em 0;
         padding-left: 1em;
         background-color: #f8f9fa;
@@ -683,7 +684,7 @@
 
     /* 特殊的评分和建议样式 */
     #ai-response .score-highlight {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: var(--cs-accent);
         color: white;
         padding: 0.3em 0.6em;
         border-radius: 20px;
@@ -754,6 +755,7 @@
         }
     }
 </style>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/code-studio-assistant.css') }}">
 {% endblock %}
 
 {% block content %}
@@ -767,7 +769,7 @@
                 <i class="bi bi-speedometer"></i> {{ assignment.difficulty }}
             </span>
         </div>
-        <div class="d-flex flex-wrap align-items-center text-white-50 mb-3">
+        <div class="d-flex flex-wrap align-items-center text-muted mb-3">
             <div class="me-4">
                 <i class="bi bi-calendar-event"></i>
                 截止日期:
@@ -787,7 +789,7 @@
             </div>
         </div>
 
-        <button class="btn btn-light" type="button" data-bs-toggle="collapse" data-bs-target="#assignmentDescription">
+        <button class="btn btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#assignmentDescription">
             <i class="bi bi-info-circle"></i> 查看作业详情
         </button>
     </div>
@@ -887,7 +889,7 @@
         </div>
 
         <!-- AI助手聊天界面 -->
-        <div class="ai-assistant-panel">
+        <div class="ai-assistant-panel code-studio-assistant">
             <div class="ai-assistant-header">
                 <h5 class="mb-0">
                     <i class="bi bi-robot"></i> AI编程助手
@@ -897,11 +899,11 @@
                 </button>
             </div>
 
-            {% if knowledge_evidence is defined %}
-            {{ knowledge_evidence_panel(knowledge_evidence, audience='student', panel_id='code-studio-knowledge-evidence', compact=true, retry_url=url_for('api.get_assignment_knowledge_evidence', assignment_id=assignment.id)) }}
-            {% endif %}
-
             <div class="ai-chat-messages" id="ai-chat-messages">
+                {% if knowledge_evidence is defined %}
+                {{ knowledge_evidence_panel(knowledge_evidence, audience='student', panel_id='code-studio-knowledge-evidence', compact=true, retry_url=url_for('api.get_assignment_knowledge_evidence', assignment_id=assignment.id)) }}
+                {% endif %}
+
                 <!-- 欢迎消息 -->
                 <div class="ai-welcome-message" id="welcome-message">
                     <div class="ai-welcome-icon">🤖</div>
@@ -924,10 +926,9 @@
                 </div>
 
                 <!-- 消息将动态添加到这里 -->
+                <div id="code-studio-analysis-evidence" class="knowledge-evidence-receipt-mount"
+                    data-knowledge-evidence-receipt="true"></div>
             </div>
-
-            <div id="code-studio-analysis-evidence" class="knowledge-evidence-receipt-mount"
-                data-knowledge-evidence-receipt="true"></div>
 
             <div class="ai-chat-input-area">
                 <div class="ai-chat-input-wrapper">
