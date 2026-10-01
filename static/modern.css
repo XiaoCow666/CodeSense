@@ -1,19 +1,26 @@
 /* modern.css - CodeSense 酷森思现代化样式 */
 
 :root {
+  --cs-bg: #F5F7F8;
+  --cs-surface: #FFFFFF;
+  --cs-ink: #23343D;
+  --cs-muted: #64757D;
+  --cs-line: #DDE5E6;
+  --cs-accent: #237B75;
+  --cs-accent-soft: #EAF4F2;
+  --cs-input: #F0F3F3;
   /* 主色调 */
-  --primary-color: #2563eb;
-  /* 深蓝色 */
-  --primary-hover: #1d4ed8;
+  --primary-color: var(--cs-accent);
+  --primary-hover: #1C625D;
   --secondary-color: #f59e0b;
   /* 金色点缀 */
 
   /* 中性色 */
-  --dark: #1f2937;
-  --dark-light: #374151;
-  --medium: #9ca3af;
-  --light: #f3f4f6;
-  --white: #ffffff;
+  --dark: var(--cs-ink);
+  --dark-light: #40545D;
+  --medium: var(--cs-muted);
+  --light: var(--cs-bg);
+  --white: var(--cs-surface);
 
   /* 功能色 */
   --success: #10b981;
@@ -52,8 +59,8 @@
 
 body {
   font-family: var(--font-sans);
-  background-color: var(--light);
-  color: var(--dark);
+  background-color: var(--cs-bg);
+  color: var(--cs-ink);
   line-height: 1.5;
 }
 
@@ -77,7 +84,8 @@ a:hover {
 
 /* 导航栏 */
 .navbar {
-  background-color: var(--white);
+  background-color: var(--cs-surface);
+  border-bottom: 1px solid var(--cs-line);
   box-shadow: var(--shadow-sm);
   padding: var(--spacing-md) 0;
   position: sticky;
@@ -136,7 +144,7 @@ a:hover {
 .navbar-link:hover,
 .navbar-link.active {
   color: var(--primary-color);
-  background-color: rgba(37, 99, 235, 0.05);
+  background-color: var(--cs-accent-soft);
 }
 
 .navbar-user {
@@ -199,7 +207,7 @@ a:hover {
 }
 
 :where(a, button, input, select, textarea):focus-visible {
-  outline: 3px solid rgba(37, 99, 235, 0.55);
+  outline: 3px solid var(--cs-accent);
   outline-offset: 3px;
 }
 
@@ -231,7 +239,8 @@ a:hover {
 
 /* 卡片 */
 .card {
-  background-color: var(--white);
+  background-color: var(--cs-surface);
+  border: 1px solid var(--cs-line);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md);
   padding: var(--spacing-lg);
@@ -260,7 +269,7 @@ a:hover {
 .card-badge {
   display: inline-block;
   padding: 4px 8px;
-  background-color: rgba(37, 99, 235, 0.1);
+  background-color: var(--cs-accent-soft);
   color: var(--primary-color);
   border-radius: var(--radius-sm);
   font-size: 0.875rem;
@@ -299,7 +308,7 @@ a:hover {
 }
 
 .btn-primary {
-  background-color: var(--primary-color);
+  background-color: var(--cs-accent);
   color: var(--white);
 }
 
@@ -308,12 +317,12 @@ a:hover {
 }
 
 .btn-secondary {
-  background-color: rgba(37, 99, 235, 0.1);
+  background-color: var(--cs-accent-soft);
   color: var(--primary-color);
 }
 
 .btn-secondary:hover {
-  background-color: rgba(37, 99, 235, 0.15);
+  background-color: #DCEDE9;
 }
 
 .btn-success {
