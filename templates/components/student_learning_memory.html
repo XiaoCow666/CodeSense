@@ -101,6 +101,7 @@
     </div>
     {% endif %}
 
+    <p><a href="{{ url_for('main.student_learning_memory') }}" class="btn btn-outline-primary">查找反馈，回到原题复盘</a></p>
     <form method="post" action="{{ url_for('main.rebuild_student_learning_memory') }}" class="student-learning-memory-panel__action">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button type="submit" class="btn btn-outline-primary">

@@ -161,6 +161,9 @@
             <p class="page-subtitle">题目详情与代码提交</p>
         </div>
         <div class="assignment-page-actions">
+            {% if current_user.usertype == '学生' %}
+            <a class="btn btn-outline-primary" href="{{ url_for('main.student_learning_memory', assignment_id=assignment.id) }}">回顾本题学习记录</a>
+            {% endif %}
             {% if session.get('usertype') == '学生' %}
             <a href="{{ url_for('assignments.submit_code', assignment_id=assignment.id) }}"
                 class="btn btn-primary me-2">

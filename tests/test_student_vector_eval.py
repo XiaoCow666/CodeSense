@@ -1,4 +1,5 @@
 from services.student_vector_eval import evaluate_student_vector_fixture
+import json
 
 
 def test_student_vector_fixture_measures_recall_and_scope_safety():
@@ -23,3 +24,17 @@ def test_student_vector_fixture_measures_recall_and_scope_safety():
     )
     assert metrics["case_results"][4]["actual_status"] == "no_result"
     assert metrics["case_results"][5]["retrieved_source_ids"] == ["a-score-array"]
+
+
+def test_offline_eval_does_not_count_weak_overlap_as_a_runtime_hit(tmp_path):
+    fixture = tmp_path / 'weak-overlap.json'
+    fixture.write_text(json.dumps({
+        'sources': [{'source_id': 'weak', 'student_id': 's', 'status': 'active',
+                     'source_type': 'submission_feedback',
+                     'content': 'shared ' + ' '.join('token' + str(i) for i in range(100))}],
+        'queries': [{'student_id': 's', 'query': 'shared', 'top_k': 100,
+                     'expected_status': 'no_result', 'relevant_source_ids': []}],
+    }), encoding='utf-8')
+    result = evaluate_student_vector_fixture(fixture)
+    assert result['case_results'][0]['retrieved_source_ids'] == []
+    assert result['status_mismatch_count'] == 0

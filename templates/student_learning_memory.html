@@ -1,0 +1,67 @@
+{% extends 'layout.html' %}
+{% block title %}学习记忆复盘 - CodeSense 酷森思{% endblock %}
+{% block content %}
+<div class="container py-4" style="max-width: 900px; overflow-wrap: anywhere;">
+    <a href="{{ url_for('main.home') }}#student-learning-memory-title" class="btn btn-link px-0">返回我的学习记忆</a>
+    <h1 class="h3 mt-2">学习记忆复盘</h1>
+    <p class="text-muted">找回自己的反馈，先想清楚上次卡在哪里，再回到原题尝试。检索结果只作学习参考，不参与评分。</p>
+    {% if assignment %}
+    <p>当前范围：<a href="{{ url_for('assignments.view_assignment', assignment_id=assignment.id) }}">{{ assignment.title }}</a>及本题知识点。
+        <a href="{{ url_for('main.student_learning_memory', q=query) }}">查看全部本人记录</a></p>
+    {% else %}<p>当前范围：仅本人的评测反馈与知识点记录。</p>{% endif %}
+
+    <form method="get" class="card card-body mb-3" role="search" aria-label="检索本人的学习记忆">
+        {% if assignment %}<input type="hidden" name="assignment_id" value="{{ assignment.id }}">{% endif %}
+        <label for="memory-query" class="form-label">想复习哪个问题或知识点？</label>
+        <div class="d-flex flex-wrap gap-2">
+            <input id="memory-query" type="search" name="q" value="{{ query }}" maxlength="200" required class="form-control" style="flex: 1 1 220px;" placeholder="例如：递归终止条件、数组边界">
+            <button class="btn btn-primary" type="submit">查找学习记录</button>
+        </div>
+    </form>
+
+    {% if memory_error %}
+    <div class="alert alert-warning" role="alert">学习记录暂时无法读取，请稍后重新查找。你仍可返回作业继续练习。</div>
+    {% elif result %}
+        {% set metrics = result.get('metrics', {}) %}
+        {% if metrics.get('outdated_source_count') or metrics.get('invalid_source_count') %}
+        <div class="alert alert-warning" role="status">部分来源已更新、移除或暂时无法读取，已跳过这些记录。请更新学习记忆后再查找。</div>
+        {% endif %}
+        {% if result.get('evidence') %}
+        <p role="status">找到 {{ result.evidence|length }} 条相关记录。请对照原反馈确认，再决定下一步练习。</p>
+        {% for item in result.evidence %}
+        <article class="card card-body mb-3" aria-labelledby="memory-result-{{ loop.index }}">
+            <h2 id="memory-result-{{ loop.index }}" class="h5">{{ item.title }}</h2>
+            <p>{{ item.content }}</p>
+            <p class="small text-muted">{{ '提交反馈' if item.source_type == 'submission_feedback' else '知识点记录' }} · 仅本人 · 来源版本 {{ item.source_version[:12] }}</p>
+            <div class="d-flex flex-wrap gap-2 align-items-center">
+                {% if item.submission_id %}<a class="btn btn-outline-primary btn-sm" href="{{ url_for('assignments.view_submission', submission_id=item.submission_id) }}">回到原提交</a>{% endif %}
+                {% if assignment %}<a class="btn btn-outline-secondary btn-sm" href="{{ url_for('assignments.submit_code', assignment_id=assignment.id) }}">带着问题再练习</a>{% endif %}
+                <form method="post" action="{{ url_for('main.revoke_student_learning_memory_source') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="return_to" value="learning_memory">
+                    <input type="hidden" name="q" value="{{ query }}">
+                    {% if assignment %}<input type="hidden" name="assignment_id" value="{{ assignment.id }}">{% endif %}
+                    <input type="hidden" name="source_type" value="{{ item.source_type }}">
+                    <input type="hidden" name="source_id" value="{{ item.source_id }}">
+                    <button class="btn btn-outline-danger btn-sm" type="submit" aria-label="撤回学习来源：{{ item.title }}">不再参考此来源</button>
+                </form>
+            </div>
+        </article>
+        {% endfor %}
+        {% else %}
+        <div class="alert alert-info" role="status">{{ (result.get('fallback') or {}).get('message') or '没有找到相关记录。' }} 可以换一个更具体的知识点，或先完成一次作业评测。</div>
+        {% endif %}
+    {% else %}
+    <p role="status">输入上次遇到的问题，查找可追溯的反馈。这里只会展示尚未撤回的当前来源。</p>
+    {% endif %}
+
+    <form method="post" action="{{ url_for('main.rebuild_student_learning_memory') }}" class="mt-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="return_to" value="learning_memory">
+        <input type="hidden" name="q" value="{{ query }}">
+        {% if assignment %}<input type="hidden" name="assignment_id" value="{{ assignment.id }}">{% endif %}
+        <button class="btn btn-outline-secondary" type="submit">更新我的学习记忆</button>
+        <p class="small text-muted mt-2">只更新本人记录，保留已撤回选择，不改变作业分数。</p>
+    </form>
+</div>
+{% endblock %}

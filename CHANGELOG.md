@@ -10,6 +10,20 @@ This file records release-level information for users and maintainers. Versions 
 
 Future unreleased changes will be listed here.
 
+## [2.2.0] - 2026-10-01
+
+### Added
+
+- 学生可以从首页、知识路径和作业详情打开个人学习记忆，按关键词或当前作业查找反馈，返回原提交继续练习。
+- 知识路径标明与当前作业关联的个人反馈来源；AI 辅导引用反馈时提供原提交入口，方便核对上下文。
+
+### Improved
+
+- 已编辑、撤回、待评测或已失去访问权限的旧反馈不会继续进入个人检索或知识路径；向量记录损坏时可重新建立索引。
+- 学生更新或撤回记忆后保留当前查询；离线评测按实际检索阈值核对结果。
+
+[2.2.0]: https://github.com/XiaoCow666/CodeSense/releases/tag/v2.2.0
+
 ## [2.1.0] - 2026-09-30
 
 ### Added
