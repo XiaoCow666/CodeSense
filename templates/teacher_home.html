@@ -150,8 +150,8 @@
 
     .trend-total {
         border-radius: 0.5rem;
-        background: #EAF4F2;
-        color: #237B75;
+        background: #eef4ff;
+        color: #2e59d9;
         padding: 0.45rem 0.75rem;
         font-weight: 700;
     }
@@ -399,7 +399,7 @@
     </div>
 
     <!-- AI 个性化建议 -->
-    <div class="dashboard-section" style="background: var(--cs-surface); border-left: 5px solid #237B75;">
+    <div class="dashboard-section" style="background: linear-gradient(135deg, #f8f9fc 0%, #f1f4f9 100%); border-left: 5px solid #4e73df;">
         <div class="section-title">
             <span><i class="bi bi-cpu text-primary me-2"></i>AI 教学个性化建议</span>
             <a href="{{ url_for('main.teacher_ai_suggestions') }}" class="btn btn-sm btn-primary">
@@ -808,8 +808,8 @@
                     datasets: [{
                         label: '提交次数',
                         data: submissionTrend.map(item => item.count),
-                        borderColor: '#237B75',
-                        backgroundColor: 'rgba(35, 123, 117, 0.12)',
+                        borderColor: '#2e59d9',
+                        backgroundColor: 'rgba(78, 115, 223, 0.12)',
                         fill: true,
                         tension: 0.35,
                         pointRadius: 4,
@@ -848,12 +848,12 @@
                 datasets: [{
                     data: chartData.sizes,
                     backgroundColor: [
-                        '#237B75', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b',
-                        '#858796', '#5a5c69', '#237B75', '#17a673', '#2c9faf'
+                        '#4e73df', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b',
+                        '#858796', '#5a5c69', '#2e59d9', '#17a673', '#2c9faf'
                     ],
                     hoverBackgroundColor: [
-                        '#237B75', '#17a673', '#2c9faf', '#dda20a', '#be2617',
-                        '#60616f', '#373840', '#237B75', '#12825a', '#227e8a'
+                        '#2e59d9', '#17a673', '#2c9faf', '#dda20a', '#be2617',
+                        '#60616f', '#373840', '#224abe', '#12825a', '#227e8a'
                     ],
                     hoverBorderColor: "rgba(234, 236, 244, 1)",
                 }],
@@ -899,9 +899,9 @@
                 datasets: [{
                     label: '平均分（0–100）',
                     data: chartData.scores,
-                    backgroundColor: '#237B75',
-                    hoverBackgroundColor: '#237B75',
-                    borderColor: '#237B75',
+                    backgroundColor: '#4e73df',
+                    hoverBackgroundColor: '#2e59d9',
+                    borderColor: '#4e73df',
                     borderWidth: 1
                 }]
             },

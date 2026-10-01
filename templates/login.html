@@ -18,9 +18,12 @@
         :root {
             --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
             --font-mono: 'JetBrains Mono', monospace;
-            --color-brand-blue: #237B75;
-            --color-surface-dark: #182B2B;
-            --color-stroke: #DCE7E6;
+            --font-handwriting: 'Caveat', cursive;
+            --font-brush: 'Ma Shan Zheng', cursive;
+            
+            --color-brand-blue: #007aff;
+            --color-surface-dark: #0a0e17;
+            --color-stroke: #2d3748;
         }
 
         * {
@@ -48,7 +51,7 @@
         /* --- 左侧面板 --- */
         .left-banner {
             width: 50%;
-            background-color: #F1F7F5;
+            background-color: var(--color-surface-dark);
             position: relative;
             display: flex;
             flex-direction: column;
@@ -76,54 +79,109 @@
             }
         }
 
-        .login-story {
+        .bg-grid-subtle {
+            position: absolute;
+            inset: 0;
+            background-image: 
+                linear-gradient(to right, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+            background-size: 40px 40px;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        .glow-blob-1 {
+            position: absolute;
+            top: -10%;
+            left: -10%;
+            width: 60%;
+            height: 60%;
+            background: rgba(0, 122, 255, 0.1);
+            filter: blur(120px);
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 2;
+        }
+
+        .glow-blob-2 {
+            position: absolute;
+            bottom: -5%;
+            right: -5%;
+            width: 40%;
+            height: 40%;
+            background: rgba(0, 122, 255, 0.05);
+            filter: blur(100px);
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 2;
+        }
+
+        .typewriter-container {
+            position: relative;
+            z-index: 10;
             width: 100%;
-            max-width: 520px;
-            color: #182B2B;
-        }
-
-        .login-story__mark {
-            color: #237B75;
-            font-size: .82rem;
-            font-weight: 700;
-            letter-spacing: .08em;
-        }
-
-        .login-story h1 {
-            max-width: 12em;
-            margin: 1.25rem 0 1rem;
-            font-size: clamp(2rem, 3.3vw, 3.4rem);
-            line-height: 1.23;
-            letter-spacing: -.04em;
-        }
-
-        .login-story p {
-            max-width: 30em;
-            color: #5E7070;
-            font-size: 1rem;
-            line-height: 1.8;
-        }
-
-        .login-story__steps {
+            max-width: 500px;
+            min-height: 160px;
             display: flex;
-            flex-wrap: wrap;
-            gap: .6rem;
-            margin-top: 2rem;
+            align-items: center;
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: #fff;
+            line-height: 1.3;
+            letter-spacing: -0.5px;
         }
 
-        .login-story__steps span {
-            padding: .55rem .8rem;
-            border: 1px solid #DCE7E6;
-            border-radius: 9px;
-            background: #fff;
-            color: #315452;
-            font-size: .85rem;
-            font-weight: 600;
+        @media (max-width: 576px) {
+            .typewriter-container {
+                font-size: 1.5rem;
+                min-height: 100px;
+            }
         }
 
-        @media (max-width: 992px) {
-            .login-story h1 { font-size: 2rem; }
-            .login-story__steps { margin-top: 1rem; }
+        .text-brand-blue {
+            color: var(--color-brand-blue);
+        }
+
+        .font-highlight {
+            text-shadow: 0 0 15px rgba(0, 122, 255, 0.3);
+            margin: 0 8px;
+            display: inline-block;
+        }
+
+        .font-handwriting {
+            font-family: var(--font-handwriting);
+            font-style: italic;
+            font-size: 3rem;
+        }
+
+        @media (max-width: 576px) {
+            .font-handwriting {
+                font-size: 2rem;
+            }
+        }
+
+        .font-brush {
+            font-family: var(--font-brush);
+            font-size: 3rem;
+            font-weight: 400;
+        }
+
+        @media (max-width: 576px) {
+            .font-brush {
+                font-size: 2rem;
+            }
+        }
+
+        .typewriter-cursor::after {
+            content: '|';
+            animation: blink 1s step-end infinite;
+            color: var(--color-brand-blue);
+            margin-left: 2px;
+        }
+
+        @keyframes blink {
+            from, to { opacity: 1; }
+            50% { opacity: 0; }
         }
 
         /* --- 右侧面板 --- */
@@ -166,7 +224,6 @@
             display: block;
             width: min(100%, 250px);
             height: auto;
-            filter: hue-rotate(-45deg) saturate(.75);
         }
 
         .login-title-box {
@@ -223,7 +280,7 @@
         .form-control:focus {
             border-color: var(--color-brand-blue);
             background: #fff;
-            box-shadow: 0 0 0 3px rgba(35, 123, 117, 0.15);
+            box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.15);
         }
 
         .form-control.is-invalid {
@@ -315,12 +372,12 @@
             align-items: center;
             justify-content: center;
             gap: 8px;
-            box-shadow: 0 10px 15px -3px rgba(35, 123, 117, 0.2);
+            box-shadow: 0 10px 15px -3px rgba(0, 122, 255, 0.2);
             transition: all 0.2s ease;
         }
 
         .btn-login:hover {
-            background: #1C625D;
+            background: #0066d6;
             transform: translateY(-1px);
         }
 
@@ -372,9 +429,9 @@
         .demo-entry {
             margin-top: 1.75rem;
             padding: 1rem;
-            border: 1px solid #EAF4F2;
+            border: 1px solid #dbeafe;
             border-radius: 12px;
-            background: #F5F7F8;
+            background: #f8fbff;
         }
 
         .demo-entry-title {
@@ -404,10 +461,10 @@
             gap: 0.35rem;
             min-height: 2.4rem;
             padding: 0.45rem 0.6rem;
-            border: 1px solid #CDE5E1;
+            border: 1px solid #bfdbfe;
             border-radius: 8px;
             background: #fff;
-            color: #1C625D;
+            color: #1d4ed8;
             font-size: 0.82rem;
             font-weight: 600;
             text-decoration: none;
@@ -415,8 +472,8 @@
         }
 
         .demo-entry-link:hover {
-            border-color: #78ADA6;
-            background: #F5F7F8;
+            border-color: #60a5fa;
+            background: #eff6ff;
         }
 
         @media (max-width: 400px) {
@@ -466,15 +523,11 @@
 <body>
     <!-- 左侧 Banner -->
     <div class="left-banner">
-        <div class="login-story">
-            <span class="login-story__mark">CODESENSE · 学习工作台</span>
-            <h1>把每一次编程练习，变成看得见的进步。</h1>
-            <p>查看作业、编写代码、获得有依据的提示。按自己的节奏完成练习，也能清楚看见下一步。</p>
-            <div class="login-story__steps" aria-label="学习流程">
-                <span>01 查看任务</span>
-                <span>02 动手编写</span>
-                <span>03 理解反馈</span>
-            </div>
+        <div class="bg-grid-subtle"></div>
+        <div class="glow-blob-1"></div>
+        <div class="glow-blob-2"></div>
+        <div class="typewriter-container">
+            <span id="typewriter-text" class="typewriter-cursor"></span>
         </div>
     </div>
 
@@ -596,7 +649,7 @@
         </footer>
     </div>
 
-    <!-- 密码切换脚本 -->
+    <!-- 打字机效果与密码切换脚本 -->
     <script>
         // 登录页加载时清除麦克风测试标记，确保每次登录后重新测试
         try { sessionStorage.removeItem('mic_tested'); } catch(e) {}
@@ -612,6 +665,73 @@
             this.classList.toggle('bi-eye-slash');
         });
 
+        // 打字机数据
+        const PHRASES = [
+            "让 Coding 焕发 智能",
+            "AI 正在重塑您的 逻辑",
+            "AI 驱动的 革命 性体验",
+            "极致 效率 的 智能 工具",
+            "编程是 逻辑 与 艺术 的结合",
+            "开启 AI 协作新范式",
+            "让 智能 深入每一行代码",
+            "效率 就是核心竞争力",
+            "Coding 是一种 艺术",
+            "用 AI 创造无限可能"
+        ];
+        const HIGHLIGHT_KEYWORDS = ['Coding', 'AI', '智能', '效率', '逻辑', '艺术', '革命'];
+
+        let phraseIndex = 0;
+        let charIndex = 0;
+        let isDeleting = false;
+        const typewriterEl = document.getElementById('typewriter-text');
+
+        function type() {
+            const currentPhrase = PHRASES[phraseIndex];
+            let displayText = '';
+
+            if (isDeleting) {
+                displayText = currentPhrase.substring(0, charIndex - 1);
+                charIndex--;
+            } else {
+                displayText = currentPhrase.substring(0, charIndex + 1);
+                charIndex++;
+            }
+
+            // 渲染带高亮的文本
+            const regex = new RegExp(`(${HIGHLIGHT_KEYWORDS.join('|')})`, 'g');
+            const parts = displayText.split(regex);
+
+            typewriterEl.innerHTML = '';
+            parts.forEach(part => {
+                if (HIGHLIGHT_KEYWORDS.includes(part)) {
+                    const isEnglish = /^[A-Za-z]+$/.test(part);
+                    const span = document.createElement('span');
+                    span.className = `text-brand-blue ${isEnglish ? 'font-handwriting' : 'font-brush'} font-highlight`;
+                    span.textContent = part;
+                    typewriterEl.appendChild(span);
+                } else {
+                    const span = document.createElement('span');
+                    span.textContent = part;
+                    typewriterEl.appendChild(span);
+                }
+            });
+
+            let speed = isDeleting ? 40 : 100;
+
+            if (!isDeleting && charIndex === currentPhrase.length) {
+                speed = 2000; // 完整词句停留
+                isDeleting = true;
+            } else if (isDeleting && charIndex === 0) {
+                isDeleting = false;
+                phraseIndex = (phraseIndex + 1) % PHRASES.length;
+                speed = 500; // 开始下一个词句的等待
+            }
+
+            setTimeout(type, speed);
+        }
+
+        // 启动打字机
+        setTimeout(type, 500);
     </script>
 </body>
 

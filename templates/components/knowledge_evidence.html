@@ -3,19 +3,6 @@
 {% set evidence_items = evidence_view.get('evidence', []) %}
 <section class="knowledge-evidence-panel{% if compact %} knowledge-evidence-panel--compact{% endif %}"
     id="{{ panel_id }}" aria-labelledby="{{ panel_id }}-title">
-    {% if compact %}
-    <details class="knowledge-evidence-panel__compact-disclosure">
-        <summary class="knowledge-evidence-panel__compact-summary">
-            <span class="knowledge-evidence-panel__compact-heading" id="{{ panel_id }}-title">
-                {% if heading %}{{ heading }}{% else %}作业知识焦点{% endif %}
-            </span>
-            <span class="knowledge-evidence-panel__compact-topics">
-                {% if evidence_items %}{% for item in evidence_items[:3] %}{{ item.get('title') or '知识点' }}{% if not loop.last %} · {% endif %}{% endfor %}{% else %}{{ evidence_view.get('status_label', '暂无线索') }}{% endif %}
-            </span>
-            <span class="knowledge-evidence-panel__compact-action">查看 {{ evidence_items|length }} 条证据 <span aria-hidden="true">⌄</span></span>
-        </summary>
-        <div class="knowledge-evidence-panel__compact-content">
-    {% else %}
     <div class="knowledge-evidence-panel__header">
         <div>
             <p class="knowledge-evidence-panel__eyebrow">作业知识工作区</p>
@@ -27,7 +14,6 @@
             {{ evidence_view.get('status_label', '证据状态不可用') }}
         </span>
     </div>
-    {% endif %}
 
     <div class="knowledge-evidence-panel__status" role="status" aria-live="polite" aria-atomic="true">
         <strong>{{ evidence_view.get('summary', '当前无法确认知识证据状态。') }}</strong>
@@ -92,10 +78,6 @@
         </div>
         <p class="knowledge-evidence-diagnostics__note">仅用于检索诊断，不作为评分依据。</p>
     </div>
-    {% endif %}
-    {% if compact %}
-        </div>
-    </details>
     {% endif %}
 </section>
 {% endmacro %}

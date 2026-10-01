@@ -5,7 +5,7 @@
 {% block extra_css %}
 <style>
     .stats-card {
-        background: var(--cs-accent);
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: white;
         border: none;
         border-radius: 15px;
@@ -54,28 +54,28 @@
     .refresh-btn {
         border-radius: 25px;
         padding: 0.5rem 1.5rem;
-        background: var(--cs-accent);
+        background: linear-gradient(45deg, #28a745, #20c997);
         border: none;
         color: white;
         transition: all 0.3s ease;
     }
     
     .refresh-btn:hover {
-        background: #1C625D;
+        background: linear-gradient(45deg, #20c997, #28a745);
         transform: translateY(-2px);
     }
     
     .batch-btn {
         border-radius: 25px;
         padding: 0.5rem 1.5rem;
-        background: var(--cs-accent);
+        background: linear-gradient(45deg, #007bff, #6f42c1);
         border: none;
         color: white;
         transition: all 0.3s ease;
     }
     
     .batch-btn:hover {
-        background: #1C625D;
+        background: linear-gradient(45deg, #6f42c1, #007bff);
         transform: translateY(-2px);
     }
     
@@ -127,7 +127,7 @@
             </div>
         </div>
         <div class="col-md-3">
-            <div class="card stats-card text-center" style="background: #B7791F;">
+            <div class="card stats-card text-center" style="background: linear-gradient(135deg, #ffc107 0%, #ff8f00 100%);">
                 <div class="card-body">
                     <i class="bi bi-cpu" style="font-size: 2rem; margin-bottom: 1rem;"></i>
                     <h3 id="processing-count">-</h3>
@@ -136,7 +136,7 @@
             </div>
         </div>
         <div class="col-md-3">
-            <div class="card stats-card text-center" style="background: #237B75;">
+            <div class="card stats-card text-center" style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%);">
                 <div class="card-body">
                     <i class="bi bi-check-circle" style="font-size: 2rem; margin-bottom: 1rem;"></i>
                     <h3 id="completed-count">-</h3>
@@ -145,7 +145,7 @@
             </div>
         </div>
         <div class="col-md-3">
-            <div class="card stats-card text-center" style="background: #B94848;">
+            <div class="card stats-card text-center" style="background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);">
                 <div class="card-body">
                     <i class="bi bi-exclamation-triangle" style="font-size: 2rem; margin-bottom: 1rem;"></i>
                     <h3 id="failed-count">-</h3>
