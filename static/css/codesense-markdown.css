@@ -14,9 +14,9 @@
     --cs-md-border-strong: #d7dee9;
     --cs-md-surface: #ffffff;
     --cs-md-surface-soft: #f8fafc;
-    --cs-md-surface-blue: #EAF4F2;
-    --cs-md-accent: #237B75;
-    --cs-md-accent-soft: #EAF4F2;
+    --cs-md-surface-blue: #f3f7ff;
+    --cs-md-accent: #2563eb;
+    --cs-md-accent-soft: #dbeafe;
     --cs-md-success: #059669;
     --cs-md-warning: #d97706;
     --cs-md-danger: #dc2626;
@@ -93,7 +93,7 @@
 }
 
 .cs-markdown h2 {
-    background: var(--cs-accent-soft);
+    background: linear-gradient(90deg, var(--cs-md-surface-blue), rgba(243, 247, 255, 0));
     border-left: 3px solid var(--cs-md-accent);
     border-radius: 0 6px 6px 0;
     font-size: 1.2rem;
@@ -168,8 +168,8 @@
 
 .cs-markdown blockquote.cs-md-callout-note,
 .cs-markdown blockquote.cs-md-callout-info {
-    background: #F5F7F8;
-    border-left-color: #2E8E86;
+    background: #eff6ff;
+    border-left-color: #3b82f6;
 }
 
 .cs-markdown blockquote.cs-md-callout-tip,

@@ -735,7 +735,7 @@ function addQuestionStyles() {
         
         .answer-header i {
             margin-right: 8px;
-            color: #237B75;
+            color: #0d6efd;
         }
         
         .ai-answer.error .answer-header i {
@@ -762,7 +762,7 @@ function addQuestionStyles() {
             height: 8px;
             width: 8px;
             margin: 0 2px;
-            background-color: #237B75;
+            background-color: #0d6efd;
             border-radius: 50%;
             opacity: 0.6;
             animation: typing 1s infinite;
