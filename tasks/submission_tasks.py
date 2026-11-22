@@ -7,9 +7,13 @@ import logging
 import threading
 import time
 from contextlib import nullcontext
+from uuid import uuid4
+
+from sqlalchemy.exc import SQLAlchemyError
 
 from models import Assignment, Submission, SystemLog, TestCase as TC, User, db
 from services.demo_database import activate_demo_run, is_active_demo_run
+from services.learning_capture import get_annotation_revision, record_submission_event
 from utils import code_evaluator
 from utils.code_evaluator import evaluate_cpp_code
 from utils.sandbox_runner import run_test_cases
@@ -122,6 +126,137 @@ def mark_submission_failed(submission_id: int, message: str) -> None:
     db.session.commit()
 
 
+def _record_queue_event(app, submission_id, demo_run_id, status):
+    """Write dispatch status using the submission's own database."""
+
+    if "sqlalchemy" not in getattr(app, "extensions", {}):
+        return
+    with app.app_context():
+        if demo_run_id and not activate_demo_run(demo_run_id):
+            return
+        try:
+            if db.session.get(Submission, submission_id) is None:
+                return
+            if status == "failed":
+                record_submission_event(
+                    submission_id, "queue_failed", status="failed",
+                    error_code="queue_unavailable",
+                )
+                mark_submission_failed(submission_id, "后台评测启动失败，请稍后重试。")
+            else:
+                event_type = "queued" if status == "queued" else "queue_requested"
+                record_submission_event(submission_id, event_type, status=status)
+                db.session.commit()
+        except SQLAlchemyError:
+            db.session.rollback()
+            app.logger.exception("无法写入提交调度事件 submission_id=%s status=%s", submission_id, status)
+
+
+def _record_sandbox_result(submission_id, run_id, revision_id, result):
+    status = result["status"]
+    compile_error = result.get("compile_error")
+    if status == "unavailable":
+        compile_status, error_code = "unavailable", "compiler_unavailable"
+    elif status == "compile_error":
+        compile_status, error_code = "failed", "compile_error"
+        if compile_error and compile_error.startswith("编译过程出错"):
+            compile_status, error_code = "error", "compiler_process_error"
+        elif compile_error and compile_error.startswith("编译超时"):
+            error_code = "compile_timeout"
+        elif compile_error and compile_error.startswith("编译器 ") and "输出超过限制" in compile_error:
+            error_code = "compiler_output_limit"
+    elif result.get("compile_success", status in {"passed", "partial", "failed"}):
+        compile_status, error_code = "passed", None
+    else:
+        compile_status, error_code = "unknown", None
+
+    record_submission_event(
+        submission_id, "compile", run_id=run_id,
+        status=compile_status, error_code=error_code, message=compile_error,
+        annotation_revision_id=revision_id,
+    )
+    platform_failures = {"launch_error", "read_error"}
+    case_errors = 0
+    for index, case in enumerate(result["details"], start=1):
+        reason = case.get("termination_reason")
+        case_code = None if case.get("passed") else (reason or "wrong_answer")
+        case_status = "passed" if case.get("passed") else "failed"
+        if case_code in platform_failures:
+            case_status = "error"
+            case_errors += 1
+        record_submission_event(
+            submission_id, "test_case", run_id=run_id,
+            event_key=f"test_case:{index}",
+            status=case_status, error_code=case_code, message=case.get("error"),
+            details={
+                "case_id": case.get("case_id"),
+                "order_index": case.get("order_index", index),
+                "is_public": case.get("is_public"),
+                "time_ms": case.get("time_ms"),
+                "actual_output": case.get("actual_output"),
+            },
+            annotation_revision_id=revision_id,
+        )
+    record_submission_event(
+        submission_id, "sandbox", run_id=run_id,
+        status="error" if case_errors or compile_status == "error" else status,
+        error_code="sandbox_case_error" if case_errors else error_code,
+        details={
+            "passed": result["passed"], "total": result["total"], "platform_case_errors": case_errors,
+        },
+        annotation_revision_id=revision_id,
+    )
+    db.session.commit()
+
+
+def observe_submission_sandbox(submission_id, assignment_id, code, *, run_id, language="cpp"):
+    """Persist sandbox observations without committing an unfinished grade."""
+
+    if language not in {None, "c", "c++", "cpp"}:
+        record_submission_event(
+            submission_id, "sandbox", run_id=run_id, status="skipped",
+            error_code="unsupported_sandbox_language", details={"language": language},
+        )
+        db.session.commit()
+        return None
+
+    committed_revision_id = None
+    try:
+        cases = [
+            case.to_dict()
+            for case in TC.query.filter_by(assignment_id=assignment_id)
+            .order_by(TC.order_index, TC.id)
+            .all()
+        ]
+        revision_id = get_annotation_revision(assignment_id, test_cases=cases).id
+        if not cases:
+            record_submission_event(
+                submission_id, "sandbox", run_id=run_id, status="skipped",
+                error_code="no_test_cases", annotation_revision_id=revision_id,
+            )
+            db.session.commit()
+            return None
+
+        record_submission_event(
+            submission_id, "sandbox_started", run_id=run_id, status="running",
+            annotation_revision_id=revision_id,
+        )
+        db.session.commit()
+        committed_revision_id = revision_id
+        result = run_test_cases(code, cases)
+        _record_sandbox_result(submission_id, run_id, revision_id, result)
+        return result
+    except Exception as error:
+        db.session.rollback()
+        record_submission_event(
+            submission_id, "sandbox", run_id=run_id, status="error",
+            error_code="sandbox_error", details={"error_type": type(error).__name__},
+            annotation_revision_id=committed_revision_id,
+        )
+        db.session.commit()
+        raise
+
+
 def evaluate_submission_async(
     app, submission_id, assignment_title, demo_run_id=None, *, run_inline=False
 ):
@@ -142,21 +277,18 @@ def evaluate_submission_async(
             enqueue_submission_evaluation,
         )
 
+        _record_queue_event(app, submission_id, demo_run_id, "requested")
         try:
-            return enqueue_submission_evaluation(app, submission_id)
+            queued = enqueue_submission_evaluation(app, submission_id)
         except SubmissionQueueUnavailable:
-            with app.app_context():
-                try:
-                    mark_submission_failed(
-                        submission_id,
-                        "提交评测队列暂时不可用，请稍后重试",
-                    )
-                except Exception:
-                    db.session.rollback()
+            _record_queue_event(app, submission_id, demo_run_id, "failed")
             raise
+        _record_queue_event(app, submission_id, demo_run_id, "queued")
+        return queued
 
     def _evaluate():
         started_at = time.perf_counter()
+        run_id = uuid4().hex
         from flask import current_app, has_app_context
 
         evaluation_context = (
@@ -193,10 +325,15 @@ def evaluate_submission_async(
                 student_id = submission.student_id
 
                 print(f"开始后台评估提交 {submission_id}")
+                record_submission_event(
+                    submission_id, "evaluation_started", run_id=run_id, status="running",
+                )
+                db.session.commit()
 
                 # 1. AI 基础评估。公开体验不接受默认分数，AI 失败必须
                 # 让提交进入 failed，方便前端提示用户重新提交。
                 try:
+                    ai_feedback = None
                     score, feedback = evaluate_cpp_code(
                         code, assignment_title=assignment_title
                     )
@@ -211,62 +348,60 @@ def evaluate_submission_async(
                         for field, value in structured_data.items():
                             if isinstance(value, str):
                                 structured_data[field] = normalize_feedback_text(value)
-                        submission.ai_feedback = json.dumps(
-                            structured_data, ensure_ascii=False
-                        )
+                        ai_feedback = json.dumps(structured_data, ensure_ascii=False)
                     elif isinstance(feedback, str) and (
                         "【" in feedback or "改进建议" in feedback
                     ):
-                        submission.ai_feedback = feedback
-
-                    submission.score = score
-                    submission.feedback = feedback
+                        ai_feedback = feedback
                 except Exception as ai_error:
                     print(f"AI 评估过程出错: {type(ai_error).__name__}")
+                    record_submission_event(
+                        submission_id, "ai_evaluation", run_id=run_id, status="failed",
+                        error_code="ai_evaluation_failed",
+                        details={"error_type": type(ai_error).__name__},
+                    )
+                    record_submission_event(
+                        submission_id, "sandbox", run_id=run_id, status="skipped",
+                        error_code="ai_evaluation_failed",
+                    )
+                    db.session.commit()
                     raise RuntimeError("AI 评测失败，请稍后重试") from ai_error
+                record_submission_event(
+                    submission_id, "ai_evaluation", run_id=run_id, status="completed"
+                )
+                db.session.commit()
 
                 # 2. 沙箱测试用例评判。
+                sandbox_result = None
                 try:
-                    test_cases = (
-                        TC.query.filter_by(assignment_id=submission.assignment_id)
-                        .order_by(TC.order_index)
-                        .all()
+                    sandbox_result = observe_submission_sandbox(
+                        submission_id, assignment.id, code, run_id=run_id, language=submission.language,
                     )
-                    if test_cases:
-                        tc_list = [test_case.to_dict() for test_case in test_cases]
-                        sandbox_result = run_test_cases(code, tc_list)
-
-                        submission.sandbox_status = sandbox_result["status"]
-                        submission.sandbox_passed = sandbox_result["passed"]
-                        submission.sandbox_total = sandbox_result["total"]
-                        submission.sandbox_detail = json.dumps(
-                            sandbox_result["details"], ensure_ascii=False
-                        )
-
-                        if sandbox_result["total"] > 0:
-                            sandbox_score = (
-                                sandbox_result["passed"]
-                                / sandbox_result["total"]
-                                * 100
-                            )
-                            final_score = sandbox_score
-                            if sandbox_result["status"] == "compile_error":
-                                final_score = min(final_score, 20)
-                            elif sandbox_result["status"] == "error":
-                                final_score = min(final_score, 20)
-                            submission.score = _normalise_score(final_score)
-                            print(
-                                "沙箱评判完成: "
-                                f"{submission.sandbox_passed}/{submission.sandbox_total}, "
-                                f"最终得分: {submission.score}"
-                            )
                 except Exception as sandbox_error:
+                    db.session.rollback()
                     print(f"沙箱评判过程出错: {type(sandbox_error).__name__}")
                     if demo_run_id:
                         raise RuntimeError("沙箱评测失败，请稍后重试") from sandbox_error
 
                 if not _demo_database_is_available(demo_run_id):
                     return
+
+                submission.score = score
+                submission.feedback = feedback
+                if ai_feedback is not None:
+                    submission.ai_feedback = ai_feedback
+                if sandbox_result is not None:
+                    submission.sandbox_status = sandbox_result["status"]
+                    submission.sandbox_passed = sandbox_result["passed"]
+                    submission.sandbox_total = sandbox_result["total"]
+                    submission.sandbox_detail = json.dumps(
+                        sandbox_result["details"], ensure_ascii=False
+                    )
+                    if sandbox_result["total"] > 0:
+                        final_score = sandbox_result["passed"] / sandbox_result["total"] * 100
+                        if sandbox_result["status"] in {"compile_error", "error"}:
+                            final_score = min(final_score, 20)
+                        submission.score = _normalise_score(final_score)
 
                 # 3. 提交和统计信息均从完整历史重新计算，避免累加种子
                 # 数据时出现重复统计或 100 分制残留。
@@ -369,6 +504,10 @@ def evaluate_submission_async(
                         user_id=student_id,
                         icon="bi bi-check-circle-fill",
                     )
+                record_submission_event(
+                    submission_id, "evaluation_finished", run_id=run_id, status="evaluated",
+                )
+                db.session.commit()
                 _log_submission_evaluation_event(
                     "finished",
                     submission_id,
@@ -392,6 +531,12 @@ def evaluate_submission_async(
                     return
                 try:
                     db.session.rollback()
+                    if db.session.get(Submission, submission_id) is not None:
+                        record_submission_event(
+                            submission_id, "evaluation_finished", run_id=run_id, status="failed",
+                            error_code="evaluation_failed",
+                            details={"error_type": type(error).__name__},
+                        )
                     mark_submission_failed(
                         submission_id,
                         "AI 评测失败，请稍后重试。" if demo_run_id else "后台评测发生严重错误，请稍后重试。",
@@ -404,9 +549,15 @@ def evaluate_submission_async(
     if run_inline:
         return _evaluate()
 
+    _record_queue_event(app, submission_id, demo_run_id, "requested")
     thread = threading.Thread(target=_evaluate)
     thread.daemon = True
-    thread.start()
+    try:
+        thread.start()
+    except Exception:
+        _record_queue_event(app, submission_id, demo_run_id, "failed")
+        raise
+    _record_queue_event(app, submission_id, demo_run_id, "queued")
     print(f"已启动后台评测线程 - 提交 ID: {submission_id}")
     return thread
 

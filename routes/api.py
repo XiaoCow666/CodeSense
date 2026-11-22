@@ -60,8 +60,17 @@ from services.learning_graph import (
     build_student_learning_graph_context,
     project_student_learning_graph,
 )
+from services.learning_capture import (
+    LearningCaptureConflict,
+    finish_ai_turn,
+    positive_id,
+    record_submission,
+    record_submission_event,
+    start_ai_turn,
+)
 from tasks.submission_tasks import (
     evaluate_submission_async,
+    observe_submission_sandbox,
     _refresh_assignment_stats,
     _refresh_user_stats,
 )
@@ -96,6 +105,110 @@ def _positive_int(value):
         parsed = int(value.strip())
         return parsed if parsed > 0 else None
     return None
+
+
+class _InvalidLearningCapture(ValueError):
+    pass
+
+
+def _capture_options(data, *, include_conversation=False):
+    options = {}
+    raw_attempt_id = data.get("attempt_id")
+    if raw_attempt_id is not None:
+        try:
+            options["attempt_id"] = positive_id(raw_attempt_id)
+        except ValueError:
+            raise _InvalidLearningCapture("做题轮次格式不正确") from None
+
+    keys = ("request_id", "conversation_id") if include_conversation else ("request_id",)
+    for key in keys:
+        value = data.get(key)
+        if value is not None:
+            if isinstance(value, str):
+                value = value.strip()
+            if (
+                not isinstance(value, str) or not 1 <= len(value) <= 64
+                or not value.isascii()
+                or not all(char.isalnum() or char in "-_.:" for char in value)
+            ):
+                raise _InvalidLearningCapture("采集请求标识格式不正确")
+            options[key] = value
+    return options
+
+
+def _start_api_turn(
+    data, *, student_id, assignment_id, channel, question=None, code=None,
+    language=None, context=None,
+):
+    options = _capture_options(data, include_conversation=True)
+    if assignment_id is None and "attempt_id" in options:
+        raise _InvalidLearningCapture("做题轮次需要关联作业")
+    turn, created = start_ai_turn(
+        student_id, assignment_id, channel=channel, question=question, code=code,
+        language=language, stage="coding" if assignment_id is not None else None,
+        context=context, **options,
+    )
+    turn_id = turn.id
+    db.session.commit()
+    if not created:
+        raise LearningCaptureConflict("这次 AI 请求已受理")
+    return turn_id
+
+
+def _finish_api_turn(turn_id, response=None, *, status="completed"):
+    finish_ai_turn(turn_id, response=response, status=status)
+    db.session.commit()
+
+
+def _fail_api_turn(turn_id):
+    if turn_id is None:
+        return
+    db.session.rollback()
+    try:
+        _finish_api_turn(turn_id, status="failed")
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("保存失败的 AI 对话失败 turn_id=%s", turn_id)
+
+
+def _captured_api_stream(turn_id, events):
+    """Persist the answer once and the delivered prefix if streaming stops early."""
+    chunks = []
+    finalized = False
+    try:
+        for event in events:
+            payload = json.loads(event.removeprefix("data: "))
+            event_type = payload.get("type")
+            if event_type == "delta" and isinstance(payload.get("content"), str):
+                chunks.append(payload["content"])
+            elif event_type in {"done", "error"}:
+                body = "".join(chunks)
+                if event_type == "done":
+                    body = payload.get("content", body)
+                    status = "completed"
+                else:
+                    status = "interrupted" if body else "failed"
+                finalized = True
+                try:
+                    _finish_api_turn(turn_id, body, status=status)
+                except Exception:
+                    db.session.rollback()
+                    current_app.logger.exception("保存 AI 对话失败 turn_id=%s", turn_id)
+                    yield sse_event({
+                        "type": "error",
+                        "error": "LEARNING_CAPTURE_FAILED",
+                        "message": "保存 AI 对话失败，请稍后重试",
+                    })
+                    return
+            yield event
+    finally:
+        events.close()
+        if not finalized:
+            try:
+                _finish_api_turn(turn_id, "".join(chunks), status="interrupted")
+            except Exception:
+                db.session.rollback()
+                current_app.logger.exception("保存中断的 AI 对话失败 turn_id=%s", turn_id)
 
 
 def _no_store(result):
@@ -689,17 +802,40 @@ def submit_code():
             status='pending'
         )
         
-        # 先保存到数据库获取ID
-        db.session.add(submission)
+        # Commit the attempt and exact submitted version before starting evaluation.
+        submission, created = record_submission(submission, **_capture_options(data))
+        submission_id = submission.id
+        if created:
+            record_submission_event(submission_id, "submitted", status="accepted")
         db.session.commit()
 
         demo_run_id = current_demo_run_id()
-        if (
+        uses_queue = (
             not demo_run_id
             and current_app.config.get(
                 'SUBMISSION_EVALUATION_QUEUE_BACKEND', 'thread'
             ) == 'rq'
-        ):
+        )
+        if not created:
+            if submission.status == "pending" and uses_queue:
+                return api_response(
+                    message="代码已提交，后台评测中",
+                    data={
+                        "submission_id": submission_id,
+                        "status": "queued",
+                        "operation_id": submission_operation_id(submission_id),
+                    },
+                    code=202,
+                )
+            return api_response(
+                message="这次代码提交已受理",
+                data={
+                    "submission_id": submission_id,
+                    "score": submission.score,
+                    "status": submission.status,
+                },
+            )
+        if uses_queue:
             try:
                 job = evaluate_submission_async(
                     current_app._get_current_object(),
@@ -734,13 +870,28 @@ def submit_code():
                 code=202,
             )
         
-        # 评估代码
+        # The inline endpoint keeps its legacy scoring contract. Sandbox evidence
+        # is collected independently so an AI outage cannot erase it.
+        record_submission_event(
+            submission_id, "evaluation_started", run_id="inline", status="running",
+        )
+        db.session.commit()
+        try:
+            observe_submission_sandbox(
+                submission_id, assignment_id, code, run_id="inline", language=language,
+            )
+        except Exception:
+            db.session.rollback()
+            current_app.logger.warning("同步评测沙箱未完成 submission_id=%s", submission_id)
+
+        ai_evaluation_completed = False
         try:
             score, feedback = evaluate_cpp_code(
                 code_str=code, 
                 model=None, 
                 assignment_title=assignment.title
             )
+            ai_evaluation_completed = True
             feedback = normalize_feedback_text(feedback)
             
             # 更新提交记录
@@ -772,6 +923,13 @@ def submit_code():
             # 两条提交入口使用同一组历史记录重新计算统计结果。
             _refresh_assignment_stats(assignment)
             _refresh_user_stats(student_id)
+
+            record_submission_event(
+                submission_id, "ai_evaluation", run_id="inline", status="completed",
+            )
+            record_submission_event(
+                submission_id, "evaluation_finished", run_id="inline", status="completed",
+            )
             
             db.session.commit()
 
@@ -817,6 +975,16 @@ def submit_code():
             db.session.rollback()
             submission.status = 'failed'
             submission.feedback = f'代码评估失败: {str(e)}'
+            record_submission_event(
+                submission_id, "ai_evaluation", run_id="inline",
+                status="completed" if ai_evaluation_completed else "failed",
+                error_code=None if ai_evaluation_completed else "ai_evaluation_failed",
+            )
+            record_submission_event(
+                submission_id, "evaluation_finished", run_id="inline",
+                status="failed", error_code="evaluation_failed",
+                details={"exception_type": type(e).__name__},
+            )
             db.session.commit()
             current_app.logger.exception(
                 '评估代码失败，提交已标记为 failed (submission_id=%s)',
@@ -825,7 +993,14 @@ def submit_code():
             
             return error_response("代码评估失败，请稍后重试", 500)
             
+    except _InvalidLearningCapture as error:
+        db.session.rollback()
+        return error_response(str(error), 400)
+    except LearningCaptureConflict as error:
+        db.session.rollback()
+        return error_response(str(error), 409)
     except Exception as e:
+        db.session.rollback()
         current_app.logger.exception('处理提交失败')
         return error_response("处理提交失败，请稍后重试", 500)
 
@@ -879,6 +1054,7 @@ def get_users():
 @student_required
 def get_programming_guidance():
     """获取编程指导"""
+    turn_id = None
     try:
         data = _json_object()
         if not data or 'code' not in data or 'assignment_id' not in data:
@@ -907,6 +1083,11 @@ def get_programming_guidance():
             return error_response("作业不存在", 404)
         if not can_access_assignment(assignment, current_user):
             return error_response("您无权访问此作业", 403)
+
+        turn_id = _start_api_turn(
+            data, student_id=current_user.student_id, assignment_id=assignment_id,
+            channel="programming_guidance", code=code, language=language,
+        )
         
         try:
             current_app.logger.debug(
@@ -957,7 +1138,7 @@ def get_programming_guidance():
                             'message': '生成编程指导失败，请稍后重试',
                         })
 
-                return sse_response(stream_guidance())
+                return sse_response(_captured_api_stream(turn_id, stream_guidance()))
             
             # 生成编程指导
             guidance_text = generate_guidance(
@@ -982,6 +1163,11 @@ def get_programming_guidance():
                 
             else:
                 formatted_guidance = "无法生成针对您代码的指导内容，请稍后再试。"
+
+            _finish_api_turn(
+                turn_id, formatted_guidance,
+                status="completed" if guidance_text else "failed",
+            )
             
             # 返回成功响应
             response = api_response(
@@ -999,10 +1185,18 @@ def get_programming_guidance():
             return response
             
         except Exception:
+            _fail_api_turn(turn_id)
             current_app.logger.exception('生成编程指导失败')
             return error_response("生成编程指导失败，请稍后重试", 500)
             
+    except _InvalidLearningCapture as error:
+        db.session.rollback()
+        return error_response(str(error), 400)
+    except LearningCaptureConflict as error:
+        db.session.rollback()
+        return error_response(str(error), 409)
     except Exception:
+        _fail_api_turn(turn_id)
         current_app.logger.exception('处理编程指导请求失败')
         return error_response("处理请求失败，请稍后重试", 500)
 
@@ -1012,6 +1206,7 @@ def get_programming_guidance():
 @student_required
 def ask_question():
     """学生提问获取AI回答"""
+    turn_id = None
     try:
         # 获取当前用户信息
         student_id = current_user.student_id
@@ -1115,6 +1310,10 @@ def ask_question():
             if time_diff < 10:
                 remaining = max(1, int(10 - max(time_diff, 0)))
                 return error_response(f"请求过于频繁，请等待{remaining}秒后再试", 429)
+        turn_id = _start_api_turn(
+            data, student_id=student_id, assignment_id=assignment_id,
+            channel="assignment_question", question=question, code=code, language=language,
+        )
         session['last_ai_question_time'] = now.isoformat()
         
         try:
@@ -1203,7 +1402,7 @@ def ask_question():
                             'message': 'AI服务暂时不可用，请稍后再试',
                         })
 
-                return sse_response(stream_answer())
+                return sse_response(_captured_api_stream(turn_id, stream_answer()))
             
             # 使用大模型生成回答
             answer = generate_answer_to_question(
@@ -1258,8 +1457,13 @@ def ask_question():
                     db.session.add(new_question)
                     db.session.commit()
                 except Exception:
+                    db.session.rollback()
                     current_app.logger.exception('记录学生提问日志失败 student_id=%s', student_id)
                     # 不影响主流程，忽略错误
+
+            _finish_api_turn(
+                turn_id, formatted_answer, status="completed" if answer else "failed",
+            )
             
             # 返回成功响应
             response = api_response(
@@ -1282,10 +1486,18 @@ def ask_question():
             return response
             
         except Exception:
+            _fail_api_turn(turn_id)
             current_app.logger.exception('生成问题回答失败 student_id=%s', student_id)
             return error_response("生成问题回答失败，请稍后重试", 500)
             
+    except _InvalidLearningCapture as error:
+        db.session.rollback()
+        return error_response(str(error), 400)
+    except LearningCaptureConflict as error:
+        db.session.rollback()
+        return error_response(str(error), 409)
     except Exception:
+        _fail_api_turn(turn_id)
         current_app.logger.exception('处理学生提问请求失败')
         return error_response("处理请求失败，请稍后重试", 500)
 
@@ -1295,6 +1507,7 @@ def ask_question():
 @student_required
 def get_code_advice():
     """获取代码建议API - 支持聊天式交互"""
+    turn_id = None
     try:
         # 获取请求数据
         data = _json_object()
@@ -1369,6 +1582,23 @@ def get_code_advice():
                 return error_response("您无权访问此作业", 403)
             assignment_title = assignment.title
             assignment_description = assignment.description
+
+        context = None
+        if user_question:
+            context = {"included_code_prefix_chars": min(len(code), 1000)}
+            if selected_code:
+                offset = code.find(selected_code)
+                if offset >= 0:
+                    context["selected_code_range"] = [offset, offset + len(selected_code)]
+                else:
+                    context["selected_code_outside_snapshot"] = True
+        turn_id = _start_api_turn(
+            data, student_id=student_id, assignment_id=assignment_id,
+            channel="code_assistant" if user_question else "code_analysis",
+            question=user_question or None, code=code, language=language, context=context,
+        )
+
+        if assignment_id:
             knowledge_retrieval = _retrieve_knowledge_context(
                 assignment_id,
                 user_question,
@@ -1450,6 +1680,7 @@ def get_code_advice():
 
                 shared_client = SharedLLMClient()
                 if not shared_client.is_available():
+                    _fail_api_turn(turn_id)
                     return error_response("AI服务未配置或暂时不可用", 503)
 
                 # 构建对话上下文
@@ -1564,9 +1795,10 @@ def get_code_advice():
                             'message': 'AI服务流式输出失败，请稍后重试',
                         })
 
-                return sse_response(generate())
+                return sse_response(_captured_api_stream(turn_id, generate()))
 
             except Exception:
+                _fail_api_turn(turn_id)
                 current_app.logger.exception('处理代码建议聊天请求失败')
                 return error_response("处理问题失败，请稍后重试", 500)
 
@@ -1624,7 +1856,7 @@ def get_code_advice():
                             'message': '生成代码分析失败，请稍后重试',
                         })
 
-                return sse_response(stream_report())
+                return sse_response(_captured_api_stream(turn_id, stream_report()))
 
             try:
                 current_app.logger.debug('代码建议分析模式：生成完整报告')
@@ -1639,6 +1871,7 @@ def get_code_advice():
 
                 # 检查分析结果
                 if not analysis_result:
+                    _fail_api_turn(turn_id)
                     current_app.logger.warning('代码建议系统返回空结果')
                     return error_response("无法生成代码建议，请稍后再试", 500)
 
@@ -1646,6 +1879,7 @@ def get_code_advice():
 
                 advice = _code_advice_report(analysis_result)
                 advice += student_learning_receipt
+                _finish_api_turn(turn_id, advice)
                 metrics = {
                     'algorithm_score': analysis_result.get('algorithm_score', 60),
                     'style_score': analysis_result.get('style_score', 60),
@@ -1665,10 +1899,18 @@ def get_code_advice():
                 )
 
             except Exception:
+                _fail_api_turn(turn_id)
                 current_app.logger.exception('生成代码建议失败')
                 return error_response("生成代码建议失败，请稍后重试", 500)
 
+    except _InvalidLearningCapture as error:
+        db.session.rollback()
+        return error_response(str(error), 400)
+    except LearningCaptureConflict as error:
+        db.session.rollback()
+        return error_response(str(error), 409)
     except Exception:
+        _fail_api_turn(turn_id)
         current_app.logger.exception('处理代码建议请求失败')
         return error_response("处理请求失败，请稍后重试", 500)
 

@@ -554,6 +554,7 @@ def create_app(config_name='default'):
     from routes.classes import classes
     from routes.thinking import thinking  # 三阶段引导式学习
     from routes.grades import grades
+    from routes.learning_capture import learning_capture
     
     app.register_blueprint(auth)
     app.register_blueprint(main)
@@ -563,6 +564,7 @@ def create_app(config_name='default'):
     app.register_blueprint(classes)
     app.register_blueprint(thinking)  # /thinking/*
     app.register_blueprint(grades)
+    app.register_blueprint(learning_capture)
 
     def request_prefers_json_error():
         """Return whether the client expects a machine-readable error."""
