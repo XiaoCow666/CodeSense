@@ -8,6 +8,7 @@ import os
 import sys
 import logging
 import gzip
+import mimetypes
 import re
 import threading
 import time
@@ -28,6 +29,9 @@ except ImportError:
     Session = None
     HAS_FLASK_SESSION = False
 from dotenv import load_dotenv
+
+# Windows MIME associations can label JavaScript as text/plain, which nosniff blocks.
+mimetypes.add_type('text/javascript', '.js')
 
 # 加载环境变量
 load_dotenv()
