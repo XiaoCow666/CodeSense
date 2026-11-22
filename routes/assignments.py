@@ -12,6 +12,7 @@ from models import (
     AssignmentThinkingPreset,
     AssignmentKnowledgePoint,
     KnowledgePointScore,
+    ThinkingSession,
 )
 from forms import AssignmentForm, SubmissionForm
 from utils.auth import (
@@ -902,6 +903,7 @@ def student_assignments():
                 ).all()
             }
         max_scores_by_assignment = {}
+        completed_guided_assignment_ids = set()
         if assignment_ids:
             max_score_rows = db.session.query(
                 Submission.assignment_id,
@@ -915,8 +917,20 @@ def student_assignments():
             max_scores_by_assignment = {
                 assignment_id: score for assignment_id, score in max_score_rows
             }
+            completed_guided_assignment_ids = {
+                assignment_id
+                for assignment_id, in db.session.query(
+                    ThinkingSession.assignment_id,
+                ).filter(
+                    ThinkingSession.student_id == student_id,
+                    ThinkingSession.assignment_id.in_(assignment_ids),
+                    ThinkingSession.status == 'completed',
+                    ThinkingSession.stage3_completed.is_(True),
+                ).distinct().all()
+            }
 
         for a in all_assignments:
+            a.guided_learning_completed = a.id in completed_guided_assignment_ids
             # 公开体验的预设只能在当前临时库中修复；正式账号的列表加载
             # 仍然是只读操作，预设生成由教师明确触发。
             preset = presets_by_assignment.get(a.id)

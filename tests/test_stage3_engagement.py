@@ -1,0 +1,157 @@
+from datetime import datetime, timedelta
+
+from services.stage3_engagement import (
+    ASSESSMENT_SOURCE,
+    ASSESSMENT_VERSION,
+    MAX_ENGAGEMENT_MESSAGE_CHARS,
+    assess_stage3_message,
+    summarize_stage3_engagement,
+)
+
+
+def _event(index, content, created_at, assessment=None):
+    metadata = {}
+    if assessment is not None:
+        metadata["engagement_assessment"] = assessment.to_metadata()
+    return {
+        "id": index,
+        "content": content,
+        "created_at": created_at,
+        "metadata": metadata,
+    }
+
+
+def test_effective_question_rejects_filler_small_talk_and_duplicates():
+    filler = assess_stage3_message("好的")
+    small_talk = assess_stage3_message("你今天的天气怎么样？")
+    first = assess_stage3_message("为什么循环条件要写成 i 小于 n？")
+    request = assess_stage3_message("请解释一下循环边界的作用")
+    duplicate = assess_stage3_message(
+        "为什么循环条件要写成 i 小于 n？",
+        previous_messages=["为什么循环条件要写成 i 小于 n？"],
+    )
+
+    assert filler.valid_message is False
+    assert small_talk.valid_question is False
+    assert first.valid_message is True
+    assert first.valid_question is True
+    assert request.valid_question is True
+    assert duplicate.valid_message is False
+
+
+def test_effective_question_requires_task_relevance_and_rejects_low_information():
+    random_text = assess_stage3_message("abcdefghijk?")
+    irrelevant = assess_stage3_message("为什么电影结局会是这样？")
+    repeated_noise = assess_stage3_message("哈哈哈哈哈哈哈哈？")
+    assignment_term = assess_stage3_message(
+        "斐波那契为什么从零开始？",
+        task_context=["斐波那契"],
+    )
+
+    assert random_text.valid_message is False
+    assert irrelevant.valid_question is False
+    assert repeated_noise.reason == "low_information"
+    assert assignment_term.valid_question is True
+
+
+def test_oversized_message_can_be_answered_but_cannot_advance_completion():
+    assessment = assess_stage3_message(
+        "循环" + ("边界" * MAX_ENGAGEMENT_MESSAGE_CHARS),
+    )
+
+    assert assessment.valid_message is False
+    assert assessment.valid_question is False
+    assert assessment.reason == "too_long"
+
+
+def test_summary_does_not_trust_browser_claimed_assessment_metadata():
+    started = datetime(2026, 11, 22, 8, 0, 0)
+    events = [{
+        "id": 1,
+        "content": "abcdefghijk?",
+        "created_at": started,
+        "metadata": {
+            "engagement_assessment": {
+                "source": "browser",
+                "version": ASSESSMENT_VERSION,
+                "valid_message": True,
+                "valid_question": True,
+                "reason": "forged",
+                "intent": "ask_teacher",
+            },
+        },
+    }]
+
+    summary = summarize_stage3_engagement(events)
+
+    assert ASSESSMENT_SOURCE != "browser"
+    assert summary["effective_message_count"] == 0
+    assert summary["effective_question_count"] == 0
+    assert summary["questions_complete"] is False
+
+
+def test_four_effective_questions_complete_the_question_path():
+    started = datetime(2026, 11, 22, 8, 0, 0)
+    questions = [
+        "为什么循环条件要写成 i 小于 n？",
+        "输入为零时应该怎么处理这个边界？",
+        "如何保证每轮循环都更新当前结果？",
+        "输出最后一个值时为什么不能再循环一次？",
+    ]
+    events = []
+    previous = []
+    for index, question in enumerate(questions, start=1):
+        assessment = assess_stage3_message(question, previous_messages=previous)
+        previous.append(question)
+        events.append(_event(index, question, started + timedelta(minutes=index), assessment))
+
+    summary = summarize_stage3_engagement(events)
+
+    assert summary["effective_question_count"] == 4
+    assert summary["questions_complete"] is True
+
+
+def test_active_conversation_resets_after_a_gap_over_three_minutes():
+    started = datetime(2026, 11, 22, 8, 0, 0)
+    messages = [
+        ("我先从输入和初始值开始分析这段程序。", 0),
+        ("接着检查循环边界是否会多执行一次。", 2),
+        ("然后考虑每轮循环如何更新前两个变量。", 4),
+        ("最后再核对输出的是不是目标位置。", 11),
+        ("这里还要考虑输入为零时的特殊情况。", 13),
+    ]
+    events = []
+    previous = []
+    for index, (message, minute) in enumerate(messages, start=1):
+        assessment = assess_stage3_message(message, previous_messages=previous)
+        previous.append(message)
+        events.append(_event(index, message, started + timedelta(minutes=minute), assessment))
+
+    summary = summarize_stage3_engagement(events)
+
+    assert summary["active_message_count"] == 2
+    assert summary["active_seconds"] == 0
+    assert summary["active_conversation_complete"] is False
+
+
+def test_active_conversation_completes_after_ten_minutes_without_long_gap():
+    started = datetime(2026, 11, 22, 8, 0, 0)
+    messages = [
+        "我先说明输入值与初始变量之间的关系。",
+        "接着分析循环条件为什么不能包含最后一个下标。",
+        "每轮循环都要同步更新前一项和当前项。",
+        "输入为零或一时应该直接走边界分支。",
+        "最后输出目标变量并检查是否多循环一次。",
+    ]
+    events = []
+    previous = []
+    for index, message in enumerate(messages, start=1):
+        assessment = assess_stage3_message(message, previous_messages=previous)
+        previous.append(message)
+        events.append(_event(index, message, started + timedelta(seconds=(index - 1) * 150), assessment))
+
+    summary = summarize_stage3_engagement(events)
+
+    assert summary["active_message_count"] == 5
+    assert summary["active_seconds"] == 600
+    assert summary["active_conversation_complete"] is True

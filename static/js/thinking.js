@@ -1240,10 +1240,11 @@
             : 0;
         return {
             id: 'stage3-teach-and-repair',
-            title: '掌握关键思路并完成一次代码修复',
-            description: '先用自己的话解释关键点，再由小明从不同角度检查，达标后自动生成一份错误代码供你修复。',
+            title: '掌握关键思路并完成有效互动',
+            description: '覆盖3个关键点、完成4次有效提问或连续活跃对话10分钟，满足任一条件即可完成本阶段。',
             status: 'in_progress',
             progress_percent: Math.min(79, Math.round(score * 80)),
+            progress_detail: '关键点 0/3 · 有效提问 0/4 · 连续活跃 00:00/10:00',
             coverage_score: score,
             coverage_threshold: 0.8,
             covered_concepts: 0,
@@ -1251,10 +1252,10 @@
             current_milestone: 'understanding',
             next_action: '先用自己的话说明一个关键知识点，系统会按检查点推进。',
             steps: [
-                { id: 'understanding', label: '说明关键知识点', status: 'active' },
-                { id: 'peer_check', label: '小明完成多角度检查', status: 'todo' },
-                { id: 'buggy_code', label: '生成待修复代码', status: 'todo' },
-                { id: 'repair', label: '修复并通过验证', status: 'todo' },
+                { id: 'coverage', label: '覆盖3个关键点（任选）', status: 'active' },
+                { id: 'questions', label: '完成4次有效提问（任选）', status: 'active' },
+                { id: 'active_dialogue', label: '连续活跃10分钟（任选）', status: 'active' },
+                { id: 'complete', label: '完成阶段三学习任务', status: 'todo' },
             ],
         };
     }
@@ -1822,6 +1823,7 @@
             }
         }
         applyForumUserGoal(payload.user_goal);
+        applySessionLifecycle(payload.session_lifecycle);
 
         const userEvent = context.userEvent || null;
         const replyToEventId = userEvent
@@ -1844,11 +1846,34 @@
             parent_request_id: parentRequestId,
         });
 
-        handleForumAdvancement(payload.primary);
+        const completed = handleForumCompletion(payload);
+        if (!completed) {
+            handleForumAdvancement({
+                ...payload.primary,
+                user_goal: payload.user_goal,
+            });
+        }
         if (primaryEvent && primaryEvent.message_kind === 'student_probe') {
             setForumTarget('student_agent');
         }
 
+    }
+
+    function handleForumCompletion(payload) {
+        const completed = Boolean(
+            payload
+            && payload.user_goal
+            && payload.user_goal.status === 'complete'
+        );
+        if (!completed) return false;
+
+        const alreadyCompleted = state.feynmanPhase === 'completed';
+        state.feynmanPhase = 'completed';
+        if (!alreadyCompleted) {
+            showNotification('已达到学习互动要求，阶段三和本次作业均已完成', 'success');
+            setTimeout(() => showCelebration(), 500);
+        }
+        return true;
     }
 
     function handleForumAdvancement(payload) {
@@ -2104,6 +2129,7 @@
                 ? rawGoal.status
                 : fallback.status,
             progress_percent: Math.round(numeric(rawGoal.progress_percent, fallback.progress_percent, 0, 100)),
+            progress_detail: safeString(rawGoal.progress_detail) || fallback.progress_detail || '',
             coverage_score: numeric(rawGoal.coverage_score, fallback.coverage_score, 0, 1),
             coverage_threshold: numeric(rawGoal.coverage_threshold, fallback.coverage_threshold, 0, 1),
             covered_concepts: Math.round(numeric(rawGoal.covered_concepts, fallback.covered_concepts, 0, 999)),
@@ -2136,6 +2162,8 @@
         const coverageLabel = document.getElementById('forum-goal-coverage-label');
         const nextAction = document.getElementById('forum-goal-next');
         const steps = document.getElementById('forum-goal-steps');
+        const input = document.getElementById('forum-input');
+        const sendButton = document.getElementById('forum-send');
         const progress = Math.max(0, Math.min(100, Number(goal.progress_percent) || 0));
         const statusLabels = {
             in_progress: '学习中',
@@ -2153,11 +2181,21 @@
         if (progressTrack) progressTrack.setAttribute('aria-valuenow', String(progress));
         if (progressLabel) progressLabel.textContent = `${progress}%`;
         if (coverageLabel) {
-            coverageLabel.textContent = goal.total_concepts > 0
+            coverageLabel.textContent = goal.progress_detail || (goal.total_concepts > 0
                 ? `${goal.covered_concepts}/${goal.total_concepts} 个关键点已覆盖`
-                : '等待关键点检查';
+                : '等待关键点检查');
         }
         if (nextAction) nextAction.textContent = goal.next_action;
+        if (input) {
+            if (!input.dataset.learningPlaceholder) {
+                input.dataset.learningPlaceholder = input.getAttribute('placeholder') || '';
+            }
+            input.disabled = goal.status === 'complete';
+            input.placeholder = goal.status === 'complete'
+                ? '本阶段学习任务已完成'
+                : input.dataset.learningPlaceholder;
+        }
+        if (sendButton) sendButton.disabled = goal.status === 'complete';
         if (steps) {
             steps.innerHTML = '';
             goal.steps.forEach(item => {
