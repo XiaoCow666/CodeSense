@@ -1,0 +1,62 @@
+name: Deploy CodeSense to Aliyun ECS
+
+on:
+  workflow_run:
+    workflows: ["Test CodeSense"]
+    types: [completed]
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: codesense-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: production
+      url: https://saucodesense.com
+    steps:
+      - name: Configure pinned SSH identity
+        env:
+          PRIVATE_KEY: ${{ secrets.ECS_SSH_PRIVATE_KEY }}
+          KNOWN_HOSTS: ${{ secrets.ECS_KNOWN_HOSTS }}
+        run: |
+          set -Eeuo pipefail
+          install -d -m 0700 "$HOME/.ssh"
+          printf '%s\n' "$PRIVATE_KEY" > "$HOME/.ssh/codesense_deploy"
+          printf '%s\n' "$KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 0600 "$HOME/.ssh/codesense_deploy" "$HOME/.ssh/known_hosts"
+
+      - name: Deploy the tested main commit
+        env:
+          TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
+          ECS_SSH_HOST: ${{ vars.ECS_SSH_HOST }}
+          ECS_SSH_PORT: ${{ vars.ECS_SSH_PORT }}
+          ECS_SSH_USER: ${{ vars.ECS_SSH_USER }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$ECS_SSH_PORT" =~ ^[0-9]{1,5}$ ]]
+          (( ECS_SSH_PORT > 0 && ECS_SSH_PORT < 65536 ))
+          [[ "$ECS_SSH_USER" == "codesense-deploy" ]]
+          [[ "$ECS_SSH_HOST" =~ ^[A-Za-z0-9.-]+$ ]]
+          printf '%s\n' "$TARGET_SHA" | ssh -T \
+            -p "$ECS_SSH_PORT" \
+            -i "$HOME/.ssh/codesense_deploy" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o PreferredAuthentications=publickey \
+            -o PasswordAuthentication=no \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o ConnectTimeout=10 \
+            -o ConnectionAttempts=3 \
+            "$ECS_SSH_USER@$ECS_SSH_HOST"

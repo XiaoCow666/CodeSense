@@ -1,97 +1,50 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -Eeuo pipefail
 
-set -e  # 任何命令失败都会退出脚本
+readonly app_dir="/var/www/codesense"
+readonly runtime_python="/opt/codesense/venv/bin/python"
+readonly app_user="codesense"
 
-echo "=========================================="
-echo "开始更新 CodeSense 应用"
-echo "=========================================="
-
-# 运行时已迁移到独立的非 root 用户和 /opt 下的 Python 环境。
-runtime_python="/opt/codesense/venv/bin/python"
-if [ ! -x "$runtime_python" ]; then
-    echo "✗ 缺少 $runtime_python；请先完成运行时初始化"
+fail() {
+    printf 'CodeSense update failed: %s\n' "$1" >&2
     exit 1
-fi
+}
 
-# 1. 拉取最新代码
-echo ""
-echo "📥 从 GitHub 拉取代码..."
-git pull origin main
-if [ $? -eq 0 ]; then
-    echo "✓ 代码拉取成功"
+[[ "$#" -eq 1 ]] || fail "expected the tested main commit SHA"
+readonly expected_sha="$1"
+[[ "$expected_sha" =~ ^[0-9a-f]{40}$ ]] || fail "invalid commit SHA"
+[[ "${CODESENSE_RQ_ENABLED:-}" == "0" || "${CODESENSE_RQ_ENABLED:-}" == "1" ]] || fail "missing queue configuration"
+[[ -x "$runtime_python" ]] || fail "missing $runtime_python"
+
+cd "$app_dir"
+[[ "$(git branch --show-current)" == "main" ]] || fail "server checkout is not on main"
+[[ "$(git rev-parse HEAD)" == "$expected_sha" ]] || fail "server checkout does not match the tested commit"
+[[ -z "$(git status --porcelain)" ]] || fail "server checkout has local changes"
+
+printf 'Installing Python dependencies for %s\n' "$expected_sha"
+"$runtime_python" -m pip install --disable-pip-version-check --no-cache-dir -r requirements.txt
+
+printf 'Running database maintenance\n'
+/usr/sbin/runuser -u "$app_user" -- "$runtime_python" "$app_dir/database_maintenance.py"
+
+printf 'Restarting CodeSense services\n'
+/usr/bin/sudo -n /usr/bin/systemctl restart codesense
+if [[ "$CODESENSE_RQ_ENABLED" == "1" ]]; then
+    /usr/bin/sudo -n /usr/bin/systemctl restart codesense-ability-worker codesense-submission-worker
 else
-    echo "✗ 代码拉取失败"
-    exit 1
+    /usr/bin/sudo -n /usr/bin/systemctl stop codesense-ability-worker codesense-submission-worker
 fi
 
-# 2. 更新 Python 依赖
-echo ""
-echo "📦 更新 Python 依赖..."
-"$runtime_python" -m pip install -r requirements.txt --no-cache-dir
-if [ $? -eq 0 ]; then
-    echo "✓ 依赖更新成功"
-else
-    echo "✗ 依赖更新失败"
-    exit 1
-fi
-
-# 3. 创建新增数据库表并检查索引
-echo ""
-echo "🗄️ 执行数据库维护..."
-"$runtime_python" database_maintenance.py
-if [ $? -eq 0 ]; then
-    echo "✓ 数据库维护成功"
-else
-    echo "✗ 数据库维护失败"
-    exit 1
-fi
-
-# 4. 安装并启用独立 RQ worker
-echo ""
-echo "⚙️ 安装后台 RQ worker 服务..."
-sudo install -m 0644 codesense.service /etc/systemd/system/codesense.service
-sudo install -m 0644 codesense-ability-worker.service /etc/systemd/system/codesense-ability-worker.service
-sudo install -m 0644 codesense-submission-worker.service /etc/systemd/system/codesense-submission-worker.service
-if ! id codesense >/dev/null 2>&1; then
-    echo "✗ 缺少 codesense 服务用户；请先完成运行时初始化"
-    exit 1
-fi
-sudo chgrp codesense /var/www/codesense/.env
-sudo chmod 0640 /var/www/codesense/.env
-for writable_path in logs uploads static/uploads flask_session instance; do
-    sudo install -d -o codesense -g codesense -m 0750 "/var/www/codesense/$writable_path"
-    sudo chown -R codesense:codesense "/var/www/codesense/$writable_path"
+for endpoint in healthz readyz; do
+    healthy=0
+    for attempt in {1..18}; do
+        if /usr/bin/curl --fail --silent --show-error --max-time 5 --output /dev/null "http://127.0.0.1:8000/$endpoint"; then
+            healthy=1
+            break
+        fi
+        sleep 5
+    done
+    [[ "$healthy" == "1" ]] || fail "$endpoint did not become healthy"
 done
-sudo systemctl daemon-reload
-if grep -q '^ABILITY_ANALYSIS_QUEUE_BACKEND=rq$' /var/www/codesense/.env 2>/dev/null \
-    && grep -q '^SUBMISSION_EVALUATION_QUEUE_BACKEND=rq$' /var/www/codesense/.env 2>/dev/null; then
-    sudo systemctl enable codesense-ability-worker codesense-submission-worker
-    sudo systemctl restart codesense-ability-worker codesense-submission-worker
-else
-    sudo systemctl disable --now codesense-ability-worker codesense-submission-worker 2>/dev/null || true
-fi
 
-# 5. 重启 Systemd 服务
-echo ""
-echo "🔄 重启应用服务..."
-sudo systemctl restart codesense
-if [ $? -eq 0 ]; then
-    echo "✓ 服务重启成功"
-else
-    echo "✗ 服务重启失败"
-    exit 1
-fi
-
-# 6. 检查服务状态
-echo ""
-echo "📊 检查服务状态..."
-systemctl status codesense --no-pager
-if grep -q '^ABILITY_ANALYSIS_QUEUE_BACKEND=rq$' /var/www/codesense/.env 2>/dev/null \
-    && grep -q '^SUBMISSION_EVALUATION_QUEUE_BACKEND=rq$' /var/www/codesense/.env 2>/dev/null; then
-    systemctl status codesense-ability-worker codesense-submission-worker --no-pager
-fi
-
-echo ""
-echo "=========================================="
-echo "✅ 更新完成！"
-echo "=========================================="
+printf 'CodeSense is healthy at %s\n' "$expected_sha"
