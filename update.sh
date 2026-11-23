@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -Eeuo pipefail
+set -euo pipefail
 
 readonly app_dir="/var/www/codesense"
 readonly runtime_python="/opt/codesense/venv/bin/python"
