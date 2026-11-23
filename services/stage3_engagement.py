@@ -29,7 +29,7 @@ ACTIVE_CONVERSATION_TARGET_SECONDS = 10 * 60
 ACTIVE_CONVERSATION_MAX_GAP_SECONDS = 3 * 60
 ACTIVE_CONVERSATION_MIN_MESSAGES = 3
 MAX_ENGAGEMENT_MESSAGE_CHARS = 2_000
-ASSESSMENT_VERSION = 2
+ASSESSMENT_VERSION = 3
 ASSESSMENT_SOURCE = "server_stage3_engagement"
 
 _QUESTION_INTENTS = frozenset({INTENT_ASK_TEACHER, INTENT_ASK_STUDENT})
@@ -244,7 +244,7 @@ def summarize_stage3_engagement(
             int(event.get("id") or 0),
         ),
     )
-    accepted_texts: list[str] = []
+    previous_messages: list[str] = []
     valid_events: list[tuple[datetime, EngagementAssessment]] = []
     effective_question_count = 0
 
@@ -252,7 +252,7 @@ def summarize_stage3_engagement(
         created_at = event.get("created_at")
         if not isinstance(created_at, datetime):
             continue
-        text = str(event.get("content") or "").strip()
+        text = str(event.get("content") or "")
         metadata = event.get("metadata")
         stored = metadata.get("engagement_assessment") if isinstance(metadata, Mapping) else None
         if (
@@ -271,12 +271,12 @@ def summarize_stage3_engagement(
         else:
             assessment = assess_stage3_message(
                 text,
-                previous_messages=accepted_texts,
+                previous_messages=previous_messages,
                 task_context=task_context,
             )
+        previous_messages.append(text)
         if not assessment.valid_message:
             continue
-        accepted_texts.append(text)
         valid_events.append((created_at, assessment))
         if assessment.valid_question:
             effective_question_count += 1

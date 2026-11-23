@@ -127,7 +127,7 @@ def test_stage3_forum_ignores_client_claimed_completion_fields(stage3_forum_cont
             "stage3_completed": True,
             "engagement_assessment": {
                 "source": "server_stage3_engagement",
-                "version": 2,
+                "version": thinking_routes.ASSESSMENT_VERSION,
                 "valid_message": True,
                 "valid_question": True,
             },
@@ -340,6 +340,148 @@ def test_replaying_earlier_valid_request_preserves_question_count(stage3_forum_c
         assert replay_assessment == first_assessment
         assert first_metadata_after == first_metadata_before
         assert after_replay["effective_question_count"] == 1
+
+
+def test_history_summary_matches_after_assessment_backfill(stage3_forum_context):
+    app, _, session_id, _ = stage3_forum_context
+    started = datetime(2026, 11, 22, 8, 0, 0)
+    duplicate_question = "为什么循环条件要写成 i 小于 n？"
+    history = [
+        ("history-policy-rejected", duplicate_question, 0),
+        ("history-duplicate", duplicate_question, 60),
+        ("history-boundary", "输入为零时为什么需要单独处理循环边界？", 120),
+        ("history-update", "如何证明每轮循环都会更新当前结果？", 240),
+        ("history-index", "最后一个索引为什么是 n 减一？", 360),
+    ]
+
+    with app.app_context():
+        for index, (request_id, message, offset) in enumerate(history):
+            metadata = {"request_id": request_id}
+            if index == 0:
+                metadata["engagement_assessment"] = {
+                    "source": thinking_routes.ASSESSMENT_SOURCE,
+                    "version": thinking_routes.ASSESSMENT_VERSION,
+                    "valid_message": False,
+                    "valid_question": False,
+                    "reason": "policy_rejected",
+                    "intent": "",
+                }
+            db.session.add(ThinkingStageLog(
+                session_id=session_id,
+                stage=3,
+                event_type="agent_user_message",
+                role="student",
+                content=message,
+                metadata_json=json.dumps(metadata, ensure_ascii=False),
+                created_at=started + timedelta(seconds=offset),
+            ))
+        db.session.commit()
+
+        before_backfill = thinking_routes._stage3_engagement_summary(session_id)
+        for request_id, message, _ in history:
+            thinking_routes._annotate_stage3_engagement(
+                session_id,
+                request_id,
+                message,
+            )
+        db.session.commit()
+        after_backfill = thinking_routes._stage3_engagement_summary(session_id)
+
+        assert before_backfill["effective_question_count"] == 3
+        assert before_backfill["active_seconds"] == 240
+        assert after_backfill["effective_question_count"] == before_backfill["effective_question_count"]
+        assert after_backfill["active_seconds"] == before_backfill["active_seconds"]
+        assert after_backfill["effective_message_count"] == before_backfill["effective_message_count"]
+        assert after_backfill["active_message_count"] == before_backfill["active_message_count"]
+
+
+def test_forum_route_commits_non_completing_assessment_and_replay_reuses_it(
+    stage3_forum_context,
+    monkeypatch,
+):
+    app, client, session_id, _ = stage3_forum_context
+    request_id = "committed-assessment-1"
+    message = "为什么循环条件要写成 i 小于 n？"
+
+    class FakeOrchestrator:
+        def __init__(self, runtime):
+            self.session_id = runtime.session.id
+
+        def handle_user_message(self, message, *, target_role, request_id, reply_to_event_id=None):
+            existing = [
+                log
+                for log in ThinkingStageLog.query.filter_by(
+                    session_id=self.session_id,
+                    stage=3,
+                    event_type="agent_user_message",
+                ).all()
+                if str((log.get_metadata() or {}).get("request_id") or "") == str(request_id)
+            ]
+            if not existing:
+                db.session.add(ThinkingStageLog(
+                    session_id=self.session_id,
+                    stage=3,
+                    event_type="agent_user_message",
+                    role="student",
+                    content=message,
+                    metadata_json=json.dumps({"request_id": request_id}, ensure_ascii=False),
+                ))
+                db.session.commit()
+            return ForumTurnResult(primary=AgentResult(
+                success=True,
+                agent=AgentRole.TEACHER_AGENT,
+                response="请继续分析循环边界。",
+            ))
+
+    monkeypatch.setattr(thinking_routes, "build_feynman_runtime", _stub_runtime_factory())
+    monkeypatch.setattr(thinking_routes, "Stage3Orchestrator", FakeOrchestrator)
+
+    payload = {
+        "session_id": session_id,
+        "message": message,
+        "target_role": "teacher_agent",
+        "request_id": request_id,
+    }
+    first_response = client.post("/thinking/api/stage3/forum/message", json=payload)
+
+    assert first_response.status_code == 200
+    with app.app_context():
+        db.session.remove()
+        saved_session = db.session.get(ThinkingSession, session_id)
+        matching_logs = [
+            log
+            for log in ThinkingStageLog.query.filter_by(
+                session_id=session_id,
+                stage=3,
+                event_type="agent_user_message",
+            ).all()
+            if str((log.get_metadata() or {}).get("request_id") or "") == request_id
+        ]
+        assert saved_session.status == "in_progress"
+        assert saved_session.stage3_completed is False
+        assert len(matching_logs) == 1
+        assessment_before = dict(matching_logs[0].get_metadata()["engagement_assessment"])
+        assert assessment_before["valid_question"] is True
+
+    replay_response = client.post("/thinking/api/stage3/forum/message", json=payload)
+
+    assert replay_response.status_code == 200
+    with app.app_context():
+        db.session.remove()
+        saved_session = db.session.get(ThinkingSession, session_id)
+        matching_logs = [
+            log
+            for log in ThinkingStageLog.query.filter_by(
+                session_id=session_id,
+                stage=3,
+                event_type="agent_user_message",
+            ).all()
+            if str((log.get_metadata() or {}).get("request_id") or "") == request_id
+        ]
+        assert saved_session.status == "in_progress"
+        assert saved_session.stage3_completed is False
+        assert len(matching_logs) == 1
+        assert matching_logs[0].get_metadata()["engagement_assessment"] == assessment_before
 
 
 @pytest.mark.parametrize(

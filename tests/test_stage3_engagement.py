@@ -78,6 +78,23 @@ def test_raw_message_length_rejects_internal_whitespace_before_normalization():
     assert assessment.valid_question is False
 
 
+def test_summary_rejects_legacy_message_with_oversized_outer_whitespace():
+    started = datetime(2026, 11, 22, 8, 0, 0)
+    message = (
+        (" " * MAX_ENGAGEMENT_MESSAGE_CHARS)
+        + "为什么循环边界会越界？"
+        + (" " * MAX_ENGAGEMENT_MESSAGE_CHARS)
+    )
+
+    summary = summarize_stage3_engagement([
+        _event(1, message, started),
+    ])
+
+    assert summary["effective_message_count"] == 0
+    assert summary["effective_question_count"] == 0
+    assert summary["active_seconds"] == 0
+
+
 def test_summary_does_not_trust_browser_claimed_assessment_metadata():
     started = datetime(2026, 11, 22, 8, 0, 0)
     events = [{

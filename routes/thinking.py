@@ -493,6 +493,10 @@ def _run_stage3_forum_turn(
         routing=getattr(result, 'routing', None),
     )
     _maybe_complete_stage3_from_engagement(ts, request_id)
+    # Agent events use short transactions of their own.  Commit the
+    # server-owned engagement assessment at the forum-turn boundary even when
+    # this message does not complete Stage 3.
+    db.session.commit()
     payload = result.to_public_dict()
     payload['user_goal'] = _stage3_user_goal(ts.id)
     payload['forum_state'] = _stage3_forum_state(ts.id)
