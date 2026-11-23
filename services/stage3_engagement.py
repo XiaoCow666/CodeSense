@@ -178,10 +178,11 @@ def assess_stage3_message(
 ) -> EngagementAssessment:
     """Classify one learner message using bounded, explainable rules."""
 
-    text = " ".join(str(message or "").split()).strip()
-    compact = _compact(text)
-    if len(text) > MAX_ENGAGEMENT_MESSAGE_CHARS:
+    raw_text = str(message or "")
+    if len(raw_text) > MAX_ENGAGEMENT_MESSAGE_CHARS:
         return EngagementAssessment(False, False, "too_long", intent_name or "")
+    text = " ".join(raw_text.split()).strip()
+    compact = _compact(text)
     if _substantive_length(text) < 5:
         return EngagementAssessment(False, False, "too_short", intent_name or "")
     if compact in {_compact(value) for value in _FILLER_MESSAGES}:

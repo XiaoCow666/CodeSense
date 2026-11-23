@@ -61,6 +61,9 @@ from services.session_lifecycle import (
     session_lifecycle_payload,
 )
 from services.stage3_engagement import (
+    ASSESSMENT_SOURCE,
+    ASSESSMENT_VERSION,
+    EngagementAssessment,
     assess_stage3_message,
     summarize_stage3_engagement,
 )
@@ -653,31 +656,45 @@ def _annotate_stage3_engagement(
 ):
     """Persist the server's bounded validity decision on the current turn."""
     logs = _stage3_user_message_logs(session_id)
-    current_log = None
-    previous_messages = []
-    for log in logs:
-        metadata = log.get_metadata() or {}
-        if str(metadata.get('request_id') or '') == str(request_id):
-            current_log = log
-            continue
-        if log.content:
-            previous_messages.append(log.content)
+    current_log = next((
+        log
+        for log in logs
+        if str((log.get_metadata() or {}).get('request_id') or '') == str(request_id)
+    ), None)
     if current_log is None:
         return None
 
-    intent = getattr(routing, 'intent', None)
-    # The persisted server-created event is the evidence record.  A replayed
-    # request id must never be able to reclassify that row with different
-    # client text.
-    persisted_message = str(current_log.content or '')
+    metadata = current_log.get_metadata() or {}
+    stored = metadata.get('engagement_assessment')
+    if (
+        isinstance(stored, dict)
+        and stored.get('source') == ASSESSMENT_SOURCE
+        and stored.get('version') == ASSESSMENT_VERSION
+        and isinstance(stored.get('valid_message'), bool)
+        and isinstance(stored.get('valid_question'), bool)
+    ):
+        return EngagementAssessment(
+            valid_message=stored['valid_message'],
+            valid_question=stored['valid_question'],
+            reason=str(stored.get('reason') or 'stored'),
+            intent=str(stored.get('intent') or ''),
+        )
+
+    previous_messages = []
+    for log in logs:
+        if log.id == current_log.id:
+            break
+        if log.content:
+            previous_messages.append(log.content)
+
+    # Only the persisted event and messages that precede it are evidence for
+    # a missing assessment.  Replay payloads and later messages cannot alter
+    # an earlier validity decision.
     assessment = assess_stage3_message(
-        persisted_message,
+        str(current_log.content or ''),
         previous_messages=previous_messages,
-        intent_name=getattr(intent, 'name', None),
-        intent_is_question=getattr(intent, 'is_question', None),
         task_context=_stage3_engagement_task_context(session_id),
     )
-    metadata = current_log.get_metadata() or {}
     metadata['engagement_assessment'] = assessment.to_metadata()
     current_log.metadata_json = json.dumps(metadata, ensure_ascii=False)
     db.session.flush()

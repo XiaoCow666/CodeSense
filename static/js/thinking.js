@@ -1870,7 +1870,7 @@
         const alreadyCompleted = state.feynmanPhase === 'completed';
         state.feynmanPhase = 'completed';
         if (!alreadyCompleted) {
-            showNotification('已达到学习互动要求，阶段三和本次作业均已完成', 'success');
+            showNotification('已达到学习互动要求，本次作业的引导学习已完成', 'success');
             setTimeout(() => showCelebration(), 500);
         }
         return true;

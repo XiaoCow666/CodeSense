@@ -64,6 +64,20 @@ def test_oversized_message_can_be_answered_but_cannot_advance_completion():
     assert assessment.reason == "too_long"
 
 
+def test_raw_message_length_rejects_internal_whitespace_before_normalization():
+    message = (
+        "为什么循环"
+        + (" " * MAX_ENGAGEMENT_MESSAGE_CHARS)
+        + "边界会越界？"
+    )
+
+    assessment = assess_stage3_message(message)
+
+    assert assessment.reason == "too_long"
+    assert assessment.valid_message is False
+    assert assessment.valid_question is False
+
+
 def test_summary_does_not_trust_browser_claimed_assessment_metadata():
     started = datetime(2026, 11, 22, 8, 0, 0)
     events = [{

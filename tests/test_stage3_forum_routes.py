@@ -274,6 +274,74 @@ def test_replayed_request_cannot_reclassify_persisted_message(stage3_forum_conte
         assert db.session.get(ThinkingStageLog, log.id).content == "abcdefghijk?"
 
 
+def test_replaying_earlier_valid_request_preserves_question_count(stage3_forum_context):
+    app, _, session_id, _ = stage3_forum_context
+    message = "为什么循环条件要写成 i 小于 n？"
+    started = datetime(2026, 11, 22, 8, 0, 0)
+
+    with app.app_context():
+        first_log = ThinkingStageLog(
+            session_id=session_id,
+            stage=3,
+            event_type="agent_user_message",
+            role="student",
+            content=message,
+            metadata_json=json.dumps({"request_id": "first-valid"}),
+            created_at=started,
+        )
+        db.session.add(first_log)
+        db.session.commit()
+
+        first_assessment = thinking_routes._annotate_stage3_engagement(
+            session_id,
+            "first-valid",
+            message,
+        )
+        db.session.commit()
+        first_metadata_before = dict(
+            db.session.get(ThinkingStageLog, first_log.id).get_metadata()
+        )
+
+        duplicate_log = ThinkingStageLog(
+            session_id=session_id,
+            stage=3,
+            event_type="agent_user_message",
+            role="student",
+            content=message,
+            metadata_json=json.dumps({"request_id": "later-duplicate"}),
+            created_at=started + timedelta(minutes=1),
+        )
+        db.session.add(duplicate_log)
+        db.session.commit()
+        duplicate_assessment = thinking_routes._annotate_stage3_engagement(
+            session_id,
+            "later-duplicate",
+            message,
+        )
+        db.session.commit()
+
+        before_replay = thinking_routes._stage3_engagement_summary(session_id)
+        replay_assessment = thinking_routes._annotate_stage3_engagement(
+            session_id,
+            "first-valid",
+            message,
+        )
+        db.session.commit()
+        after_replay = thinking_routes._stage3_engagement_summary(session_id)
+        first_metadata_after = db.session.get(
+            ThinkingStageLog,
+            first_log.id,
+        ).get_metadata()
+
+        assert first_assessment.valid_question is True
+        assert duplicate_assessment.valid_question is False
+        assert duplicate_assessment.reason == "duplicate"
+        assert before_replay["effective_question_count"] == 1
+        assert replay_assessment == first_assessment
+        assert first_metadata_after == first_metadata_before
+        assert after_replay["effective_question_count"] == 1
+
+
 @pytest.mark.parametrize(
     ("payload", "error_code"),
     [

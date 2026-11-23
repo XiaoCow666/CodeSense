@@ -145,7 +145,9 @@ def test_stage3_goal_shows_engagement_progress_and_finishes_the_forum():
     assert "payload.user_goal.status === 'complete'" in THINKING_JS
     assert "input.disabled = goal.status === 'complete'" in THINKING_JS
     assert "sendButton.disabled = goal.status === 'complete'" in THINKING_JS
-    assert "阶段三和本次作业均已完成" in THINKING_JS
+    assert "本次作业的引导学习已完成" in THINKING_JS
+    assert "本次作业的引导学习即完成" in ARENA_TEMPLATE
+    assert "阶段三和本次作业均已完成" not in THINKING_JS
     assert "assignment.guided_learning_completed" in ASSIGNMENTS_TEMPLATE
     assert "引导学习已完成" in ASSIGNMENTS_TEMPLATE
 
