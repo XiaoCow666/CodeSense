@@ -176,6 +176,7 @@ def _captured_api_stream(turn_id, events):
     """Persist the answer once and the delivered prefix if streaming stops early."""
     chunks = []
     finalized = False
+    save_failed = False
     try:
         for event in events:
             payload = json.loads(event.removeprefix("data: "))
@@ -189,27 +190,34 @@ def _captured_api_stream(turn_id, events):
                     status = "completed"
                 else:
                     status = "interrupted" if body else "failed"
-                finalized = True
                 try:
                     _finish_api_turn(turn_id, body, status=status)
                 except Exception:
                     db.session.rollback()
                     current_app.logger.exception("保存 AI 对话失败 turn_id=%s", turn_id)
-                    yield sse_event({
-                        "type": "error",
-                        "error": "LEARNING_CAPTURE_FAILED",
-                        "message": "保存 AI 对话失败，请稍后重试",
-                    })
-                    return
+                    save_failed = True
+                    break
+                finalized = True
             yield event
     finally:
-        events.close()
-        if not finalized:
-            try:
-                _finish_api_turn(turn_id, "".join(chunks), status="interrupted")
-            except Exception:
-                db.session.rollback()
-                current_app.logger.exception("保存中断的 AI 对话失败 turn_id=%s", turn_id)
+        try:
+            events.close()
+        finally:
+            if not finalized:
+                delivered = "".join(chunks)
+                status = "failed" if save_failed and not delivered else "interrupted"
+                try:
+                    _finish_api_turn(turn_id, delivered, status=status)
+                except Exception:
+                    db.session.rollback()
+                    current_app.logger.exception("保存中断的 AI 对话失败 turn_id=%s", turn_id)
+
+    if save_failed:
+        yield sse_event({
+            "type": "error",
+            "error": "LEARNING_CAPTURE_FAILED",
+            "message": "保存 AI 对话失败，请稍后重试",
+        })
 
 
 def _no_store(result):

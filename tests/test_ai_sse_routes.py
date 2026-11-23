@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 from flask import session
+from sqlalchemy.exc import SQLAlchemyError
 
 from app import create_app
 from config import TestingConfig as _TestingConfig
@@ -223,6 +224,44 @@ def test_guidance_sse_streams_deltas_and_keeps_json_compatibility(ai_sse_context
     assert legacy.status_code == 200
     assert legacy.is_json
     assert legacy.json["data"]["guidance"] == "完整指导"
+
+
+@pytest.mark.parametrize(("delivered", "expected_status"), [("检查循环边界。", "interrupted"), ("", "failed")])
+def test_learning_capture_sse_recovers_when_terminal_commit_fails(
+    ai_sse_context, monkeypatch, delivered, expected_status,
+):
+    app, client, _, assignment_id = ai_sse_context
+    monkeypatch.setattr(api_routes, "generate_guidance_stream", lambda **_: iter([delivered] if delivered else []))
+    real_commit = db.session.commit
+    terminal_statuses = []
+
+    def fail_first_terminal_commit():
+        turn = next((row for row in db.session.dirty if isinstance(row, AIChatTurn)), None)
+        if turn is not None:
+            terminal_statuses.append(turn.status)
+            if len(terminal_statuses) == 1:
+                raise SQLAlchemyError("terminal commit failed")
+        return real_commit()
+
+    monkeypatch.setattr(db.session, "commit", fail_first_terminal_commit)
+    response = client.post(
+        "/api/get_programming_guidance",
+        json={"assignment_id": assignment_id, "code": "int main(){return 0;}", "request_id": "save-failure"},
+        headers={"Accept": "text/event-stream"},
+        buffered=True,
+    )
+
+    assert response.status_code == 200
+    assert response.mimetype == "text/event-stream"
+    events = _events(response)
+    assert [event["type"] for event in events] == (["start", "delta", "error"] if delivered else ["start", "error"])
+    assert events[-1]["error"] == "LEARNING_CAPTURE_FAILED"
+    assert terminal_statuses == ["completed", expected_status]
+    with app.app_context():
+        turn = AIChatTurn.query.filter_by(request_id="save-failure").one()
+        assert turn.status == expected_status
+        assert turn.response == delivered
+        assert turn.answered_at is not None
 
 
 def test_assignment_generation_streams_model_tokens(monkeypatch, teacher_client):

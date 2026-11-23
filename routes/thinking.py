@@ -174,6 +174,12 @@ def _unwrap_stage3_error(value):
     raise RuntimeError(message)
 
 
+def _stage3_validation_response(error_response, start_message):
+    if wants_sse():
+        return _stage3_stream_response(lambda: _unwrap_stage3_error(error_response), start_message)
+    return error_response
+
+
 def _apply_generated_preset(preset, result):
     """Persist the structured preset returned by the model."""
     preset.reference_code = result.get('reference_code', '')
@@ -541,29 +547,36 @@ def _dispatch_stage3_chat(target_role=None):
     data = request.get_json(silent=True) or {}
     if not isinstance(data, dict):
         return jsonify({'error': '请求数据格式不正确'}), 400
+    start_message = {
+        None: '论坛Agent正在协同分析...',
+        AgentRole.TEACHER_AGENT: '老师Agent正在整理回复...',
+        AgentRole.STUDENT_AGENT: '小明Agent正在思考追问...',
+    }[target_role]
     message = _extract_stage3_message(data)
     if not message:
-        return jsonify({'error': '缺少消息'}), 400
+        return _stage3_validation_response((jsonify({'error': '缺少消息'}), 400), start_message)
     ts, runtime, error_code = _stage3_runtime(data)
     if error_code:
-        return _stage3_runtime_error_response(error_code)
+        return _stage3_validation_response(_stage3_runtime_error_response(error_code), start_message)
     request_id = _request_id(data)
 
     if target_role is None:
         target_role, target_error = _stage3_target_role(data, required=True)
         if target_error:
-            return _stage3_forum_validation_error_response(target_error)
+            return _stage3_validation_response(
+                _stage3_forum_validation_error_response(target_error), start_message,
+            )
         reply_to_event_id = _reply_to_event_id(data)
         if reply_to_event_id and not _stage3_reply_event_exists(ts.id, reply_to_event_id):
-            return _stage3_forum_validation_error_response('REPLY_EVENT_NOT_FOUND')
+            return _stage3_validation_response(
+                _stage3_forum_validation_error_response('REPLY_EVENT_NOT_FOUND'), start_message,
+            )
         channel = 'feynman_forum'
-        start_message = '论坛Agent正在协同分析...'
 
         def work():
             return _run_stage3_forum_turn(ts, runtime, message, request_id, target_role, reply_to_event_id)
     else:
         channel = 'feynman_teacher' if target_role is AgentRole.TEACHER_AGENT else 'feynman_student'
-        start_message = '正在整理回复...'
         reply_to_event_id = None
 
         def work():
@@ -2161,9 +2174,10 @@ def stage3_write_code():
         data = request.get_json(silent=True) or {}
         if not isinstance(data, dict):
             return jsonify({'error': '请求数据格式不正确'}), 400
+        start_message = '小明Agent正在准备一份待检查代码...'
         ts, runtime, error_code = _stage3_runtime(data)
         if error_code:
-            return _stage3_runtime_error_response(error_code)
+            return _stage3_validation_response(_stage3_runtime_error_response(error_code), start_message)
         request_id = _request_id(data)
         turn, created = _start_guided_turn(
             ts, request_id, channel='feynman_example', question=None, stage=3,
@@ -2186,7 +2200,7 @@ def stage3_write_code():
         if wants_sse():
             return _stage3_stream_response(
                 lambda: _record_stage3_reply(turn_id, work),
-                '小明Agent正在准备一份待检查代码...', turn_id=turn_id,
+                start_message, turn_id=turn_id,
             )
         return jsonify(_record_stage3_reply(turn_id, work))
     except LearningCaptureConflict:
@@ -2211,9 +2225,10 @@ def stage3_fix_code():
             return jsonify({'error': '修复后的代码格式不正确'}), 400
         if len(fixed_code) > 200000:
             return jsonify({'error': '代码不能超过 200000 个字符'}), 413
+        start_message = '老师Agent正在验证你的修复...'
         ts, runtime, error_code = _stage3_runtime(data)
         if error_code:
-            return _stage3_runtime_error_response(error_code)
+            return _stage3_validation_response(_stage3_runtime_error_response(error_code), start_message)
         request_id = _request_id(data)
         turn, created = _start_guided_turn(
             ts, request_id, channel='feynman_fix', question=None, stage=3, code=fixed_code,
@@ -2229,7 +2244,7 @@ def stage3_fix_code():
         if wants_sse():
             return _stage3_stream_response(
                 lambda: _record_stage3_reply(turn_id, work),
-                '老师Agent正在验证你的修复...', turn_id=turn_id,
+                start_message, turn_id=turn_id,
             )
         return jsonify(_record_stage3_reply(turn_id, work))
     except LearningCaptureConflict:
