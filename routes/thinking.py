@@ -46,7 +46,8 @@ from services.demo_experience import (
 )
 from services.demo_database import current_demo_run_id, is_active_demo_run
 from services.learning_capture import (
-    LearningCaptureConflict, finish_ai_turn, get_annotation_revision, get_attempt, start_ai_turn,
+    LearningCaptureConflict, captured_ai_sse_response, finish_ai_turn, get_annotation_revision,
+    get_attempt, legacy_in_progress_session, start_ai_turn,
 )
 from services.session_lifecycle import (
     LIFECYCLE_STATUSES,
@@ -160,7 +161,7 @@ def _stage3_stream_response(work, start_message='正在处理阶段3对话...', 
                 'message': '阶段3处理失败，请稍后重试',
             })
 
-    return sse_response(generate())
+    return captured_ai_sse_response(turn_id, generate())
 
 
 def _unwrap_stage3_error(value):
@@ -1029,7 +1030,7 @@ def arena(assignment_id):
     ).order_by(LearningAttempt.attempt_no.desc()).first()
     existing_session = (
         ThinkingSession.query.filter_by(attempt_id=attempt.id).first()
-        if attempt else _legacy_in_progress_session(current_user.student_id, assignment_id)
+        if attempt else legacy_in_progress_session(current_user.student_id, assignment_id)
     )
 
     return render_template('thinking/arena.html',
@@ -1045,13 +1046,6 @@ def arena(assignment_id):
 # ============================================================
 # API: 会话管理
 # ============================================================
-
-def _legacy_in_progress_session(student_id, assignment_id):
-    return ThinkingSession.query.filter_by(
-        student_id=student_id, assignment_id=assignment_id,
-        attempt_id=None, status='in_progress',
-    ).order_by(ThinkingSession.started_at.desc(), ThinkingSession.id.desc()).first()
-
 
 @thinking.route('/api/start_session', methods=['POST'])
 @login_required
@@ -1083,9 +1077,9 @@ def start_session():
             current_user.student_id, assignment_id,
             expected_attempt_id=data.get('attempt_id'),
         )
-        existing = ThinkingSession.query.filter_by(attempt_id=attempt.id).first()
+        existing = ThinkingSession.query.filter_by(attempt_id=attempt.id).with_for_update().first()
         if existing is None and attempt.attempt_no == 1:
-            legacy = _legacy_in_progress_session(current_user.student_id, assignment_id)
+            legacy = legacy_in_progress_session(current_user.student_id, assignment_id, for_update=True)
             if legacy is not None:
                 try:
                     with db.session.begin_nested():
@@ -1829,7 +1823,7 @@ def companion_chat():
                         'message': '伴学助手暂时不可用，请稍后重试',
                     })
 
-            return sse_response(stream_companion())
+            return captured_ai_sse_response(turn_id, stream_companion())
 
         response_text = companion_agent_chat(
             messages,

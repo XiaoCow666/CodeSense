@@ -62,6 +62,7 @@ from services.learning_graph import (
 )
 from services.learning_capture import (
     LearningCaptureConflict,
+    captured_ai_sse_response,
     finish_ai_turn,
     positive_id,
     record_submission,
@@ -138,7 +139,7 @@ def _capture_options(data, *, include_conversation=False):
 
 def _start_api_turn(
     data, *, student_id, assignment_id, channel, question=None, code=None,
-    language=None, context=None,
+    language=None, context=None, allow_missing_knowledge_points=False,
 ):
     options = _capture_options(data, include_conversation=True)
     if assignment_id is None and "attempt_id" in options:
@@ -146,7 +147,7 @@ def _start_api_turn(
     turn, created = start_ai_turn(
         student_id, assignment_id, channel=channel, question=question, code=code,
         language=language, stage="coding" if assignment_id is not None else None,
-        context=context, **options,
+        context=context, allow_missing_knowledge_points=allow_missing_knowledge_points, **options,
     )
     turn_id = turn.id
     db.session.commit()
@@ -1138,7 +1139,7 @@ def get_programming_guidance():
                             'message': '生成编程指导失败，请稍后重试',
                         })
 
-                return sse_response(_captured_api_stream(turn_id, stream_guidance()))
+                return captured_ai_sse_response(turn_id, _captured_api_stream(turn_id, stream_guidance()))
             
             # 生成编程指导
             guidance_text = generate_guidance(
@@ -1313,6 +1314,7 @@ def ask_question():
         turn_id = _start_api_turn(
             data, student_id=student_id, assignment_id=assignment_id,
             channel="assignment_question", question=question, code=code, language=language,
+            allow_missing_knowledge_points=True,
         )
         session['last_ai_question_time'] = now.isoformat()
         
@@ -1402,7 +1404,7 @@ def ask_question():
                             'message': 'AI服务暂时不可用，请稍后再试',
                         })
 
-                return sse_response(_captured_api_stream(turn_id, stream_answer()))
+                return captured_ai_sse_response(turn_id, _captured_api_stream(turn_id, stream_answer()))
             
             # 使用大模型生成回答
             answer = generate_answer_to_question(
@@ -1795,7 +1797,7 @@ def get_code_advice():
                             'message': 'AI服务流式输出失败，请稍后重试',
                         })
 
-                return sse_response(_captured_api_stream(turn_id, generate()))
+                return captured_ai_sse_response(turn_id, _captured_api_stream(turn_id, generate()))
 
             except Exception:
                 _fail_api_turn(turn_id)
@@ -1856,7 +1858,7 @@ def get_code_advice():
                             'message': '生成代码分析失败，请稍后重试',
                         })
 
-                return sse_response(_captured_api_stream(turn_id, stream_report()))
+                return captured_ai_sse_response(turn_id, _captured_api_stream(turn_id, stream_report()))
 
             try:
                 current_app.logger.debug('代码建议分析模式：生成完整报告')

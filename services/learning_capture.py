@@ -5,7 +5,8 @@ import json
 from datetime import datetime, timedelta
 from uuid import uuid4
 
-from sqlalchemy.exc import IntegrityError
+from flask import current_app
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from models import (
     AIChatTurn,
@@ -22,6 +23,8 @@ from models import (
     ThinkingSession,
     db,
 )
+from services.demo_database import activate_live_demo_run, current_demo_run_id
+from utils.sse import sse_response
 
 
 GUIDED_STAGES = {1: "solution_description", 2: "block_programming", 3: "feynman"}
@@ -151,8 +154,16 @@ def _validate_annotation_links(snapshot, links):
     return result
 
 
-def get_annotation_revision(assignment_id, *, test_cases=None, links=None):
-    """Snapshot the actual question, steps and cases used by a learning event."""
+def _annotation_knowledge_points(assignment_id):
+    return AssignmentKnowledgePoint.query.filter_by(assignment_id=assignment_id).order_by(
+        AssignmentKnowledgePoint.id,
+    ).all()
+
+
+def get_annotation_revision(
+    assignment_id, *, test_cases=None, links=None, allow_missing_knowledge_points=False,
+):
+    """Snapshot the question, steps and cases, or return None for an optional failed knowledge lookup."""
     _begin_sqlite_write()
     assignment = Assignment.query.filter_by(id=assignment_id).with_for_update().first()
     if assignment is None:
@@ -168,9 +179,19 @@ def get_annotation_revision(assignment_id, *, test_cases=None, links=None):
     key_steps = preset.get_key_steps() if preset else []
     if not isinstance(key_steps, list):
         key_steps = []
-    knowledge_points = AssignmentKnowledgePoint.query.filter_by(assignment_id=assignment_id).order_by(
-        AssignmentKnowledgePoint.id,
-    ).all()
+    if allow_missing_knowledge_points:
+        with db.session.begin_nested() as knowledge_read:
+            try:
+                knowledge_points = _annotation_knowledge_points(assignment_id)
+            except (SQLAlchemyError, RuntimeError):
+                knowledge_read.rollback()
+                current_app.logger.warning(
+                    "知识点暂时不可用，未生成题目标注快照 assignment_id=%s", assignment_id,
+                    exc_info=True,
+                )
+                return None
+    else:
+        knowledge_points = _annotation_knowledge_points(assignment_id)
     snapshot = {
         "title": assignment.title,
         "description": assignment.description,
@@ -209,7 +230,9 @@ def _attempts(student_id, assignment_id):
     return LearningAttempt.query.filter_by(student_id=student_id, assignment_id=assignment_id)
 
 
-def get_attempt(student_id, assignment_id, *, expected_attempt_id=None):
+def get_attempt(
+    student_id, assignment_id, *, expected_attempt_id=None, allow_missing_knowledge_points=False,
+):
     """Resolve the current attempt and reject writes from a superseded page."""
     _begin_sqlite_write()
     attempts = _attempts(student_id, assignment_id)
@@ -223,12 +246,23 @@ def get_attempt(student_id, assignment_id, *, expected_attempt_id=None):
         raise LearningCaptureConflict("这次做题已被重新开始，请刷新页面")
     if latest is not None:
         return latest
-    revision = get_annotation_revision(assignment_id)
+    revision = get_annotation_revision(
+        assignment_id, allow_missing_knowledge_points=allow_missing_knowledge_points,
+    )
     initial, _ = _insert_or_find(LearningAttempt(
         student_id=student_id, assignment_id=assignment_id, attempt_no=1,
-        annotation_revision_id=revision.id,
+        annotation_revision_id=revision.id if revision is not None else None,
     ), attempts.filter_by(attempt_no=1))
     return initial
+
+
+def legacy_in_progress_session(student_id, assignment_id, *, for_update=False):
+    """Find the newest in-progress session created before attempts were tracked."""
+    sessions = ThinkingSession.query.filter_by(
+        student_id=student_id, assignment_id=assignment_id,
+        attempt_id=None, status="in_progress",
+    ).order_by(ThinkingSession.started_at.desc(), ThinkingSession.id.desc())
+    return (sessions.with_for_update() if for_update else sessions).first()
 
 
 def restart_attempt(student_id, assignment_id, expected_attempt_id, request_id):
@@ -258,8 +292,12 @@ def restart_attempt(student_id, assignment_id, expected_attempt_id, request_id):
         for interval in LearningStageInterval.query.filter_by(attempt_id=current.id, ended_at=None):
             interval.ended_at = interval.last_activity_at
             interval.end_reason = "restarted"
-        session = ThinkingSession.query.filter_by(attempt_id=current.id, status="in_progress").first()
-        if session is not None:
+        session = ThinkingSession.query.filter_by(attempt_id=current.id).with_for_update().first()
+        if session is None and current.attempt_no == 1:
+            session = legacy_in_progress_session(student_id, assignment_id, for_update=True)
+            if session is not None:
+                session.attempt_id = current.id
+        if session is not None and session.status == "in_progress":
             session.status = "abandoned"
     return next_attempt
 
@@ -367,10 +405,16 @@ def record_submission_event(
 def start_ai_turn(
     student_id, assignment_id=None, *, channel, question=None, code=None, language=None,
     attempt_id=None, conversation_id=None, request_id=None, stage=None, context=None,
+    allow_missing_knowledge_points=False,
 ):
+    """Return the matching turn and whether this request owns its generation."""
     request_id = _request_key(request_id, "对话请求编号") or uuid4().hex
     conversation_id = _request_key(conversation_id, "会话编号")
-    attempt = get_attempt(student_id, assignment_id, expected_attempt_id=attempt_id) if assignment_id else None
+    _begin_sqlite_write()
+    attempt = get_attempt(
+        student_id, assignment_id, expected_attempt_id=attempt_id,
+        allow_missing_knowledge_points=allow_missing_knowledge_points,
+    ) if assignment_id else None
     version = _code_version(attempt, code, language) if attempt is not None else None
     if not conversation_id:
         conversation_id = f"{attempt.id if attempt else 'general'}:{channel}"
@@ -383,22 +427,61 @@ def start_ai_turn(
         request_id=request_id, context_json=_json(context) if context is not None else None,
     )
     existing = lookup.first()
+    if existing is not None:
+        existing = lookup.populate_existing().with_for_update().first()
     turn, created = (existing, False) if existing is not None else _insert_or_find(row, lookup)
-    if not created and (
+    if created:
+        return turn, True
+    if (
         turn.attempt_id != row.attempt_id or turn.channel != row.channel or turn.question != row.question
         or turn.code_version_id != row.code_version_id
     ):
         raise LearningCaptureConflict("对话请求编号已用于其他内容")
-    return turn, created
+    if turn.status == "interrupted":
+        previous_context = json.loads(turn.context_json or "{}")
+        if previous_context.pop("interrupted_before_stream_start", False):
+            if turn.stage != row.stage or previous_context != (context or {}):
+                raise LearningCaptureConflict("对话请求编号已用于其他内容")
+            turn.status = "generating"
+            turn.response = None
+            turn.answered_at = None
+            turn.context_json = row.context_json
+            return turn, True
+    return turn, False
 
 
-def finish_ai_turn(turn_id, *, response=None, status="completed"):
+def finish_ai_turn(turn_id, *, response=None, status="completed", interrupted_before_stream_start=False):
     if status not in ("completed", "interrupted", "failed"):
         raise ValueError("对话状态无效")
     _begin_sqlite_write()
     turn = AIChatTurn.query.filter_by(id=turn_id).with_for_update().first()
     if turn is not None and turn.status == "generating":
+        if interrupted_before_stream_start:
+            context = json.loads(turn.context_json or "{}")
+            context["interrupted_before_stream_start"] = True
+            turn.context_json = _json(context)
         turn.response = response
         turn.status = status
         turn.answered_at = datetime.utcnow()
     return turn
+
+
+def captured_ai_sse_response(turn_id, events):
+    """Close a captured turn even when its business iterator never starts."""
+    if turn_id is None:
+        return sse_response(events)
+    app = current_app._get_current_object()
+    demo_run_id = current_demo_run_id()
+
+    def close_unstarted_turn():
+        with app.app_context():
+            try:
+                if demo_run_id is not None and not activate_live_demo_run(demo_run_id):
+                    return
+                finish_ai_turn(turn_id, status="interrupted", interrupted_before_stream_start=True)
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+                app.logger.exception("保存未开始的 AI 对话失败 turn_id=%s", turn_id)
+
+    return sse_response(events, on_unstarted_close=close_unstarted_turn)

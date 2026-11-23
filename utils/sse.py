@@ -56,11 +56,18 @@ def stream_text_chunks(text: str, *, max_chars: int = 160) -> Iterable[str]:
         start = end
 
 
-def sse_response(events: Iterable[str]) -> Response:
+def sse_response(events: Iterable[str], *, on_unstarted_close: Optional[Callable[[], None]] = None) -> Response:
     """Create a cache-safe Flask response for an SSE event iterable."""
 
-    return Response(
-        stream_with_context(events),
+    started_or_closed = False
+
+    def track_start(source):
+        nonlocal started_or_closed
+        started_or_closed = True
+        yield from source
+
+    response = Response(
+        stream_with_context(track_start(events) if on_unstarted_close is not None else events),
         mimetype="text/event-stream",
         headers={
             "Cache-Control": "no-cache, no-transform",
@@ -68,6 +75,15 @@ def sse_response(events: Iterable[str]) -> Response:
             "Connection": "keep-alive",
         },
     )
+    if on_unstarted_close is not None:
+        def close_unstarted_stream():
+            nonlocal started_or_closed
+            if not started_or_closed:
+                started_or_closed = True
+                on_unstarted_close()
+
+        response.call_on_close(close_unstarted_stream)
+    return response
 
 
 def sse_text_events(

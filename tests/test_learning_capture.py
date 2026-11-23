@@ -129,6 +129,71 @@ def test_turn_submission_and_restart_share_the_right_records(capture_context):
         assert sorted(int((row.ended_at - row.started_at).total_seconds()) for row in intervals) == [120, 180, 240, 360]
 
 
+def test_legacy_session_restart_closes_first_round_and_starts_a_new_session(capture_context):
+    app, client, assignment_id = capture_context
+    student_id = "learning-student"
+    with app.app_context():
+        other_student = User(student_id="other-student", username="other-student", usertype="学生")
+        other_student.password = "test-password"
+        other_assignment = Assignment(title="另一个作业", description="保留其他作业的会话", creator_id=student_id)
+        db.session.add_all([other_student, other_assignment])
+        db.session.flush()
+        legacy = ThinkingSession(student_id=student_id, assignment_id=assignment_id)
+        unrelated = [
+            ThinkingSession(student_id=other_student.student_id, assignment_id=assignment_id),
+            ThinkingSession(student_id=student_id, assignment_id=other_assignment.id),
+        ]
+        db.session.add_all([legacy, *unrelated])
+        db.session.commit()
+        legacy_id = legacy.id
+        unrelated_ids = [session.id for session in unrelated]
+
+    ensured = client.post("/learning/attempts/ensure", json={"assignment_id": assignment_id})
+    assert ensured.status_code == 200
+    first_attempt_id = ensured.json["attempt_id"]
+    with app.app_context():
+        assert db.session.get(ThinkingSession, legacy_id).attempt_id is None
+
+    interval = client.post("/learning/intervals", json={
+        "assignment_id": assignment_id, "attempt_id": first_attempt_id,
+        "event": "start", "stage": "coding", "interval_key": "before-restart",
+    })
+    assert interval.status_code == 200 and interval.json["active"]
+    restart_payload = {
+        "assignment_id": assignment_id, "attempt_id": first_attempt_id, "request_id": "legacy-restart",
+    }
+    restarted = client.post("/learning/attempts/restart", json=restart_payload)
+    assert restarted.status_code == 200
+    assert restarted.json["attempt_no"] == 2
+    second_attempt_id = restarted.json["attempt_id"]
+    assert client.post("/learning/attempts/restart", json=restart_payload).json == restarted.json
+
+    started = client.post("/thinking/api/start_session", json={
+        "assignment_id": assignment_id, "attempt_id": second_attempt_id,
+    })
+    assert started.status_code == 200
+    assert started.json["attempt_id"] == second_attempt_id
+    assert started.json["session_id"] != legacy_id
+
+    with app.app_context():
+        legacy = db.session.get(ThinkingSession, legacy_id)
+        assert legacy.attempt_id == first_attempt_id and legacy.status == "abandoned"
+        assert db.session.get(LearningAttempt, first_attempt_id).closed_at is not None
+        interval = LearningStageInterval.query.filter_by(attempt_id=first_attempt_id).one()
+        assert interval.end_reason == "restarted" and interval.ended_at == interval.last_activity_at
+        new_session = db.session.get(ThinkingSession, started.json["session_id"])
+        assert new_session.attempt_id == second_attempt_id and new_session.status == "in_progress"
+        assert LearningAttempt.query.filter_by(student_id=student_id, assignment_id=assignment_id).count() == 2
+        for unrelated_id in unrelated_ids:
+            unrelated_session = db.session.get(ThinkingSession, unrelated_id)
+            assert unrelated_session.attempt_id is None and unrelated_session.status == "in_progress"
+
+    stale_update = client.post("/thinking/api/stage1/submit", json={
+        "session_id": legacy_id, "description": "逐项读取输入并累加求和",
+    })
+    assert stale_update.status_code == 409
+
+
 def test_expired_stage_and_real_hint_display_are_recorded_once(capture_context):
     app, client, assignment_id = capture_context
     with app.app_context():
