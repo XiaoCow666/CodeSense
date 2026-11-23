@@ -207,7 +207,7 @@ def test_four_ambiguous_off_task_questions_do_not_complete_stage_three(stage3_fo
     app, _, session_id, _ = stage3_forum_context
     started = datetime(2026, 11, 22, 8, 0, 0)
     off_task_questions = [
-        "这张风景图为什么这么好看？",
+        "为什么最后一个图标是灰色的？",
         "院子里的树为什么秋天会落叶？",
         "报名条件为什么这么严格？",
         "手机返回键为什么没有反应？",

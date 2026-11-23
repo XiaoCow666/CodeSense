@@ -56,7 +56,7 @@ def test_effective_question_requires_task_relevance_and_rejects_low_information(
 
 def test_ambiguous_everyday_terms_do_not_count_without_programming_context():
     messages = [
-        "这张风景图为什么这么好看？",
+        "为什么最后一个图标是灰色的？",
         "院子里的树为什么秋天会落叶？",
         "报名条件为什么这么严格？",
         "手机返回键为什么没有反应？",
@@ -67,6 +67,17 @@ def test_ambiguous_everyday_terms_do_not_count_without_programming_context():
     assert all(item.valid_message is False for item in assessments)
     assert all(item.valid_question is False for item in assessments)
     assert all(item.reason == "no_learning_signal" for item in assessments)
+
+
+def test_english_assignment_title_words_do_not_independently_prove_relevance():
+    assessment = assess_stage3_message(
+        "Why is the weather nice at the beach?",
+        task_context=["Find the Maximum Value"],
+    )
+
+    assert assessment.valid_message is False
+    assert assessment.valid_question is False
+    assert assessment.reason == "no_learning_signal"
 
 
 def test_ambiguous_loop_term_counts_with_explicit_programming_context():

@@ -29,7 +29,7 @@ ACTIVE_CONVERSATION_TARGET_SECONDS = 10 * 60
 ACTIVE_CONVERSATION_MAX_GAP_SECONDS = 3 * 60
 ACTIVE_CONVERSATION_MIN_MESSAGES = 3
 MAX_ENGAGEMENT_MESSAGE_CHARS = 2_000
-ASSESSMENT_VERSION = 4
+ASSESSMENT_VERSION = 5
 ASSESSMENT_SOURCE = "server_stage3_engagement"
 
 _QUESTION_INTENTS = frozenset({INTENT_ASK_TEACHER, INTENT_ASK_STUDENT})
@@ -141,48 +141,52 @@ _AMBIGUOUS_TASK_CUES = (
 _PROGRAMMING_CUE_PAIRS = (
     ("循环", "边界"),
     ("循环", "条件"),
+    ("循环", "执行"),
+    ("循环", "每轮"),
+    ("循环", "更新"),
+    ("循环", "退出"),
+    ("循环", "终止"),
+    ("循环", "次数"),
     ("输入", "边界"),
+    ("输入", "为零"),
+    ("输入", "初始值"),
+    ("输入", "读入"),
+    ("输入", "数据"),
+    ("输入", "变量"),
     ("输出", "循环"),
+    ("输出", "结果"),
+    ("输出", "变量"),
+    ("输出", "打印"),
+    ("输出", "目标位置"),
     ("树", "节点"),
     ("图", "节点"),
+    ("索引", "减一"),
+    ("索引", "加一"),
+    ("索引", "从零"),
     ("参数", "返回"),
+    ("返回", "函数"),
+    ("返回", "值"),
     ("初始化", "变量"),
     ("排序", "数组"),
     ("查找", "数组"),
     ("loop", "condition"),
+    ("loop", "execute"),
     ("tree", "node"),
     ("graph", "node"),
 )
-_PROGRAMMING_CONTEXT_CUES = (
-    "执行",
-    "赋值",
-    "更新",
-    "退出",
-    "进入",
-    "调用",
-    "读入",
-    "打印",
-    "内存",
-    "语法",
-    "语句",
-    "数据结构",
-    "用例",
-    "写成",
-    "减一",
-    "加一",
-    "为零",
-    "空值",
-    "最后一个",
-    "目标位置",
-    "每轮",
-    "第几次",
-    "多一次",
-    "少一次",
-    "execute",
-    "assign",
-    "statement",
-    "memory",
-)
+_TASK_CONTEXT_STOP_WORDS = frozenset({
+    "a",
+    "an",
+    "and",
+    "find",
+    "for",
+    "in",
+    "of",
+    "the",
+    "to",
+    "value",
+    "with",
+})
 _EXPLANATION_CUES = (
     "因为",
     "所以",
@@ -258,7 +262,6 @@ def assess_stage3_message(
             has_explicit_programming_cue
             or has_code_shape
             or has_specific_task_term
-            or _contains_any(text, _PROGRAMMING_CONTEXT_CUES)
             or _contains_programming_cue_pair(text)
         )
     )
@@ -447,11 +450,22 @@ def _contains_task_context(text: str, task_context: Iterable[Any]) -> bool:
     }
     for raw_value in task_context:
         value = " ".join(str(raw_value or "").split()).strip().casefold()
-        if 2 <= len(value) <= 32 and value not in generic_cues and value in lowered:
+        if not (2 <= len(value) <= 32) or value in generic_cues:
+            continue
+        ascii_tokens = re.findall(r"[A-Za-z_][A-Za-z0-9_]{1,31}", value)
+        if ascii_tokens and all(ord(char) < 128 for char in value):
+            meaningful_tokens = [
+                token
+                for token in ascii_tokens
+                if token.casefold() not in _TASK_CONTEXT_STOP_WORDS
+            ]
+            if len(ascii_tokens) == 1:
+                if not meaningful_tokens or len(meaningful_tokens[0]) < 6:
+                    continue
+            if len(ascii_tokens) > 1 and len(meaningful_tokens) < 2:
+                continue
+        if _contains_any(lowered, (value,)):
             return True
-        for token in re.findall(r"[A-Za-z_][A-Za-z0-9_]{1,31}", value):
-            if token.casefold() not in generic_cues and _contains_any(lowered, (token,)):
-                return True
     return False
 
 
