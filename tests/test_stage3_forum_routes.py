@@ -203,6 +203,46 @@ def test_four_effective_questions_complete_stage_three_and_the_session(stage3_fo
         ).count() == 1
 
 
+def test_four_ambiguous_off_task_questions_do_not_complete_stage_three(stage3_forum_context):
+    app, _, session_id, _ = stage3_forum_context
+    started = datetime(2026, 11, 22, 8, 0, 0)
+    off_task_questions = [
+        "这张风景图为什么这么好看？",
+        "院子里的树为什么秋天会落叶？",
+        "报名条件为什么这么严格？",
+        "手机返回键为什么没有反应？",
+    ]
+
+    with app.app_context():
+        session = db.session.get(ThinkingSession, session_id)
+        for index, question in enumerate(off_task_questions, start=1):
+            db.session.add(ThinkingStageLog(
+                session_id=session_id,
+                stage=3,
+                event_type="agent_user_message",
+                role="student",
+                content=question,
+                metadata_json=json.dumps({"request_id": f"off-task-{index}"}),
+                created_at=started + timedelta(minutes=index),
+            ))
+        db.session.commit()
+
+        summary = thinking_routes._maybe_complete_stage3_from_engagement(
+            session,
+            "off-task-4",
+        )
+        saved = db.session.get(ThinkingSession, session_id)
+
+        assert summary["effective_question_count"] == 0
+        assert summary["questions_complete"] is False
+        assert saved.stage3_completed is False
+        assert saved.status == "in_progress"
+        assert ThinkingStageLog.query.filter_by(
+            session_id=session_id,
+            event_type="stage_pass",
+        ).count() == 0
+
+
 def test_engagement_completion_requires_an_active_stage_three_session(stage3_forum_context):
     app, _, session_id, _ = stage3_forum_context
     started = datetime(2026, 11, 22, 8, 0, 0)

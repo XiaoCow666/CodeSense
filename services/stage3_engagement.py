@@ -29,7 +29,7 @@ ACTIVE_CONVERSATION_TARGET_SECONDS = 10 * 60
 ACTIVE_CONVERSATION_MAX_GAP_SECONDS = 3 * 60
 ACTIVE_CONVERSATION_MIN_MESSAGES = 3
 MAX_ENGAGEMENT_MESSAGE_CHARS = 2_000
-ASSESSMENT_VERSION = 3
+ASSESSMENT_VERSION = 4
 ASSESSMENT_SOURCE = "server_stage3_engagement"
 
 _QUESTION_INTENTS = frozenset({INTENT_ASK_TEACHER, INTENT_ASK_STUDENT})
@@ -77,64 +77,111 @@ _TASK_CUES = (
     "代码",
     "程序",
     "算法",
-    "输入",
-    "输出",
     "变量",
-    "循环",
-    "边界",
     "越界",
     "数组",
     "下标",
     "函数",
-    "条件",
-    "判断",
     "报错",
-    "错误",
     "bug",
     "编译",
-    "运行",
     "复杂度",
-    "排序",
-    "查找",
     "遍历",
     "递归",
     "迭代",
     "链表",
-    "栈",
     "队列",
-    "树",
-    "图",
     "节点",
-    "索引",
     "指针",
-    "引用",
-    "参数",
-    "返回",
-    "初始化",
-    "终止",
     "测试用例",
     "code",
     "program",
     "algorithm",
-    "input",
-    "output",
     "variable",
-    "loop",
     "array",
-    "index",
     "function",
-    "return",
     "error",
     "compile",
     "runtime",
     "pointer",
     "recursion",
-    "stack",
     "queue",
-    "tree",
-    "graph",
     "complexity",
     "test case",
+)
+_AMBIGUOUS_TASK_CUES = (
+    "输入",
+    "输出",
+    "循环",
+    "边界",
+    "条件",
+    "判断",
+    "错误",
+    "运行",
+    "排序",
+    "查找",
+    "栈",
+    "树",
+    "图",
+    "索引",
+    "引用",
+    "参数",
+    "返回",
+    "初始化",
+    "终止",
+    "input",
+    "output",
+    "loop",
+    "return",
+    "index",
+    "stack",
+    "tree",
+    "graph",
+)
+_PROGRAMMING_CUE_PAIRS = (
+    ("循环", "边界"),
+    ("循环", "条件"),
+    ("输入", "边界"),
+    ("输出", "循环"),
+    ("树", "节点"),
+    ("图", "节点"),
+    ("参数", "返回"),
+    ("初始化", "变量"),
+    ("排序", "数组"),
+    ("查找", "数组"),
+    ("loop", "condition"),
+    ("tree", "node"),
+    ("graph", "node"),
+)
+_PROGRAMMING_CONTEXT_CUES = (
+    "执行",
+    "赋值",
+    "更新",
+    "退出",
+    "进入",
+    "调用",
+    "读入",
+    "打印",
+    "内存",
+    "语法",
+    "语句",
+    "数据结构",
+    "用例",
+    "写成",
+    "减一",
+    "加一",
+    "为零",
+    "空值",
+    "最后一个",
+    "目标位置",
+    "每轮",
+    "第几次",
+    "多一次",
+    "少一次",
+    "execute",
+    "assign",
+    "statement",
+    "memory",
 )
 _EXPLANATION_CUES = (
     "因为",
@@ -202,10 +249,24 @@ def assess_stage3_message(
         else bool(recognized.is_question)
     )
     is_question = explicit_question or intent in _QUESTION_INTENTS
-    has_task_cue = (
-        _contains_any(text, _TASK_CUES)
-        or _has_code_shape(text)
-        or _contains_task_context(text, task_context)
+    has_explicit_programming_cue = _contains_any(text, _TASK_CUES)
+    has_code_shape = _has_code_shape(text)
+    has_specific_task_term = _contains_task_context(text, task_context)
+    has_contextualized_ambiguous_cue = bool(
+        _contains_ambiguous_task_cue(text)
+        and (
+            has_explicit_programming_cue
+            or has_code_shape
+            or has_specific_task_term
+            or _contains_any(text, _PROGRAMMING_CONTEXT_CUES)
+            or _contains_programming_cue_pair(text)
+        )
+    )
+    has_task_cue = bool(
+        has_explicit_programming_cue
+        or has_code_shape
+        or has_specific_task_term
+        or has_contextualized_ambiguous_cue
     )
     has_explanation = _contains_any(text, _EXPLANATION_CUES)
 
@@ -316,7 +377,41 @@ def summarize_stage3_engagement(
 
 def _contains_any(text: str, values: Iterable[str]) -> bool:
     lowered = text.casefold()
-    return any(str(value).casefold() in lowered for value in values)
+    for raw_value in values:
+        value = " ".join(str(raw_value or "").split()).strip().casefold()
+        if not value:
+            continue
+        if re.fullmatch(r"[a-z0-9_ ]+", value):
+            words = r"\s+".join(re.escape(part) for part in value.split())
+            if re.search(rf"(?<![a-z0-9_]){words}(?![a-z0-9_])", lowered):
+                return True
+            continue
+        if len(value) == 1:
+            if re.search(
+                rf"(?<![\w\u3400-\u9fff]){re.escape(value)}(?![\w\u3400-\u9fff])",
+                lowered,
+            ):
+                return True
+            continue
+        if value in lowered:
+            return True
+    return False
+
+
+def _contains_ambiguous_task_cue(text: str) -> bool:
+    lowered = str(text or "").casefold()
+    return any(
+        str(value).casefold() in lowered
+        for value in _AMBIGUOUS_TASK_CUES
+    )
+
+
+def _contains_programming_cue_pair(text: str) -> bool:
+    lowered = str(text or "").casefold()
+    return any(
+        all(str(value).casefold() in lowered for value in pair)
+        for pair in _PROGRAMMING_CUE_PAIRS
+    )
 
 
 def _compact(value: str) -> str:
@@ -346,12 +441,16 @@ def _has_code_shape(value: str) -> bool:
 
 def _contains_task_context(text: str, task_context: Iterable[Any]) -> bool:
     lowered = str(text or "").casefold()
+    generic_cues = {
+        str(value).casefold()
+        for value in (*_TASK_CUES, *_AMBIGUOUS_TASK_CUES)
+    }
     for raw_value in task_context:
         value = " ".join(str(raw_value or "").split()).strip().casefold()
-        if 2 <= len(value) <= 32 and value in lowered:
+        if 2 <= len(value) <= 32 and value not in generic_cues and value in lowered:
             return True
         for token in re.findall(r"[A-Za-z_][A-Za-z0-9_]{1,31}", value):
-            if token in lowered:
+            if token.casefold() not in generic_cues and _contains_any(lowered, (token,)):
                 return True
     return False
 

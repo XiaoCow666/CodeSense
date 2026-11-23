@@ -54,6 +54,29 @@ def test_effective_question_requires_task_relevance_and_rejects_low_information(
     assert assignment_term.valid_question is True
 
 
+def test_ambiguous_everyday_terms_do_not_count_without_programming_context():
+    messages = [
+        "这张风景图为什么这么好看？",
+        "院子里的树为什么秋天会落叶？",
+        "报名条件为什么这么严格？",
+        "手机返回键为什么没有反应？",
+    ]
+
+    assessments = [assess_stage3_message(message) for message in messages]
+
+    assert all(item.valid_message is False for item in assessments)
+    assert all(item.valid_question is False for item in assessments)
+    assert all(item.reason == "no_learning_signal" for item in assessments)
+
+
+def test_ambiguous_loop_term_counts_with_explicit_programming_context():
+    assessment = assess_stage3_message("为什么循环会多执行一次？")
+
+    assert assessment.valid_message is True
+    assert assessment.valid_question is True
+    assert assessment.reason == "meaningful"
+
+
 def test_oversized_message_can_be_answered_but_cannot_advance_completion():
     assessment = assess_stage3_message(
         "循环" + ("边界" * MAX_ENGAGEMENT_MESSAGE_CHARS),
