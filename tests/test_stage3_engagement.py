@@ -88,6 +88,36 @@ def test_ambiguous_loop_term_counts_with_explicit_programming_context():
     assert assessment.reason == "meaningful"
 
 
+def test_programming_cue_pairs_require_whole_words_and_local_context():
+    english_substrings = assess_stage3_message(
+        "Why are the photograph and anode gray?",
+    )
+    distant_chinese_cues = assess_stage3_message(
+        "为什么手机输入法总失败？聊完这个以后，我还想知道城市边界怎么划分？",
+    )
+
+    assert english_substrings.valid_message is False
+    assert english_substrings.valid_question is False
+    assert distant_chinese_cues.valid_message is False
+    assert distant_chinese_cues.valid_question is False
+
+
+def test_code_shape_requires_an_expression_around_operator_symbols():
+    separators = [
+        "Why is Beijing--Shanghai train travel expensive?",
+        "为什么客厅->卧室的路线这么绕？",
+        "为什么周一::周二的安排很奇怪？",
+        "为什么苹果 && 香蕉不能一起吃？",
+    ]
+    assessments = [assess_stage3_message(message) for message in separators]
+    expression = assess_stage3_message("为什么 count-- 会改变结果？")
+
+    assert all(item.valid_message is False for item in assessments)
+    assert all(item.valid_question is False for item in assessments)
+    assert expression.valid_message is True
+    assert expression.valid_question is True
+
+
 def test_oversized_message_can_be_answered_but_cannot_advance_completion():
     assessment = assess_stage3_message(
         "循环" + ("边界" * MAX_ENGAGEMENT_MESSAGE_CHARS),

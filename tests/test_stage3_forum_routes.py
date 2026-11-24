@@ -243,6 +243,47 @@ def test_four_ambiguous_off_task_questions_do_not_complete_stage_three(stage3_fo
         ).count() == 0
 
 
+def test_four_separator_questions_do_not_complete_stage_three(stage3_forum_context):
+    app, _, session_id, _ = stage3_forum_context
+    started = datetime(2026, 11, 22, 8, 0, 0)
+    separator_questions = [
+        "Why is Beijing--Shanghai train travel expensive?",
+        "为什么客厅->卧室的路线这么绕？",
+        "为什么周一::周二的安排很奇怪？",
+        "为什么苹果 && 香蕉不能一起吃？",
+    ]
+
+    with app.app_context():
+        session = db.session.get(ThinkingSession, session_id)
+        for index, question in enumerate(separator_questions, start=1):
+            db.session.add(ThinkingStageLog(
+                session_id=session_id,
+                stage=3,
+                event_type="agent_user_message",
+                role="student",
+                content=question,
+                metadata_json=json.dumps({"request_id": f"separator-{index}"}),
+                created_at=started + timedelta(minutes=index),
+            ))
+        db.session.commit()
+
+        summary = thinking_routes._maybe_complete_stage3_from_engagement(
+            session,
+            "separator-4",
+        )
+        saved = db.session.get(ThinkingSession, session_id)
+
+        assert summary["effective_message_count"] == 0
+        assert summary["effective_question_count"] == 0
+        assert summary["questions_complete"] is False
+        assert saved.stage3_completed is False
+        assert saved.status == "in_progress"
+        assert ThinkingStageLog.query.filter_by(
+            session_id=session_id,
+            event_type="stage_pass",
+        ).count() == 0
+
+
 def test_engagement_completion_requires_an_active_stage_three_session(stage3_forum_context):
     app, _, session_id, _ = stage3_forum_context
     started = datetime(2026, 11, 22, 8, 0, 0)

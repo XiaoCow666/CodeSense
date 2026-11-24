@@ -29,7 +29,7 @@ ACTIVE_CONVERSATION_TARGET_SECONDS = 10 * 60
 ACTIVE_CONVERSATION_MAX_GAP_SECONDS = 3 * 60
 ACTIVE_CONVERSATION_MIN_MESSAGES = 3
 MAX_ENGAGEMENT_MESSAGE_CHARS = 2_000
-ASSESSMENT_VERSION = 5
+ASSESSMENT_VERSION = 6
 ASSESSMENT_SOURCE = "server_stage3_engagement"
 
 _QUESTION_INTENTS = frozenset({INTENT_ASK_TEACHER, INTENT_ASK_STUDENT})
@@ -411,10 +411,32 @@ def _contains_ambiguous_task_cue(text: str) -> bool:
 
 def _contains_programming_cue_pair(text: str) -> bool:
     lowered = str(text or "").casefold()
-    return any(
-        all(str(value).casefold() in lowered for value in pair)
-        for pair in _PROGRAMMING_CUE_PAIRS
-    )
+    for first, second in _PROGRAMMING_CUE_PAIRS:
+        first_spans = _cue_spans(lowered, first)
+        second_spans = _cue_spans(lowered, second)
+        for first_start, first_end in first_spans:
+            for second_start, second_end in second_spans:
+                if first_end <= second_start:
+                    gap = lowered[first_end:second_start]
+                elif second_end <= first_start:
+                    gap = lowered[second_end:first_start]
+                else:
+                    gap = ""
+                if _substantive_length(gap) <= 12:
+                    return True
+    return False
+
+
+def _cue_spans(text: str, cue: str) -> list[tuple[int, int]]:
+    normalized = " ".join(str(cue or "").split()).strip().casefold()
+    if not normalized:
+        return []
+    if re.fullmatch(r"[a-z0-9_ ]+", normalized):
+        words = r"\s+".join(re.escape(part) for part in normalized.split())
+        pattern = rf"(?<![a-z0-9_]){words}(?![a-z0-9_])"
+    else:
+        pattern = re.escape(normalized)
+    return [match.span() for match in re.finditer(pattern, text)]
 
 
 def _compact(value: str) -> str:
@@ -435,10 +457,19 @@ def _looks_like_gibberish(value: str) -> bool:
 
 def _has_code_shape(value: str) -> bool:
     text = str(value or "")
+    identifier = r"[A-Za-z_][A-Za-z0-9_]*"
+    operand = rf"(?:{identifier}|\d+(?:\.\d+)?)"
     return bool(
-        re.search(r"[A-Za-z_]\w*\s*(?:<=|>=|==|!=|<|>)\s*[A-Za-z0-9_]", text)
-        or re.search(r"[A-Za-z_]\w*\s*\([^\r\n]{0,80}\)", text)
-        or re.search(r"(?:\+\+|--|->|::|&&|\|\|)", text)
+        re.search(rf"{operand}\s*(?:<=|>=|==|!=|<|>)\s*{operand}", text)
+        or re.search(rf"{identifier}\s*\([^\r\n]{{0,80}}\)", text)
+        or re.search(
+            rf"(?:{identifier}\s*(?:\+\+|--)(?!\s*[A-Za-z0-9_])"
+            rf"|(?<![A-Za-z0-9_])(?:\+\+|--)\s*{identifier})",
+            text,
+        )
+        or re.search(rf"{identifier}\s*->\s*{identifier}", text)
+        or re.search(rf"{identifier}\s*::\s*{identifier}", text)
+        or re.search(rf"{operand}\s*(?:&&|\|\|)\s*{operand}", text)
     )
 
 
