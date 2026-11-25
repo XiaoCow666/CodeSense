@@ -63,11 +63,15 @@ from services.learning_graph import (
 from services.learning_capture import (
     LearningCaptureConflict,
     captured_ai_sse_response,
+    claim_submission_evaluation,
+    fail_unstarted_submission_evaluation,
     finish_ai_turn,
     positive_id,
     record_submission,
+    record_submission_acceptance,
     record_submission_event,
     start_ai_turn,
+    submission_evaluation_started,
 )
 from tasks.submission_tasks import (
     evaluate_submission_async,
@@ -811,11 +815,11 @@ def submit_code():
             status='pending'
         )
         
-        # Commit the attempt and exact submitted version before starting evaluation.
+        # Persist the submitted version and its evaluation intent together.
         submission, created = record_submission(submission, **_capture_options(data))
         submission_id = submission.id
         if created:
-            record_submission_event(submission_id, "submitted", status="accepted")
+            record_submission_acceptance(submission_id)
         db.session.commit()
 
         demo_run_id = current_demo_run_id()
@@ -825,66 +829,36 @@ def submit_code():
                 'SUBMISSION_EVALUATION_QUEUE_BACKEND', 'thread'
             ) == 'rq'
         )
-        if not created:
-            if submission.status == "pending" and uses_queue:
-                return api_response(
-                    message="代码已提交，后台评测中",
-                    data={
-                        "submission_id": submission_id,
-                        "status": "queued",
-                        "operation_id": submission_operation_id(submission_id),
-                    },
-                    code=202,
-                )
-            return api_response(
-                message="这次代码提交已受理",
-                data={
-                    "submission_id": submission_id,
-                    "score": submission.score,
-                    "status": submission.status,
-                },
-            )
-        if uses_queue:
-            try:
-                job = evaluate_submission_async(
-                    current_app._get_current_object(),
-                    submission.id,
-                    assignment.title,
-                    demo_run_id=None,
-                )
-            except SubmissionQueueUnavailable:
-                # The row was committed before queueing so the worker can
-                # resolve it by id.  If queueing fails, close the same state
-                # transition here; otherwise the student would poll a
-                # permanently pending submission with no job behind it.
-                submission.status = 'failed'
-                submission.feedback = '后台评测启动失败，请稍后重试。'
-                db.session.commit()
-                current_app.logger.warning(
-                    '提交 %s 的评测队列不可用，已标记为 failed',
-                    submission.id,
-                )
-                return error_response(
-                    "提交评测队列暂时不可用，请稍后重试",
-                    503,
-                )
+        if uses_queue and submission.status == "pending":
+            operation_id = submission_operation_id(submission_id)
+            if not submission_evaluation_started(submission_id):
+                try:
+                    job = evaluate_submission_async(
+                        current_app._get_current_object(), submission_id, assignment.title, demo_run_id=None,
+                    )
+                    operation_id = job.operation_id
+                except SubmissionQueueUnavailable:
+                    fail_unstarted_submission_evaluation(submission_id, '后台评测启动失败，请稍后重试。')
+                    current_app.logger.warning('提交 %s 的评测队列不可用', submission_id)
+                    return error_response("提交评测队列暂时不可用，请稍后重试", 503)
             return api_response(
                 success=True,
                 message="代码已提交，后台评测中",
                 data={
-                    'submission_id': submission.id,
+                    'submission_id': submission_id,
                     'status': 'queued',
-                    'operation_id': job.operation_id,
+                    'operation_id': operation_id,
                 },
                 code=202,
+            )
+        if uses_queue or not claim_submission_evaluation(submission_id, run_id="inline"):
+            return api_response(
+                message="这次代码提交已受理",
+                data={"submission_id": submission_id, "score": submission.score, "status": submission.status},
             )
         
         # The inline endpoint keeps its legacy scoring contract. Sandbox evidence
         # is collected independently so an AI outage cannot erase it.
-        record_submission_event(
-            submission_id, "evaluation_started", run_id="inline", status="running",
-        )
-        db.session.commit()
         try:
             observe_submission_sandbox(
                 submission_id, assignment_id, code, run_id="inline", language=language,

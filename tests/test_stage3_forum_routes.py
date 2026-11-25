@@ -16,7 +16,7 @@ from models import (
     db,
 )
 from routes import thinking as thinking_routes
-from utils.agents.contracts import AgentResult, AgentRole
+from utils.agents.contracts import AgentDecision, AgentResult, AgentRole
 from utils.agents.feynman import FeynmanCallbacks, build_feynman_runtime
 from utils.agents.orchestrator import ForumTurnResult
 
@@ -214,6 +214,75 @@ def test_stage3_forum_message_rejects_cross_session_reply_event(stage3_forum_con
         status=400,
         error_body={"error": "回复目标不存在", "error_code": "REPLY_EVENT_NOT_FOUND"},
     )
+
+
+@pytest.mark.parametrize("stored_status", ["generating", "completed", "failed", "interrupted"])
+def test_stage3_forum_replay_binds_request_to_role_and_reply(stage3_forum_context, monkeypatch, stored_status):
+    app, client, session_id, _ = stage3_forum_context
+    with app.app_context():
+        targets = [
+            ThinkingStageLog(
+                session_id=session_id, stage=3, event_type="agent_message", role="teacher_agent",
+                content=f"先前的论坛回复 {number}",
+                metadata_json=json.dumps({
+                    "request_id": f"parent-{number}",
+                    "source_role": "teacher_agent",
+                    "target_role": "user",
+                    "message_kind": "agent_message",
+                    "visibility": "public",
+                }),
+            ) for number in (1, 2)
+        ]
+        db.session.add_all(targets)
+        db.session.commit()
+        first_target, other_target = [str(event.id) for event in targets]
+
+    calls = []
+
+    def decide(**kwargs):
+        calls.append(kwargs)
+        return AgentDecision(message="判断循环边界时，试着手算最后一次迭代。")
+
+    def runtime_factory(session, assignment, preset):
+        return build_feynman_runtime(session, assignment, preset, model=SimpleNamespace(decide=decide))
+
+    monkeypatch.setattr(thinking_routes, "build_feynman_runtime", runtime_factory)
+    path = "/thinking/api/stage3/forum/message"
+    payload = {
+        "session_id": session_id,
+        "message": "如何判断循环边界？",
+        "target_role": "teacher_agent",
+        "reply_to_event_id": first_target,
+        "request_id": "forum-routing-replay",
+    }
+    first = client.post(path, json=payload)
+    assert first.status_code == 200
+    assert first.json["primary"]["success"] is True
+    assert len(calls) == 1
+    with app.app_context():
+        turn = AIChatTurn.query.one()
+        assert turn.status == "completed"
+        turn_id = turn.id
+        log_ids = {item.id for item in ThinkingStageLog.query.filter_by(session_id=session_id)}
+        turn.status = stored_status
+        db.session.commit()
+
+    for changed in ({"target_role": "student_agent"}, {"reply_to_event_id": other_target}):
+        response = client.post(path, json={**payload, **changed})
+        assert response.status_code == 409
+        assert response.json["error_code"] == "LEARNING_ATTEMPT_CONFLICT"
+
+    if stored_status == "completed":
+        retry = client.post(path, json={**payload, "reply_to_event_id": int(first_target)})
+        assert retry.status_code == 200
+        assert retry.json["primary"] == first.json["primary"]
+
+    with app.app_context():
+        turn = AIChatTurn.query.one()
+        assert turn.id == turn_id
+        assert turn.status == stored_status
+        assert {item.id for item in ThinkingStageLog.query.filter_by(session_id=session_id)} == log_ids
+    assert len(calls) == 1
 
 
 def test_forum_student_reply_is_not_blocked_by_legacy_fuzzy_repetition_guard(stage3_forum_context):

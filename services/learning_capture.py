@@ -402,6 +402,49 @@ def record_submission_event(
     return event
 
 
+def record_submission_acceptance(submission_id):
+    """Persist acceptance and evaluation intent in the submission transaction."""
+    record_submission_event(submission_id, "submitted", status="accepted")
+    record_submission_event(submission_id, "evaluation_pending", status="pending")
+
+
+def submission_evaluation_started(submission_id, *, for_update=False):
+    events = SubmissionEvent.query.filter_by(submission_id=submission_id, event_type="evaluation_started")
+    if for_update:
+        events = events.with_for_update()
+    return events.first() is not None
+
+
+def _unstarted_submission_for_update(submission_id):
+    _begin_sqlite_write()
+    submission = Submission.query.filter_by(id=submission_id).populate_existing().with_for_update().first()
+    if (
+        submission is not None and submission.status == "pending"
+        and not submission_evaluation_started(submission_id, for_update=True)
+    ):
+        return submission
+    return None
+
+
+def claim_submission_evaluation(submission_id, *, run_id):
+    """Allow only one evaluator to start for this submission across processes."""
+    claimed = _unstarted_submission_for_update(submission_id) is not None
+    if claimed:
+        record_submission_event(submission_id, "evaluation_started", run_id=run_id, status="running")
+    db.session.commit()
+    return claimed
+
+
+def fail_unstarted_submission_evaluation(submission_id, message):
+    """Record a dispatch failure without overwriting another request's evaluation."""
+    submission = _unstarted_submission_for_update(submission_id)
+    if submission is not None:
+        record_submission_event(submission_id, "queue_failed", status="failed", error_code="queue_unavailable")
+        submission.status = "failed"
+        submission.feedback = message
+    db.session.commit()
+
+
 def start_ai_turn(
     student_id, assignment_id=None, *, channel, question=None, code=None, language=None,
     attempt_id=None, conversation_id=None, request_id=None, stage=None, context=None,
@@ -437,10 +480,16 @@ def start_ai_turn(
         or turn.code_version_id != row.code_version_id
     ):
         raise LearningCaptureConflict("对话请求编号已用于其他内容")
-    if turn.status == "interrupted":
+    if turn.channel == "feynman_forum" or turn.status == "interrupted":
         previous_context = json.loads(turn.context_json or "{}")
-        if previous_context.pop("interrupted_before_stream_start", False):
-            if turn.stage != row.stage or previous_context != (context or {}):
+        current_context = context or {}
+        if turn.channel == "feynman_forum" and any(
+            previous_context.get(key) != current_context.get(key)
+            for key in ("target_role", "reply_to_event_id")
+        ):
+            raise LearningCaptureConflict("对话请求编号已用于其他内容")
+        if turn.status == "interrupted" and previous_context.pop("interrupted_before_stream_start", False):
+            if turn.stage != row.stage or previous_context != current_context:
                 raise LearningCaptureConflict("对话请求编号已用于其他内容")
             turn.status = "generating"
             turn.response = None

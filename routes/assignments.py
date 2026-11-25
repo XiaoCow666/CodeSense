@@ -30,10 +30,16 @@ from utils.access import (
     managed_classes as accessible_classes,
 )
 from utils.code_evaluator import evaluate_cpp_code
-from tasks.submission_tasks import evaluate_submission_async, mark_submission_failed
+from tasks.submission_tasks import evaluate_submission_async
 from services.demo_database import current_demo_run_id
 from services.demo_experience import ensure_demo_guided_preset, is_demo_guided_assignment
-from services.learning_capture import LearningCaptureConflict, record_submission, record_submission_event
+from services.learning_capture import (
+    LearningCaptureConflict,
+    fail_unstarted_submission_evaluation,
+    record_submission,
+    record_submission_acceptance,
+    submission_evaluation_started,
+)
 from services.submission_reviews import (
     REVIEW_STATUS_LABELS,
     REVIEW_STATUS_OPTIONS,
@@ -737,9 +743,9 @@ def submit_code(assignment_id):
                 ),
             )
             if created:
-                record_submission_event(submission.id, 'submitted', status='accepted')
+                record_submission_acceptance(submission.id)
             db.session.commit()
-            if not created:
+            if submission.status != 'pending' or submission_evaluation_started(submission.id):
                 return redirect(url_for('assignments.evaluating_submission', submission_id=submission.id))
             
             # 2. 触发后台异步评测
@@ -757,7 +763,7 @@ def submit_code(assignment_id):
             except Exception as async_err:
                 print(f"启动异步评测失败: {async_err}")
                 try:
-                    mark_submission_failed(
+                    fail_unstarted_submission_evaluation(
                         submission.id,
                         '后台评测启动失败，请稍后重试。',
                     )

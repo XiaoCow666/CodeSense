@@ -13,7 +13,12 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from models import Assignment, Submission, SystemLog, TestCase as TC, User, db
 from services.demo_database import activate_demo_run, is_active_demo_run
-from services.learning_capture import get_annotation_revision, record_submission_event
+from services.learning_capture import (
+    claim_submission_evaluation,
+    fail_unstarted_submission_evaluation,
+    get_annotation_revision,
+    record_submission_event,
+)
 from utils import code_evaluator
 from utils.code_evaluator import evaluate_cpp_code
 from utils.sandbox_runner import run_test_cases
@@ -138,11 +143,7 @@ def _record_queue_event(app, submission_id, demo_run_id, status):
             if db.session.get(Submission, submission_id) is None:
                 return
             if status == "failed":
-                record_submission_event(
-                    submission_id, "queue_failed", status="failed",
-                    error_code="queue_unavailable",
-                )
-                mark_submission_failed(submission_id, "后台评测启动失败，请稍后重试。")
+                fail_unstarted_submission_evaluation(submission_id, "后台评测启动失败，请稍后重试。")
             else:
                 event_type = "queued" if status == "queued" else "queue_requested"
                 record_submission_event(submission_id, event_type, status=status)
@@ -321,14 +322,14 @@ def evaluate_submission_async(
                 if assignment is None:
                     raise RuntimeError("提交对应的作业不存在")
 
+                if not claim_submission_evaluation(submission_id, run_id=run_id):
+                    _log_submission_evaluation_event("skipped", submission_id, started_at, reason="already_started")
+                    return
+
                 code = submission.code
                 student_id = submission.student_id
 
                 print(f"开始后台评估提交 {submission_id}")
-                record_submission_event(
-                    submission_id, "evaluation_started", run_id=run_id, status="running",
-                )
-                db.session.commit()
 
                 # 1. AI 基础评估。公开体验不接受默认分数，AI 失败必须
                 # 让提交进入 failed，方便前端提示用户重新提交。
