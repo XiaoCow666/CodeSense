@@ -410,7 +410,8 @@ def _contains_ambiguous_task_cue(text: str) -> bool:
 
 
 def _contains_programming_cue_pair(text: str) -> bool:
-    lowered = str(text or "").casefold()
+    lowered = " ".join(str(text or "").split()).casefold()
+    sentence_boundaries = frozenset(".!?。！？；;\r\n")
     for first, second in _PROGRAMMING_CUE_PAIRS:
         first_spans = _cue_spans(lowered, first)
         second_spans = _cue_spans(lowered, second)
@@ -421,8 +422,11 @@ def _contains_programming_cue_pair(text: str) -> bool:
                 elif second_end <= first_start:
                     gap = lowered[second_end:first_start]
                 else:
-                    gap = ""
-                if _substantive_length(gap) <= 12:
+                    continue
+                if (
+                    len(gap) <= 12
+                    and not any(boundary in gap for boundary in sentence_boundaries)
+                ):
                     return True
     return False
 
@@ -459,9 +463,15 @@ def _has_code_shape(value: str) -> bool:
     text = str(value or "")
     identifier = r"[A-Za-z_][A-Za-z0-9_]*"
     operand = rf"(?:{identifier}|\d+(?:\.\d+)?)"
+    string_literal = r'''(?:"[^"\r\n]*"|'[^'\r\n]*')'''
+    call_argument = rf"(?:{operand}|{string_literal})"
     return bool(
         re.search(rf"{operand}\s*(?:<=|>=|==|!=|<|>)\s*{operand}", text)
-        or re.search(rf"{identifier}\s*\([^\r\n]{{0,80}}\)", text)
+        or re.search(
+            rf"(?<![A-Za-z0-9_]){identifier}\(\s*"
+            rf"(?:{call_argument}(?:\s*,\s*{call_argument})*)?\s*\)",
+            text,
+        )
         or re.search(
             rf"(?:{identifier}\s*(?:\+\+|--)(?!\s*[A-Za-z0-9_])"
             rf"|(?<![A-Za-z0-9_])(?:\+\+|--)\s*{identifier})",

@@ -284,6 +284,46 @@ def test_four_separator_questions_do_not_complete_stage_three(stage3_forum_conte
         ).count() == 0
 
 
+def test_four_natural_parenthetical_questions_do_not_complete_stage_three(stage3_forum_context):
+    app, _, session_id, _ = stage3_forum_context
+    started = datetime(2026, 11, 22, 8, 0, 0)
+    off_task_questions = [
+        "Why is the train (the late one) always delayed?",
+        "Could the bus (the express one) stop here?",
+        "Is the movie (the longer cut) available today?",
+        "Did the cafe (the one nearby) close early?",
+    ]
+
+    with app.app_context():
+        session = db.session.get(ThinkingSession, session_id)
+        for index, question in enumerate(off_task_questions, start=1):
+            db.session.add(ThinkingStageLog(
+                session_id=session_id,
+                stage=3,
+                event_type="agent_user_message",
+                role="student",
+                content=question,
+                metadata_json=json.dumps({"request_id": f"parenthetical-{index}"}),
+                created_at=started + timedelta(minutes=index),
+            ))
+        db.session.commit()
+
+        summary = thinking_routes._maybe_complete_stage3_from_engagement(
+            session,
+            "parenthetical-4",
+        )
+        saved = db.session.get(ThinkingSession, session_id)
+
+        assert summary["effective_question_count"] == 0
+        assert summary["questions_complete"] is False
+        assert saved.stage3_completed is False
+        assert saved.status == "in_progress"
+        assert ThinkingStageLog.query.filter_by(
+            session_id=session_id,
+            event_type="stage_pass",
+        ).count() == 0
+
+
 def test_engagement_completion_requires_an_active_stage_three_session(stage3_forum_context):
     app, _, session_id, _ = stage3_forum_context
     started = datetime(2026, 11, 22, 8, 0, 0)
