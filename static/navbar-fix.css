@@ -20,7 +20,7 @@
     .navbar-nav {
         display: flex !important;
         flex-direction: row !important;
-        flex-wrap: nowrap !important;
+        flex-wrap: wrap !important;
         justify-content: center !important;
         grid-column: 1 / -1;
         grid-row: 2;
@@ -43,6 +43,12 @@
         padding: 0 !important;
         text-align: center !important;
         vertical-align: middle !important;
+    }
+
+    .navbar-nav > .navbar-learning-links {
+        display: flex !important;
+        align-items: center;
+        gap: 12px;
     }
 
     .navbar-link {

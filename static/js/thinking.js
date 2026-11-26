@@ -11,6 +11,8 @@
     // ============================================================
     const MAX_PUBLIC_FORUM_EVENTS = 80;
     const SYNTHETIC_FORUM_EVENT_PREFIXES = ['local-', 'forum-welcome-'];
+    const captureStages = { 1: 'solution_description', 2: 'block_programming', 3: 'feynman' };
+    let learningCapture = null;
 
     const state = {
         sessionId: null,
@@ -148,7 +150,9 @@
         if (!container) return;
 
         state.assignmentId = parseInt(container.dataset.assignmentId);
+        learningCapture = window.CodeSenseLearningCapture?.create(state.assignmentId);
         bindSessionLifecycleControls();
+        bindLearningRestart();
         const presetStatus = (container.dataset.presetStatus || '').trim();
 
         if (presetStatus !== 'ready') {
@@ -180,6 +184,21 @@
         }, 3000);
     }
 
+    function bindLearningRestart() {
+        const restart = document.getElementById('restart-learning-attempt');
+        if (!restart || !learningCapture) return;
+        restart.addEventListener('click', async () => {
+            restart.disabled = true;
+            try {
+                await learningCapture.restart();
+                window.location.reload();
+            } catch (error) {
+                showNotification(error.message, 'danger');
+                restart.disabled = false;
+            }
+        });
+    }
+
     function startSession() {
         setLoading(true);
         fetchJSON('/thinking/api/start_session', {
@@ -189,6 +208,9 @@
             if (data.success) {
                 state.sessionId = data.session_id;
                 state.currentStage = data.current_stage;
+                learningCapture?.bindAttempt(data.attempt_id);
+                const restart = document.getElementById('restart-learning-attempt');
+                if (restart && data.attempt_id) restart.disabled = false;
                 state.preset = data.preset;
                 applySessionLifecycle(data.session_lifecycle);
 
@@ -222,7 +244,12 @@
                     applyRestoredForumState(data.forum_state || null, data.user_goal || null);
                 }
 
-                initStage(state.currentStage);
+                if (data.session_lifecycle?.status === 'completed') {
+                    initStage(4);
+                    if (state.timerInterval) clearInterval(state.timerInterval);
+                } else {
+                    initStage(state.currentStage);
+                }
             } else {
                 showError(data.error || '创建会话失败');
             }
@@ -235,6 +262,7 @@
     // Stage Navigation
     // ============================================================
     function initStage(stage) {
+        learningCapture?.setStage(captureStages[stage] || null);
         state.currentStage = stage;
         updateProgressUI(stage);
 
@@ -261,7 +289,7 @@
             if (goalPanel) goalPanel.classList.add('active');
             if (guidePanel) guidePanel.classList.add('active');
         } else {
-            if (companionPanel) companionPanel.classList.add('active');
+            if (companionPanel) companionPanel.classList.toggle('active', stage < 4);
             if (goalPanel) goalPanel.classList.remove('active');
             if (guidePanel) guidePanel.classList.remove('active');
         }
@@ -274,7 +302,7 @@
             body.classList.toggle('feynman-layout', stage === 3);
             const companionToggle = document.getElementById('toggle-companion-panel');
             if (companionToggle) {
-                companionToggle.hidden = stage === 3;
+                companionToggle.hidden = stage >= 3;
             }
             const previewToggle = document.getElementById('toggle-stage2-preview');
             if (previewToggle) {
@@ -667,7 +695,8 @@
             method: 'POST',
             body: JSON.stringify({
                 session_id: state.sessionId,
-                description: aggregatedDescription
+                description: aggregatedDescription,
+                track_hint_display: true
             })
         }).then(data => {
             if (data.success) {
@@ -749,6 +778,7 @@
             if (data.success !== false && hint) {
                 if (!hintPreview) hintPreview = createCompanionStreamingMessage();
                 hintPreview(hint);
+                learningCapture?.markHintShown(state.sessionId, 1, data.hint_event_id);
                 if (!state.companionMessages) state.companionMessages = [];
                 state.companionMessages.push({ role: 'user', content: '我在撰写思路描述时遇到困难，请给我一些引导提示。' });
                 state.companionMessages.push({ role: 'assistant', content: hint });
@@ -1050,7 +1080,8 @@
             body: JSON.stringify({
                 session_id: state.sessionId,
                 current_blocks: Object.keys(answers),
-                quiz_state: currentState
+                quiz_state: currentState,
+                track_hint_display: true
             })
         }, {
             onDelta: event => {
@@ -1063,6 +1094,7 @@
             if (data.success !== false && hint) {
                 if (!hintPreview) hintPreview = createCompanionStreamingMessage();
                 hintPreview(hint);
+                learningCapture?.markHintShown(state.sessionId, 2, data.hint_event_id);
                 if (!state.companionMessages) state.companionMessages = [];
                 state.companionMessages.push({ role: 'user', content: '\u6211\u5728\u6784\u5efa\u7a0b\u5e8f\u65f6\u9047\u5230\u56f0\u96be\uff0c\u8bf7\u7ed9\u6211\u4e00\u4e9b\u5f15\u5bfc\u63d0\u793a\u3002' });
                 state.companionMessages.push({ role: 'assistant', content: hint });
@@ -1158,6 +1190,7 @@
         const requestBody = {
             session_id: state.sessionId,
             messages: messages,
+            request_id: newAgentRequestId('companion'),
             current_stage: state.currentStage,
             student_state: collectStudentState()
         };
@@ -1542,6 +1575,7 @@
     }
 
     function completeSession() {
+        learningCapture?.stop('stage_changed');
         const elapsed = Math.floor((Date.now() - state.startTime) / 1000);
         fetchJSON('/thinking/api/complete_session', {
             method: 'POST',

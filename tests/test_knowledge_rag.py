@@ -5,7 +5,9 @@ import pytest
 from app import create_app
 from config import TestingConfig as _TestingConfig
 from models import (
+    AIChatTurn,
     Assignment,
+    AssignmentAnnotationRevision,
     AssignmentKnowledgePoint,
     KnowledgePointScore,
     Submission,
@@ -548,6 +550,8 @@ def test_ask_question_continues_with_answer_only_when_knowledge_source_is_unavai
     knowledge_context, monkeypatch
 ):
     app, client, assignment_id = knowledge_context
+    code = "int main(){return 0;}"
+    question = "边界值怎么检查？"
 
     class BrokenQuery:
         def filter_by(self, **_kwargs):
@@ -569,8 +573,8 @@ def test_ask_question_continues_with_answer_only_when_knowledge_source_is_unavai
         "/api/ask_question",
         json={
             "assignment_id": assignment_id,
-            "code": "int main(){return 0;}",
-            "question": "边界值怎么检查？",
+            "code": code,
+            "question": question,
         },
     )
 
@@ -579,7 +583,20 @@ def test_ask_question_continues_with_answer_only_when_knowledge_source_is_unavai
     assert retrieval["status"] == "unavailable"
     assert retrieval["fallback"]["code"] == "KNOWLEDGE_RETRIEVAL_UNAVAILABLE"
     assert retrieval["metrics"]["retrieval_error_fallback"] is True
-    assert "知识证据暂时不可用" in response.json["data"]["answer"]
+    answer = response.json["data"]["answer"]
+    assert "知识证据暂时不可用" in answer
+    assert "请先检查边界条件。" in answer
+    with app.app_context():
+        turn = AIChatTurn.query.filter_by(student_id="rag-student", channel="assignment_question").one()
+        assert turn.status == "completed"
+        assert turn.question == question
+        assert turn.response == answer
+        assert turn.attempt.assignment_id == assignment_id
+        assert turn.attempt.attempt_no == 1
+        assert turn.attempt.annotation_revision_id is None
+        assert turn.code_version.attempt_id == turn.attempt_id
+        assert turn.code_version.source_code == code
+        assert not AssignmentAnnotationRevision.query.filter_by(assignment_id=assignment_id).count()
 
 
 def test_failed_previous_revision_is_visible_in_student_learning_receipt():

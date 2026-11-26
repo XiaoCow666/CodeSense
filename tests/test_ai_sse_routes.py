@@ -2,12 +2,16 @@ import json
 from types import SimpleNamespace
 
 import pytest
+from flask import session
+from sqlalchemy.exc import SQLAlchemyError
 
 from app import create_app
 from config import TestingConfig as _TestingConfig
-from models import Assignment, AssignmentThinkingPreset, User, ThinkingSession, db
+from models import AIChatTurn, Assignment, AssignmentThinkingPreset, User, ThinkingSession, db
 from routes import api as api_routes
 from routes import thinking as thinking_routes
+from services import demo_database
+from services.learning_capture import captured_ai_sse_response, start_ai_turn
 
 
 @pytest.fixture
@@ -58,6 +62,124 @@ def _events(response):
     ]
 
 
+def _post_without_iterating(app, client, path, payload):
+    with client.session_transaction() as client_session:
+        login_session = dict(client_session)
+    with app.test_request_context(
+        path, method="POST", json=payload, environ_base=client.environ_base,
+        headers={"Accept": "text/event-stream"},
+    ):
+        session.update(login_session)
+        # The test client's unbuffered WSGI helper reads the first SSE frame.
+        return app.full_dispatch_request()
+
+
+@pytest.mark.parametrize("channel", ["guidance", "companion", "feynman"])
+def test_ai_stream_close_before_iteration_reuses_the_turn(ai_sse_context, monkeypatch, channel):
+    app, client, session_id, assignment_id = ai_sse_context
+    request_id = f"unstarted-{channel}"
+    reply = "先检查循环边界。"
+    calls = []
+
+    def model_stream(*args, **kwargs):
+        calls.append(channel)
+        return iter([reply])
+
+    payload = {"request_id": request_id}
+    if channel == "guidance":
+        path = "/api/get_programming_guidance"
+        payload.update(assignment_id=assignment_id, code="int main(){return 0;}")
+        monkeypatch.setattr(api_routes, "generate_guidance_stream", model_stream)
+    elif channel == "companion":
+        path = "/thinking/api/companion/chat"
+        payload.update(session_id=session_id, messages=[{"role": "user", "content": "怎样开始？"}])
+        monkeypatch.setattr(thinking_routes, "companion_agent_chat_stream", model_stream)
+    else:
+        path = "/thinking/api/stage3/forum/message"
+        payload.update(session_id=session_id, message="为什么？", target_role="teacher_agent")
+        with app.app_context():
+            thinking_session = db.session.get(ThinkingSession, session_id)
+            thinking_session.current_stage = 3
+            thinking_session.stage2_completed = True
+            db.session.commit()
+
+        def forum_reply(*args, **kwargs):
+            calls.append(channel)
+            return {"success": True, "response": reply}
+
+        monkeypatch.setattr(thinking_routes, "_run_stage3_forum_turn", forum_reply)
+
+    first = _post_without_iterating(app, client, path, payload)
+    assert first.status_code == 200
+    assert first.mimetype == "text/event-stream"
+    first.close()
+    assert calls == []
+    with app.app_context():
+        turn = AIChatTurn.query.filter_by(request_id=request_id).one()
+        turn_id = turn.id
+        assert turn.status == "interrupted"
+        assert turn.response is None
+        assert json.loads(turn.context_json)["interrupted_before_stream_start"] is True
+
+    if channel == "feynman":
+        changed_target = client.post(path, json={**payload, "target_role": "student_agent"})
+        assert changed_target.status_code == 409
+
+    retry = _post_without_iterating(app, client, path, payload)
+    assert retry.status_code == 200
+    first.close()
+    assert client.post(path, json=payload).status_code == 409
+    with app.app_context():
+        turn = AIChatTurn.query.filter_by(request_id=request_id).one()
+        assert turn.id == turn_id
+        assert turn.status == "generating"
+        assert turn.answered_at is None
+
+    assert _events(retry)[-1]["type"] == "done"
+    retry.close()
+    with app.app_context():
+        turn = AIChatTurn.query.filter_by(request_id=request_id).one()
+        assert turn.id == turn_id
+        assert turn.status == "completed"
+        assert reply in turn.response
+        assert "interrupted_before_stream_start" not in json.loads(turn.context_json or "{}")
+    assert calls == [channel]
+
+
+@pytest.mark.parametrize("expired", [False, True])
+def test_ai_stream_close_before_iteration_stays_in_demo_database(ai_sse_context, monkeypatch, expired):
+    app, _, _, _ = ai_sse_context
+    with app.app_context():
+        formal, _ = start_ai_turn("sse-student", channel="code_assistant", question="formal")
+        formal_id = formal.id
+        db.session.commit()
+
+    run = demo_database.create_demo_run("student")
+    try:
+        with app.test_request_context("/"):
+            session[demo_database.DEMO_SESSION_KEY] = run.run_id
+            assert demo_database.activate_demo_run(run.run_id)
+            student = User(student_id=run.student_id, username=run.student_id, usertype="学生")
+            student.password = "password"
+            db.session.add(student)
+            demo, _ = start_ai_turn(run.student_id, channel="code_assistant", question="demo")
+            assert demo.id == formal_id
+            db.session.commit()
+            response = captured_ai_sse_response(demo.id, iter(()))
+
+        if expired:
+            monkeypatch.setattr(demo_database, "_is_expired", lambda *args: True)
+        response.close()
+        with app.app_context():
+            assert db.session.get(AIChatTurn, formal_id).status == "generating"
+            assert demo_database.activate_demo_run(run.run_id)
+            assert db.session.get(AIChatTurn, formal_id).status == (
+                "generating" if expired else "interrupted"
+            )
+    finally:
+        demo_database.destroy_demo_run(run.run_id)
+
+
 @pytest.fixture
 def teacher_client(ai_sse_context):
     app, _, _, _ = ai_sse_context
@@ -102,6 +224,44 @@ def test_guidance_sse_streams_deltas_and_keeps_json_compatibility(ai_sse_context
     assert legacy.status_code == 200
     assert legacy.is_json
     assert legacy.json["data"]["guidance"] == "完整指导"
+
+
+@pytest.mark.parametrize(("delivered", "expected_status"), [("检查循环边界。", "interrupted"), ("", "failed")])
+def test_learning_capture_sse_recovers_when_terminal_commit_fails(
+    ai_sse_context, monkeypatch, delivered, expected_status,
+):
+    app, client, _, assignment_id = ai_sse_context
+    monkeypatch.setattr(api_routes, "generate_guidance_stream", lambda **_: iter([delivered] if delivered else []))
+    real_commit = db.session.commit
+    terminal_statuses = []
+
+    def fail_first_terminal_commit():
+        turn = next((row for row in db.session.dirty if isinstance(row, AIChatTurn)), None)
+        if turn is not None:
+            terminal_statuses.append(turn.status)
+            if len(terminal_statuses) == 1:
+                raise SQLAlchemyError("terminal commit failed")
+        return real_commit()
+
+    monkeypatch.setattr(db.session, "commit", fail_first_terminal_commit)
+    response = client.post(
+        "/api/get_programming_guidance",
+        json={"assignment_id": assignment_id, "code": "int main(){return 0;}", "request_id": "save-failure"},
+        headers={"Accept": "text/event-stream"},
+        buffered=True,
+    )
+
+    assert response.status_code == 200
+    assert response.mimetype == "text/event-stream"
+    events = _events(response)
+    assert [event["type"] for event in events] == (["start", "delta", "error"] if delivered else ["start", "error"])
+    assert events[-1]["error"] == "LEARNING_CAPTURE_FAILED"
+    assert terminal_statuses == ["completed", expected_status]
+    with app.app_context():
+        turn = AIChatTurn.query.filter_by(request_id="save-failure").one()
+        assert turn.status == expected_status
+        assert turn.response == delivered
+        assert turn.answered_at is not None
 
 
 def test_assignment_generation_streams_model_tokens(monkeypatch, teacher_client):
