@@ -1411,6 +1411,13 @@ def notifications():
     )
 
 
+@main.route('/knowledge-graph')
+@login_required
+def knowledge_graph():
+    """Browse the course knowledge graph."""
+    return render_template('course_knowledge_graph.html')
+
+
 @main.route('/action-center')
 @login_required
 def action_center():

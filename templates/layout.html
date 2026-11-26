@@ -150,7 +150,13 @@
                     <li><a href="{{ url_for('assignments.teacher_review_queue') }}"
                             class="navbar-link {% if request.path.startswith('/teacher/reviews') %}active{% endif %}">提交复核</a></li>
                     {% endif %}
-                    <li>
+                    <li class="navbar-learning-links">
+                        <a href="{{ url_for('main.knowledge_graph') }}"
+                            class="navbar-link{% if request.endpoint == 'main.knowledge_graph' %} active{% endif %}"
+                            {% if request.endpoint == 'main.knowledge_graph' %}aria-current="page"{% endif %}>
+                            <i class="bi bi-diagram-3" aria-hidden="true"></i>
+                            <span>知识图谱</span>
+                        </a>
                         <a href="{{ url_for('main.action_center') }}"
                             class="navbar-link {% if request.path.startswith('/action-center') %}active{% endif %}"
                             aria-label="行动中心{% if action_center_count %}，{{ action_center_count }} 条待处理{% endif %}">

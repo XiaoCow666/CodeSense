@@ -4,6 +4,7 @@ Blueprint: thinking, URL前缀: /thinking
 """
 import json
 import ipaddress
+import hashlib
 import os
 import traceback
 import uuid
@@ -13,10 +14,11 @@ import math
 
 from flask import Blueprint, abort, render_template, request, jsonify, session, Response, current_app
 from flask_login import current_user
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload
 
-from models import (db, Assignment, AssignmentThinkingPreset,
-                    ThinkingSession, ThinkingStageLog, Submission, User)
+from models import (db, AIChatTurn, Assignment, AssignmentThinkingPreset,
+                    LearningAttempt, ThinkingSession, ThinkingStageLog, Submission, User)
 from utils.auth import login_required, student_required, teacher_required
 from utils.access import (
     can_access_assignment,
@@ -43,6 +45,10 @@ from services.demo_experience import (
     ensure_demo_guided_preset,
 )
 from services.demo_database import current_demo_run_id, is_active_demo_run
+from services.learning_capture import (
+    LearningCaptureConflict, captured_ai_sse_response, finish_ai_turn, get_annotation_revision,
+    get_attempt, legacy_in_progress_session, start_ai_turn,
+)
 from services.session_lifecycle import (
     LIFECYCLE_STATUSES,
     can_view_session,
@@ -72,11 +78,68 @@ def _request_id(data: dict) -> str:
     return value[:80] if value else uuid.uuid4().hex
 
 
-def _stage3_stream_response(work, start_message='正在处理阶段3对话...'):
+def _start_guided_turn(thinking_session, request_id, *, channel, question, stage, context=None, code=None):
+    attempt_id = thinking_session.attempt_id
+    if attempt_id is None:
+        attempt = get_attempt(thinking_session.student_id, thinking_session.assignment_id)
+        linked_session = ThinkingSession.query.filter_by(attempt_id=attempt.id).first()
+        if attempt.attempt_no != 1 or (linked_session and linked_session.id != thinking_session.id):
+            raise LearningCaptureConflict('做题轮次已更新，请刷新页面')
+        thinking_session.attempt_id = attempt.id
+        attempt_id = attempt.id
+    if len(request_id) > 64 or not re.fullmatch(r'[A-Za-z0-9_.:-]+', request_id):
+        request_id = hashlib.sha256(request_id.encode('utf-8')).hexdigest()
+    turn, created = start_ai_turn(
+        thinking_session.student_id, thinking_session.assignment_id,
+        channel=channel, question=question, stage=stage, attempt_id=attempt_id,
+        request_id=request_id, context=context, code=code,
+    )
+    db.session.commit()
+    return turn, created
+
+
+def _complete_guided_turn(turn_id, response=None, status='completed'):
+    finish_ai_turn(turn_id, response=response, status=status)
+    db.session.commit()
+
+
+def _companion_log_contents(logs, student_id):
+    references = {}
+    for log in logs:
+        if log.event_type == 'companion_chat' and log.content is None:
+            turn_id = log.get_metadata().get('chat_turn_id')
+            if isinstance(turn_id, int):
+                references[log.id] = turn_id
+    if not references:
+        return {}
+    turns = {
+        turn.id: turn for turn in AIChatTurn.query.filter(
+            AIChatTurn.student_id == student_id,
+            AIChatTurn.id.in_(references.values()),
+        )
+    }
+    return {
+        log.id: (turns[references[log.id]].question if log.role == 'student'
+                 else turns[references[log.id]].response)
+        for log in logs if log.id in references and references[log.id] in turns
+    }
+
+
+def _capture_guided_error(turn_id, response=None, status='failed'):
+    if turn_id is None:
+        return
+    try:
+        _complete_guided_turn(turn_id, response, status)
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception('保存引导对话结束状态失败')
+
+
+def _stage3_stream_response(work, start_message='正在处理阶段3对话...', *, turn_id=None):
     """Return a common SSE envelope for structured Stage3 operations."""
     def generate():
-        yield sse_event({'type': 'start', 'message': start_message})
         try:
+            yield sse_event({'type': 'start', 'message': start_message})
             result = work()
             if isinstance(result, dict):
                 payload = {'type': 'done', 'done': True, 'result': result}
@@ -84,8 +147,13 @@ def _stage3_stream_response(work, start_message='正在处理阶段3对话...'):
             else:
                 payload = {'type': 'done', 'done': True, 'result': result}
             yield sse_event(payload)
-        except Exception as error:
+        except GeneratorExit:
             db.session.rollback()
+            _capture_guided_error(turn_id, status='interrupted')
+            raise
+        except Exception:
+            db.session.rollback()
+            _capture_guided_error(turn_id)
             current_app.logger.exception('阶段3流式处理失败')
             yield sse_event({
                 'type': 'error',
@@ -93,7 +161,7 @@ def _stage3_stream_response(work, start_message='正在处理阶段3对话...'):
                 'message': '阶段3处理失败，请稍后重试',
             })
 
-    return sse_response(generate())
+    return captured_ai_sse_response(turn_id, generate())
 
 
 def _unwrap_stage3_error(value):
@@ -104,6 +172,12 @@ def _unwrap_stage3_error(value):
     body = response.get_json(silent=True) if hasattr(response, 'get_json') else None
     message = (body or {}).get('error') or (body or {}).get('message') or '阶段3请求失败'
     raise RuntimeError(message)
+
+
+def _stage3_validation_response(error_response, start_message):
+    if wants_sse():
+        return _stage3_stream_response(lambda: _unwrap_stage3_error(error_response), start_message)
+    return error_response
 
 
 def _apply_generated_preset(preset, result):
@@ -406,15 +480,7 @@ def _stage3_legacy_event_metadata(target_role: AgentRole):
     }
 
 
-def _run_stage3_legacy_turn(data: dict, target_role: AgentRole):
-    message = _extract_stage3_message(data)
-    if not message:
-        return jsonify({'error': '缺少消息'}), 400
-    ts, runtime, error_code = _stage3_runtime(data)
-    if error_code:
-        return _stage3_runtime_error_response(error_code)
-
-    request_id = _request_id(data)
+def _run_stage3_legacy_turn(ts, runtime, message, request_id, target_role: AgentRole):
     if target_role is AgentRole.STUDENT_AGENT:
         guarded = _stage3_student_message_guard(
             ts.id,
@@ -433,32 +499,7 @@ def _run_stage3_legacy_turn(data: dict, target_role: AgentRole):
     return result.to_public_dict()
 
 
-def _run_stage3_forum_turn(
-    data: dict,
-    *,
-    default_target_role: AgentRole | None = None,
-    require_target_role: bool = False,
-):
-    message = _extract_stage3_message(data)
-    if not message:
-        return None, None, (jsonify({'error': '缺少消息'}), 400)
-    ts, runtime, error_code = _stage3_runtime(data)
-    if error_code:
-        return None, None, _stage3_runtime_error_response(error_code)
-
-    target_role, target_error = _stage3_target_role(
-        data,
-        default_role=default_target_role,
-        required=require_target_role,
-    )
-    if target_error:
-        return None, None, _stage3_forum_validation_error_response(target_error)
-
-    request_id = _request_id(data)
-    reply_to_event_id = _reply_to_event_id(data)
-    if reply_to_event_id and not _stage3_reply_event_exists(ts.id, reply_to_event_id):
-        return None, None, _stage3_forum_validation_error_response('REPLY_EVENT_NOT_FOUND')
-
+def _run_stage3_forum_turn(ts, runtime, message, request_id, target_role, reply_to_event_id):
     orchestrator = Stage3Orchestrator(runtime)
     try:
         result = orchestrator.handle_user_message(
@@ -468,12 +509,93 @@ def _run_stage3_forum_turn(
             reply_to_event_id=reply_to_event_id,
         )
     except ValueError:
-        return None, None, _stage3_forum_validation_error_response('REPLY_EVENT_NOT_FOUND')
+        return _stage3_forum_validation_error_response('REPLY_EVENT_NOT_FOUND')
     payload = result.to_public_dict()
     payload['user_goal'] = _stage3_user_goal(ts.id)
     payload['forum_state'] = _stage3_forum_state(ts.id)
     payload['session_lifecycle'] = session_lifecycle_payload(ts)
-    return ts, target_role, payload
+    return payload
+
+
+def _record_stage3_reply(turn_id, work):
+    try:
+        payload = work()
+        if not isinstance(payload, dict):
+            _complete_guided_turn(turn_id, status='failed')
+            return payload
+        primary = payload.get('primary')
+        if not isinstance(primary, dict):
+            primary = payload
+        reply = primary.get('response') or primary.get('feedback') or primary.get('message')
+        _complete_guided_turn(
+            turn_id, reply if isinstance(reply, str) else None,
+            'failed' if primary.get('success') is False else 'completed',
+        )
+        return payload
+    except Exception:
+        db.session.rollback()
+        _capture_guided_error(turn_id)
+        raise
+
+
+def _stage3_capture_conflict():
+    db.session.rollback()
+    return jsonify({'error': '做题轮次或请求已更新，请刷新页面', 'error_code': 'LEARNING_ATTEMPT_CONFLICT'}), 409
+
+
+def _dispatch_stage3_chat(target_role=None):
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify({'error': '请求数据格式不正确'}), 400
+    start_message = {
+        None: '论坛Agent正在协同分析...',
+        AgentRole.TEACHER_AGENT: '老师Agent正在整理回复...',
+        AgentRole.STUDENT_AGENT: '小明Agent正在思考追问...',
+    }[target_role]
+    message = _extract_stage3_message(data)
+    if not message:
+        return _stage3_validation_response((jsonify({'error': '缺少消息'}), 400), start_message)
+    ts, runtime, error_code = _stage3_runtime(data)
+    if error_code:
+        return _stage3_validation_response(_stage3_runtime_error_response(error_code), start_message)
+    request_id = _request_id(data)
+
+    if target_role is None:
+        target_role, target_error = _stage3_target_role(data, required=True)
+        if target_error:
+            return _stage3_validation_response(
+                _stage3_forum_validation_error_response(target_error), start_message,
+            )
+        reply_to_event_id = _reply_to_event_id(data)
+        if reply_to_event_id and not _stage3_reply_event_exists(ts.id, reply_to_event_id):
+            return _stage3_validation_response(
+                _stage3_forum_validation_error_response('REPLY_EVENT_NOT_FOUND'), start_message,
+            )
+        channel = 'feynman_forum'
+
+        def work():
+            return _run_stage3_forum_turn(ts, runtime, message, request_id, target_role, reply_to_event_id)
+    else:
+        channel = 'feynman_teacher' if target_role is AgentRole.TEACHER_AGENT else 'feynman_student'
+        reply_to_event_id = None
+
+        def work():
+            return _run_stage3_legacy_turn(ts, runtime, message, request_id, target_role)
+
+    turn, created = _start_guided_turn(
+        ts, request_id, channel=channel, question=message, stage=3,
+        context={'target_role': target_role.value, 'reply_to_event_id': reply_to_event_id},
+    )
+    if not created and turn.status == 'generating':
+        return jsonify({'error': '对话仍在处理中，请稍后重试'}), 409
+    turn_id = turn.id
+    if wants_sse():
+        return _stage3_stream_response(
+            lambda: _unwrap_stage3_error(_record_stage3_reply(turn_id, work)),
+            start_message, turn_id=turn_id,
+        )
+    payload = _record_stage3_reply(turn_id, work)
+    return payload if isinstance(payload, tuple) else jsonify(payload)
 
 
 def _stable_event_order(logs):
@@ -916,12 +1038,13 @@ def arena(assignment_id):
     preset = _check_and_trigger_stale_preset(preset, assignment_id)
     preset_status = preset.status if preset else 'not_found'
 
-    # 检查是否有进行中的会话
-    existing_session = ThinkingSession.query.filter_by(
-        student_id=current_user.student_id,
-        assignment_id=assignment_id,
-        status='in_progress'
-    ).first()
+    attempt = LearningAttempt.query.filter_by(
+        student_id=current_user.student_id, assignment_id=assignment_id,
+    ).order_by(LearningAttempt.attempt_no.desc()).first()
+    existing_session = (
+        ThinkingSession.query.filter_by(attempt_id=attempt.id).first()
+        if attempt else legacy_in_progress_session(current_user.student_id, assignment_id)
+    )
 
     return render_template('thinking/arena.html',
                            assignment=assignment,
@@ -963,16 +1086,40 @@ def start_session():
         if not preset or preset.status != 'ready':
             return jsonify({'error': '学习数据尚未准备好，请稍后再试', 'preset_status': preset.status if preset else 'not_found'}), 503
 
-        # 查找现有进行中的会话
-        existing = ThinkingSession.query.filter_by(
-            student_id=current_user.student_id,
-            assignment_id=assignment_id,
-            status='in_progress'
-        ).first()
+        attempt = get_attempt(
+            current_user.student_id, assignment_id,
+            expected_attempt_id=data.get('attempt_id'),
+        )
+        existing = ThinkingSession.query.filter_by(attempt_id=attempt.id).with_for_update().first()
+        if existing is None and attempt.attempt_no == 1:
+            legacy = legacy_in_progress_session(current_user.student_id, assignment_id, for_update=True)
+            if legacy is not None:
+                try:
+                    with db.session.begin_nested():
+                        legacy.attempt_id = attempt.id
+                        db.session.flush()
+                    existing = legacy
+                except IntegrityError:
+                    existing = ThinkingSession.query.filter_by(attempt_id=attempt.id).one()
+
+        new_session = None
+        if existing is None:
+            try:
+                with db.session.begin_nested():
+                    new_session = ThinkingSession(
+                        student_id=current_user.student_id, assignment_id=assignment_id,
+                        attempt_id=attempt.id, current_stage=1,
+                    )
+                    db.session.add(new_session)
+                    db.session.flush()
+                    _log_event(new_session.id, 1, 'session_start', 'student', '开始引导式学习')
+            except IntegrityError:
+                new_session = None
+                existing = ThinkingSession.query.filter_by(attempt_id=attempt.id).one()
 
         if existing:
-            if _ensure_stage3_initial_prompt(existing, assignment, preset):
-                db.session.commit()
+            _ensure_stage3_initial_prompt(existing, assignment, preset)
+            db.session.commit()
             lifecycle = session_lifecycle_payload(existing)
             forum_history = _stage3_forum_history(existing.id)
             forum_state = _stage3_forum_state(existing.id)
@@ -985,9 +1132,10 @@ def start_session():
                 ThinkingStageLog.created_at.asc(), ThinkingStageLog.id.asc()
             ).all()
             companion_logs = _stable_event_order(companion_logs)
+            companion_contents = _companion_log_contents(companion_logs, existing.student_id)
             companion_history = [{
                 'role': log.role,
-                'content': log.content
+                'content': companion_contents.get(log.id, log.content)
             } for log in companion_logs]
 
             # 加载阶段3历史
@@ -1074,6 +1222,7 @@ def start_session():
             return jsonify({
                 'success': True,
                 'session_id': existing.id,
+                'attempt_id': attempt.id,
                 'current_stage': existing.current_stage,
                 'resumed': True,
                 'elapsed_seconds': lifecycle['elapsed_seconds'],
@@ -1091,22 +1240,14 @@ def start_session():
                 'preset': _serialize_preset(preset)
             })
 
-        # 创建新会话
-        new_session = ThinkingSession(
-            student_id=current_user.student_id,
-            assignment_id=assignment_id,
-            current_stage=1
-        )
-        db.session.add(new_session)
         db.session.commit()
 
-        # 记录日志
-        _log_event(new_session.id, 1, 'session_start', 'student', '开始引导式学习')
         lifecycle = session_lifecycle_payload(new_session)
 
         return jsonify({
             'success': True,
             'session_id': new_session.id,
+            'attempt_id': attempt.id,
             'current_stage': 1,
             'resumed': False,
             'elapsed_seconds': lifecycle['elapsed_seconds'],
@@ -1124,7 +1265,10 @@ def start_session():
             'preset': _serialize_preset(preset)
         })
 
-    except Exception as e:
+    except LearningCaptureConflict:
+        db.session.rollback()
+        return jsonify({'error': '做题轮次已更新，请刷新页面', 'error_code': 'LEARNING_ATTEMPT_CONFLICT'}), 409
+    except Exception:
         db.session.rollback()
         current_app.logger.exception('创建学习会话失败')
         return jsonify({'error': '创建会话失败，请稍后重试'}), 500
@@ -1179,8 +1323,10 @@ def stage1_submit():
             ts.stage1_score = score
 
             # 记录日志
+            revision = get_annotation_revision(ts.assignment_id)
             _log_event(session_id, 1, 'description_submit', 'student', description,
-                       metadata={'score': score, 'feedback': feedback})
+                       metadata={'score': score, 'feedback': feedback,
+                                 'annotation_revision_id': revision.id})
 
             passed = score >= 50
             if passed:
@@ -1268,9 +1414,10 @@ def stage1_hint():
                         '建议分三步描述：1. 定义所需变量并读取输入；2. 遍历数据进行核心逻辑判断；3. 打印最终结果。'
                     )
                     ts.stage1_hint_count += 1
-                    _log_event(
+                    hint_event = _log_event(
                         session_id, 1, 'hint_request', 'student', description,
-                        metadata={'hint': hint, 'hint_count': ts.stage1_hint_count},
+                        metadata={'hint': hint, 'hint_count': ts.stage1_hint_count,
+                                  'hint_level': ts.stage1_hint_count},
                     )
                     db.session.commit()
                     yield sse_event({
@@ -1279,6 +1426,7 @@ def stage1_hint():
                         'content': hint,
                         'hint': hint,
                         'hint_count': ts.stage1_hint_count,
+                        'hint_event_id': hint_event.id,
                     })
                 except Exception as stream_error:
                     db.session.rollback()
@@ -1295,16 +1443,20 @@ def stage1_hint():
 
         # 更新提示计数
         ts.stage1_hint_count += 1
-        _log_event(session_id, 1, 'hint_request', 'student', description,
-                   metadata={'hint': hint, 'hint_count': ts.stage1_hint_count})
+        hint_event = _log_event(session_id, 1, 'hint_request', 'student', description,
+                                metadata={'hint': hint, 'hint_count': ts.stage1_hint_count,
+                                          'hint_level': ts.stage1_hint_count})
 
         db.session.commit()
 
-        return jsonify({
+        result = {
             'success': True,
             'hint': hint,
-            'hint_count': ts.stage1_hint_count
-        })
+            'hint_count': ts.stage1_hint_count,
+        }
+        if data.get('track_hint_display') is True:
+            result['hint_event_id'] = hint_event.id
+        return jsonify(result)
 
     except Exception as e:
         db.session.rollback()
@@ -1388,6 +1540,17 @@ def stage2_verify():
                 )
 
             ts.stage2_block_order = json.dumps(quiz_answers, ensure_ascii=False)
+            revision = get_annotation_revision(ts.assignment_id)
+            _log_event(
+                session_id, 2, 'verify_attempt', 'student', '',
+                metadata={
+                    'answers': quiz_answers,
+                    'passed': passed,
+                    'wrong_steps': wrong_steps,
+                    'wrong_step_explanations': wrong_step_explanations,
+                    'annotation_revision_id': revision.id,
+                },
+            )
             if passed:
                 ts.stage2_completed = True
                 ts.current_stage = 3
@@ -1490,9 +1653,10 @@ def stage2_hint():
                         '回想你在第一阶段描述的思路，下一步该做什么？'
                     ))[:20000]
                     ts.stage2_hint_count += 1
-                    _log_event(
+                    hint_event = _log_event(
                         session_id, 2, 'hint_request', 'student', json.dumps(current_block_ids),
-                        metadata={'hint': hint},
+                        metadata={'hint': hint, 'hint_count': ts.stage2_hint_count,
+                                  'hint_level': ts.stage2_hint_count},
                     )
                     db.session.commit()
                     yield sse_event({
@@ -1501,6 +1665,7 @@ def stage2_hint():
                         'content': hint,
                         'hint': hint,
                         'hint_count': ts.stage2_hint_count,
+                        'hint_event_id': hint_event.id,
                     })
                 except Exception as stream_error:
                     db.session.rollback()
@@ -1522,16 +1687,20 @@ def stage2_hint():
         )
 
         ts.stage2_hint_count += 1
-        _log_event(session_id, 2, 'hint_request', 'student', json.dumps(current_block_ids),
-                   metadata={'hint': hint})
+        hint_event = _log_event(session_id, 2, 'hint_request', 'student', json.dumps(current_block_ids),
+                                metadata={'hint': hint, 'hint_count': ts.stage2_hint_count,
+                                          'hint_level': ts.stage2_hint_count})
 
         db.session.commit()
 
-        return jsonify({
+        result = {
             'success': True,
             'hint': hint,
-            'hint_count': ts.stage2_hint_count
-        })
+            'hint_count': ts.stage2_hint_count,
+        }
+        if data.get('track_hint_display') is True:
+            result['hint_event_id'] = hint_event.id
+        return jsonify(result)
 
     except Exception as e:
         db.session.rollback()
@@ -1544,6 +1713,7 @@ def stage2_hint():
 @student_required
 def companion_chat():
     """伴学自由对话"""
+    turn_id = None
     try:
         data = request.get_json(silent=True) or {}
         if not isinstance(data, dict):
@@ -1594,14 +1764,26 @@ def companion_chat():
         if not isinstance(stage2_state, dict):
             stage2_state = {}
 
+        question = next((item['content'] for item in reversed(messages) if item['role'] == 'user'), None)
+        turn, created = _start_guided_turn(
+            ts, _request_id(data), channel='guided_companion', question=question,
+            stage=ts.current_stage or 1,
+        )
+        turn_id = turn.id
+        if not created:
+            if turn.status != 'completed':
+                return jsonify({'error': '该对话请求已经使用，请重新发送'}), 409
+            payload = {'success': True, 'response': turn.response}
+            return sse_response(sse_blocking_events(lambda: payload)) if wants_sse() else jsonify(payload)
+
         if wants_sse():
             def stream_companion():
-                yield sse_event({
-                    'type': 'start',
-                    'message': '伴学助手正在思考...'
-                })
                 chunks = []
                 try:
+                    yield sse_event({
+                        'type': 'start',
+                        'message': '伴学助手正在思考...'
+                    })
                     for chunk in companion_agent_chat_stream(
                         messages,
                         assignment.title,
@@ -1628,19 +1810,25 @@ def companion_chat():
                         r'\[GENERATE_IMAGE:\s*(.*?)\]', '', ''.join(chunks)
                     )
                     response_text = sanitize_response(response_text)[:20000]
-                    if messages:
-                        last_user_msg = messages[-1].get('content', '')
-                        _log_event(session_id, ts.current_stage, 'companion_chat', 'student', last_user_msg)
-                    _log_event(session_id, ts.current_stage, 'companion_chat', 'companion_agent', response_text)
-                    db.session.commit()
+                    if question is not None:
+                        _log_event(session_id, ts.current_stage, 'companion_chat', 'student', None,
+                                   metadata={'chat_turn_id': turn_id})
+                    _log_event(session_id, ts.current_stage, 'companion_chat', 'companion_agent', None,
+                               metadata={'chat_turn_id': turn_id})
+                    _complete_guided_turn(turn_id, response_text)
                     yield sse_event({
                         'type': 'done',
                         'done': True,
                         'content': response_text,
                         'response': response_text,
                     })
-                except Exception as stream_error:
+                except GeneratorExit:
                     db.session.rollback()
+                    _capture_guided_error(turn_id, ''.join(chunks) or None, 'interrupted')
+                    raise
+                except Exception:
+                    db.session.rollback()
+                    _capture_guided_error(turn_id, ''.join(chunks) or None)
                     current_app.logger.exception('伴学流式对话失败')
                     yield sse_event({
                         'type': 'error',
@@ -1648,7 +1836,7 @@ def companion_chat():
                         'message': '伴学助手暂时不可用，请稍后重试',
                     })
 
-            return sse_response(stream_companion())
+            return captured_ai_sse_response(turn_id, stream_companion())
 
         response_text = companion_agent_chat(
             messages,
@@ -1662,20 +1850,25 @@ def companion_chat():
         )
 
         # 记录日志
-        if messages:
-            last_user_msg = messages[-1].get('content', '')
-            _log_event(session_id, ts.current_stage, 'companion_chat', 'student', last_user_msg)
-        _log_event(session_id, ts.current_stage, 'companion_chat', 'companion_agent', response_text)
+        if question is not None:
+            _log_event(session_id, ts.current_stage, 'companion_chat', 'student', None,
+                       metadata={'chat_turn_id': turn_id})
+        _log_event(session_id, ts.current_stage, 'companion_chat', 'companion_agent', None,
+                   metadata={'chat_turn_id': turn_id})
 
-        db.session.commit()
+        _complete_guided_turn(turn_id, response_text)
 
         return jsonify({
             'success': True,
             'response': response_text
         })
 
-    except Exception as e:
+    except LearningCaptureConflict:
         db.session.rollback()
+        return jsonify({'error': '做题轮次已更新，请刷新页面', 'error_code': 'LEARNING_ATTEMPT_CONFLICT'}), 409
+    except Exception:
+        db.session.rollback()
+        _capture_guided_error(turn_id)
         current_app.logger.exception('伴学对话失败')
         return jsonify({'error': '伴学助手暂时不可用，请稍后重试'}), 500
 
@@ -1904,20 +2097,9 @@ def stt_transcribe():
 def stage3_teacher_chat():
     """费曼阶段 — 老师Agent对话"""
     try:
-        data = request.get_json(silent=True) or {}
-        if not isinstance(data, dict):
-            return jsonify({'error': '请求数据格式不正确'}), 400
-        if wants_sse():
-            return _stage3_stream_response(
-                lambda: _unwrap_stage3_error(
-                    _run_stage3_legacy_turn(data, AgentRole.TEACHER_AGENT)
-                ),
-                '老师Agent正在整理回复...',
-            )
-        payload = _run_stage3_legacy_turn(data, AgentRole.TEACHER_AGENT)
-        if isinstance(payload, tuple):
-            return payload
-        return jsonify(payload)
+        return _dispatch_stage3_chat(AgentRole.TEACHER_AGENT)
+    except LearningCaptureConflict:
+        return _stage3_capture_conflict()
     except Exception:
         db.session.rollback()
         current_app.logger.exception('阶段3老师Agent对话失败')
@@ -1930,25 +2112,9 @@ def stage3_teacher_chat():
 def stage3_forum_message():
     """费曼阶段 — 论坛式显式目标对话"""
     try:
-        data = request.get_json(silent=True) or {}
-        if not isinstance(data, dict):
-            return jsonify({'error': '请求数据格式不正确'}), 400
-        if wants_sse():
-            def run_forum_turn():
-                _, _, payload = _run_stage3_forum_turn(
-                    data,
-                    require_target_role=True,
-                )
-                return _unwrap_stage3_error(payload)
-
-            return _stage3_stream_response(run_forum_turn, '论坛Agent正在协同分析...')
-        _, _, payload = _run_stage3_forum_turn(
-            data,
-            require_target_role=True,
-        )
-        if isinstance(payload, tuple):
-            return payload
-        return jsonify(payload)
+        return _dispatch_stage3_chat()
+    except LearningCaptureConflict:
+        return _stage3_capture_conflict()
     except Exception:
         db.session.rollback()
         current_app.logger.exception('阶段3论坛对话失败')
@@ -1990,20 +2156,9 @@ def stage3_forum_trace():
 def stage3_student_teach():
     """费曼阶段 — 教坏学生对话"""
     try:
-        data = request.get_json(silent=True) or {}
-        if not isinstance(data, dict):
-            return jsonify({'error': '请求数据格式不正确'}), 400
-        if wants_sse():
-            return _stage3_stream_response(
-                lambda: _unwrap_stage3_error(
-                    _run_stage3_legacy_turn(data, AgentRole.STUDENT_AGENT)
-                ),
-                '小明Agent正在思考追问...',
-            )
-        payload = _run_stage3_legacy_turn(data, AgentRole.STUDENT_AGENT)
-        if isinstance(payload, tuple):
-            return payload
-        return jsonify(payload)
+        return _dispatch_stage3_chat(AgentRole.STUDENT_AGENT)
+    except LearningCaptureConflict:
+        return _stage3_capture_conflict()
     except Exception:
         db.session.rollback()
         current_app.logger.exception('阶段3学生Agent对话失败')
@@ -2019,42 +2174,37 @@ def stage3_write_code():
         data = request.get_json(silent=True) or {}
         if not isinstance(data, dict):
             return jsonify({'error': '请求数据格式不正确'}), 400
-        if wants_sse():
-            def run_write_code():
-                ts, runtime, error_code = _stage3_runtime(data)
-                if error_code:
-                    return _unwrap_stage3_error(_stage3_runtime_error_response(error_code))
-                request_id = _request_id(data)
+        start_message = '小明Agent正在准备一份待检查代码...'
+        ts, runtime, error_code = _stage3_runtime(data)
+        if error_code:
+            return _stage3_validation_response(_stage3_runtime_error_response(error_code), start_message)
+        request_id = _request_id(data)
+        turn, created = _start_guided_turn(
+            ts, request_id, channel='feynman_example', question=None, stage=3,
+        )
+        if not created and turn.status == 'generating':
+            return jsonify({'error': '请求仍在处理中，请稍后重试'}), 409
+        turn_id = turn.id
+
+        def work():
+            completed = _stage3_request_result(ts.id, request_id)
+            if completed is not None:
+                return _stage3_payload_with_goal(completed.to_public_dict(), ts, runtime)
+            result = runtime.generate_buggy_attempt(request_id=request_id, enforce_ready=True)
+            if result.success:
                 completed = _stage3_request_result(ts.id, request_id)
                 if completed is not None:
                     return _stage3_payload_with_goal(completed.to_public_dict(), ts, runtime)
-                result = runtime.generate_buggy_attempt(
-                    request_id=request_id,
-                    enforce_ready=True,
-                )
-                if result.success:
-                    completed = _stage3_request_result(ts.id, request_id)
-                    if completed is not None:
-                        return _stage3_payload_with_goal(completed.to_public_dict(), ts, runtime)
-                return _stage3_payload_with_goal(result.to_public_dict(), ts, runtime)
+            return _stage3_payload_with_goal(result.to_public_dict(), ts, runtime)
 
-            return _stage3_stream_response(run_write_code, '小明Agent正在准备一份待检查代码...')
-        ts, runtime, error_code = _stage3_runtime(data)
-        if error_code:
-            return _stage3_runtime_error_response(error_code)
-        request_id = _request_id(data)
-        completed = _stage3_request_result(ts.id, request_id)
-        if completed is not None:
-            return jsonify(_stage3_payload_with_goal(completed.to_public_dict(), ts, runtime))
-        result = runtime.generate_buggy_attempt(
-            request_id=request_id,
-            enforce_ready=True,
-        )
-        if result.success:
-            completed = _stage3_request_result(ts.id, request_id)
-            if completed is not None:
-                return jsonify(_stage3_payload_with_goal(completed.to_public_dict(), ts, runtime))
-        return jsonify(_stage3_payload_with_goal(result.to_public_dict(), ts, runtime))
+        if wants_sse():
+            return _stage3_stream_response(
+                lambda: _record_stage3_reply(turn_id, work),
+                start_message, turn_id=turn_id,
+            )
+        return jsonify(_record_stage3_reply(turn_id, work))
+    except LearningCaptureConflict:
+        return _stage3_capture_conflict()
     except Exception:
         db.session.rollback()
         current_app.logger.exception('阶段3代码生成失败')
@@ -2075,22 +2225,30 @@ def stage3_fix_code():
             return jsonify({'error': '修复后的代码格式不正确'}), 400
         if len(fixed_code) > 200000:
             return jsonify({'error': '代码不能超过 200000 个字符'}), 413
-        if wants_sse():
-            def run_fix_code():
-                ts, runtime, error_code = _stage3_runtime(data)
-                if error_code:
-                    return _unwrap_stage3_error(_stage3_runtime_error_response(error_code))
-                result = runtime.evaluate_fix(
-                    fixed_code, request_id=_request_id(data)
-                )
-                return _stage3_payload_with_goal(result.to_public_dict(), ts, runtime)
-
-            return _stage3_stream_response(run_fix_code, '老师Agent正在验证你的修复...')
+        start_message = '老师Agent正在验证你的修复...'
         ts, runtime, error_code = _stage3_runtime(data)
         if error_code:
-            return _stage3_runtime_error_response(error_code)
-        result = runtime.evaluate_fix(fixed_code, request_id=_request_id(data))
-        return jsonify(_stage3_payload_with_goal(result.to_public_dict(), ts, runtime))
+            return _stage3_validation_response(_stage3_runtime_error_response(error_code), start_message)
+        request_id = _request_id(data)
+        turn, created = _start_guided_turn(
+            ts, request_id, channel='feynman_fix', question=None, stage=3, code=fixed_code,
+        )
+        if not created and turn.status == 'generating':
+            return jsonify({'error': '请求仍在处理中，请稍后重试'}), 409
+        turn_id = turn.id
+
+        def work():
+            result = runtime.evaluate_fix(fixed_code, request_id=request_id)
+            return _stage3_payload_with_goal(result.to_public_dict(), ts, runtime)
+
+        if wants_sse():
+            return _stage3_stream_response(
+                lambda: _record_stage3_reply(turn_id, work),
+                start_message, turn_id=turn_id,
+            )
+        return jsonify(_record_stage3_reply(turn_id, work))
+    except LearningCaptureConflict:
+        return _stage3_capture_conflict()
     except Exception:
         db.session.rollback()
         current_app.logger.exception('阶段3代码修复评估失败')
@@ -2354,6 +2512,7 @@ def get_session_log(session_id):
                 ThinkingStageLog.created_at.asc(), ThinkingStageLog.id.asc()
             ).all()
         logs = _stable_event_order(logs)
+        companion_contents = _companion_log_contents(logs, ts.student_id)
 
         return jsonify({
             'success': True,
@@ -2363,7 +2522,7 @@ def get_session_log(session_id):
                 'stage': log.stage,
                 'event_type': log.event_type,
                 'role': log.role,
-                'content': log.content,
+                'content': companion_contents.get(log.id, log.content),
                 'metadata': log.get_metadata(),
                 'created_at': log.created_at.strftime('%Y-%m-%d %H:%M:%S')
             } for log in logs]
@@ -2488,6 +2647,7 @@ def _log_event(session_id: int, stage: int, event_type: str,
         metadata_json=json.dumps(metadata, ensure_ascii=False) if metadata else None
     )
     db.session.add(log)
+    return log
 
 
 def _serialize_preset(preset: AssignmentThinkingPreset) -> dict:
