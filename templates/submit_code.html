@@ -812,6 +812,8 @@
                 {{ form.hidden_tag() }}
 
                 <input type="hidden" name="language" id="hidden-language" value="cpp">
+                <input type="hidden" name="attempt_id" id="capture-attempt-id">
+                <input type="hidden" name="capture_request_id" id="capture-submit-request-id">
 
                 {% if form.code.errors %}
                 <div class="alert alert-danger mb-4">
@@ -878,6 +880,9 @@
                         <i class="bi bi-arrow-left"></i> 返回作业列表
                     </a>
                     <div>
+                        <button id="restart-code-attempt" type="button" class="btn btn-outline-secondary" disabled>
+                            重新开始
+                        </button>
                         <button id="submit-code-btn" type="button" class="btn btn-primary">
                             <i class="bi bi-send"></i> 提交代码
                         </button>
@@ -1011,6 +1016,7 @@
 <script src="{{ url_for('static', filename='js/safe-code-processor.js') }}"></script>
 <script src="{{ url_for('static', filename='js/cpp-editor.js') }}"></script>
 <script src="{{ url_for('static', filename='js/knowledge-evidence.js') }}"></script>
+<script src="{{ url_for('static', filename='js/learning_capture.js') }}"></script>
 
 <!-- 立即隐藏评估消息的脚本 -->
 <script>
@@ -1086,6 +1092,37 @@
         // 设置变量
         var assignmentId = "{{ assignment.id }}";
         var submissionCount = {{ submission_count }};
+        const captureModule = window.CodeSenseLearningCapture;
+        const learningCapture = captureModule?.create(Number(assignmentId));
+        const captureAttemptField = document.getElementById('capture-attempt-id');
+        const captureRequestField = document.getElementById('capture-submit-request-id');
+        const restartAttemptButton = document.getElementById('restart-code-attempt');
+        let codeConversationId = captureModule?.requestId();
+
+        async function ensureCodingAttempt() {
+            const attemptId = await learningCapture?.ensureAttempt();
+            if (attemptId) {
+                captureAttemptField.value = attemptId;
+                restartAttemptButton.disabled = false;
+            }
+            return attemptId;
+        }
+
+        if (learningCapture) {
+            learningCapture.setStage('coding');
+            captureRequestField.value = captureModule.requestId();
+            ensureCodingAttempt().catch(() => {});
+            restartAttemptButton.addEventListener('click', async () => {
+                restartAttemptButton.disabled = true;
+                try {
+                    await learningCapture.restart();
+                    window.location.reload();
+                } catch (error) {
+                    showToast(error.message, 'warning');
+                    restartAttemptButton.disabled = false;
+                }
+            });
+        }
 
     // 获取旧版AI组件引用（兼容旧代码）
     var aiPlaceholder = document.getElementById('ai-placeholder');
@@ -1099,7 +1136,7 @@
     var loadingOverlay = document.getElementById('loading-container');
 
     if (submitButton && codeForm) {
-        submitButton.addEventListener('click', function () {
+        submitButton.addEventListener('click', async function () {
             // 获取代码内容
             var code = getEditorContent();
 
@@ -1107,6 +1144,9 @@
                 showToast('代码太短，请编写更完整的代码', 'warning');
                 return;
             }
+
+            submitButton.disabled = true;
+            await ensureCodingAttempt().catch(() => null);
 
             // 显示加载动画
             if (loadingOverlay) {
@@ -1122,6 +1162,7 @@
             }
 
             // 提交表单
+            learningCapture?.stop('submitted');
             codeForm.submit();
         });
     }
@@ -1300,6 +1341,7 @@
         const code = getEditorContent();
 
         try {
+            const attemptId = await ensureCodingAttempt().catch(() => null);
             const response = await fetch('/api/code_advice', {
                 method: 'POST',
                 headers: {
@@ -1308,7 +1350,10 @@
                 body: JSON.stringify({
                     code: code,
                     assignment_id: "{{ assignment.id }}",
-                    language: "cpp",
+                    language: document.getElementById('hidden-language').value || 'cpp',
+                    attempt_id: attemptId,
+                    conversation_id: codeConversationId,
+                    request_id: captureModule?.requestId(),
                     question: message,
                     conversation_history: conversationHistory.slice(-5)
                 })
@@ -1443,6 +1488,7 @@
     // 清空聊天
     function clearChat() {
         conversationHistory = [];
+        codeConversationId = captureModule?.requestId();
 
         // 移除所有消息
         const messages = chatMessages.querySelectorAll('.ai-message-wrapper, .ai-typing-indicator');
@@ -1481,7 +1527,7 @@
     }
 
     // 获取AI建议
-    function getAIAdvice() {
+    async function getAIAdvice() {
         // 获取代码内容
         var code = getEditorContent();
 
@@ -1498,13 +1544,15 @@
 
         // 获取当前作业ID和语言
         var assignmentId = "{{ assignment.id }}";
-        var language = "cpp"; // 现在默认使用C++
+        var language = document.getElementById('hidden-language').value || 'cpp';
 
         // 构建请求数据
         var requestData = {
             code: code,
             assignment_id: assignmentId,
-            language: language
+            language: language,
+            attempt_id: await ensureCodingAttempt().catch(() => null),
+            request_id: captureModule?.requestId(),
         };
 
         // 是否为高级模式

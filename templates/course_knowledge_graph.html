@@ -1,0 +1,55 @@
+{% extends "layout.html" %}
+
+{% block title %}知识图谱 - CodeSense 酷森思{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/course-knowledge-graph.css') }}">
+{% endblock %}
+
+{% block content %}
+<section class="course-knowledge-graph" aria-labelledby="course-knowledge-title">
+    <header class="masthead">
+        <div class="identity">
+            <span class="signature" aria-hidden="true"><i class="bi bi-diagram-3"></i></span>
+            <h1 id="course-knowledge-title">知识图谱</h1>
+        </div>
+        <div class="search">
+            <i class="bi bi-search" aria-hidden="true"></i>
+            <input id="search" type="search" placeholder="搜索知识点" aria-label="搜索当前视图里的知识点"
+                autocomplete="off" aria-controls="search-results">
+            <kbd>/</kbd>
+            <div id="search-results" class="search-results" hidden></div>
+        </div>
+    </header>
+    <nav class="views" aria-label="知识图谱视图">
+        <button type="button" data-mode="network" aria-pressed="true"><i class="bi bi-diagram-3" aria-hidden="true"></i>节点网图</button>
+        <button type="button" data-mode="map" aria-pressed="false"><i class="bi bi-map" aria-hidden="true"></i>地图视图</button>
+        <button type="button" data-mode="list" aria-pressed="false"><i class="bi bi-list-ul" aria-hidden="true"></i>列表视图</button>
+    </nav>
+    <section class="explorer" aria-label="知识点探索">
+        <div id="toolbar" class="toolbar"></div>
+        <div class="split">
+            <section class="view-main" aria-label="当前视图">
+                <div id="surface" class="surface">
+                    <svg id="graph" class="graph" aria-label="交互式知识图谱" role="group"></svg>
+                    <div id="canvas-controls" class="canvas-controls" hidden>
+                        <button type="button" data-zoom="in" title="放大" aria-label="放大">+</button>
+                        <button type="button" data-zoom="out" title="缩小" aria-label="缩小">−</button>
+                        <button type="button" data-zoom="fit" title="适应画布" aria-label="适应画布"><i class="bi bi-arrows-angle-expand" aria-hidden="true"></i></button>
+                    </div>
+                    <div id="network-hint" hidden>拖动空白处平移 · 滚轮缩放 · 点节点看详情，双击章节展开或收起</div>
+                    <div id="map-empty" class="canvas-empty" hidden>勾选至少一门课程以查看知识点。</div>
+                </div>
+                <div id="list" class="list" hidden></div>
+            </section>
+            <aside id="details" class="details" aria-label="知识点详情"></aside>
+        </div>
+        <footer id="graph-footer" class="graph-footer" hidden></footer>
+    </section>
+    <noscript><p>请启用 JavaScript 以浏览课程知识图谱。</p></noscript>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script type="module" src="{{ url_for('static', filename='js/course-knowledge-graph/graph.js') }}"></script>
+{% endblock %}
