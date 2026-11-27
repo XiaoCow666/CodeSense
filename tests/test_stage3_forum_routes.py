@@ -323,6 +323,10 @@ def test_four_ambiguous_off_task_questions_do_not_complete_stage_three(stage3_fo
         "院子里的树为什么秋天会落叶？",
         "报名条件为什么这么严格？",
         "手机返回键为什么没有反应？",
+        "为什么输入法会上传数据？",
+        "为什么手机输出的结果这么模糊？",
+        "为什么这个输入法保存数据很慢？",
+        "为什么电视输出的结果颜色不对？",
     ]
 
     with app.app_context():

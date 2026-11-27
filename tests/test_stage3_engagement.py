@@ -69,6 +69,21 @@ def test_ambiguous_everyday_terms_do_not_count_without_programming_context():
     assert all(item.reason == "no_learning_signal" for item in assessments)
 
 
+def test_everyday_input_output_pairs_do_not_count_as_programming_context():
+    messages = [
+        "为什么输入法会上传数据？",
+        "为什么手机输出的结果这么模糊？",
+    ]
+
+    assessments = [assess_stage3_message(message) for message in messages]
+    programming = assess_stage3_message("为什么循环会多执行一次？")
+
+    assert all(item.valid_message is False for item in assessments)
+    assert all(item.valid_question is False for item in assessments)
+    assert programming.valid_message is True
+    assert programming.valid_question is True
+
+
 def test_english_assignment_title_words_do_not_independently_prove_relevance():
     assessment = assess_stage3_message(
         "Why is the weather nice at the beach?",
@@ -225,6 +240,24 @@ def test_oversized_previous_message_does_not_make_valid_question_duplicate():
     assert rejected.reason == "too_long"
     assert valid.valid_message is True
     assert valid.valid_question is True
+
+
+def test_duplicate_detection_preserves_semantic_code_operators():
+    strict_boundary = "为什么这里要写成 i < n？"
+    inclusive_boundary = assess_stage3_message(
+        "为什么这里要写成 i <= n？",
+        previous_messages=[strict_boundary],
+    )
+    whitespace_restatement = assess_stage3_message(
+        "为什么这里要写成 i<n?",
+        previous_messages=[strict_boundary],
+    )
+
+    assert inclusive_boundary.valid_message is True
+    assert inclusive_boundary.valid_question is True
+    assert whitespace_restatement.valid_message is False
+    assert whitespace_restatement.valid_question is False
+    assert whitespace_restatement.reason == "duplicate"
 
 
 def test_summary_rejects_legacy_message_with_oversized_outer_whitespace():

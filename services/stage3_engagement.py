@@ -29,7 +29,7 @@ ACTIVE_CONVERSATION_TARGET_SECONDS = 10 * 60
 ACTIVE_CONVERSATION_MAX_GAP_SECONDS = 3 * 60
 ACTIVE_CONVERSATION_MIN_MESSAGES = 3
 MAX_ENGAGEMENT_MESSAGE_CHARS = 2_000
-ASSESSMENT_VERSION = 12
+ASSESSMENT_VERSION = 13
 ASSESSMENT_SOURCE = "server_stage3_engagement"
 
 _QUESTION_INTENTS = frozenset({INTENT_ASK_TEACHER, INTENT_ASK_STUDENT})
@@ -151,10 +151,8 @@ _PROGRAMMING_CUE_PAIRS = (
     ("输入", "为零"),
     ("输入", "初始值"),
     ("输入", "读入"),
-    ("输入", "数据"),
     ("输入", "变量"),
     ("输出", "循环"),
-    ("输出", "结果"),
     ("输出", "变量"),
     ("输出", "打印"),
     ("输出", "目标位置"),
@@ -452,7 +450,9 @@ def _cue_spans(text: str, cue: str) -> list[tuple[int, int]]:
         words = r"\s+".join(re.escape(part) for part in normalized.split())
         pattern = rf"(?<![a-z0-9_]){words}(?![a-z0-9_])"
     else:
-        pattern = re.escape(normalized)
+        blocked_suffix = {"输入": "法"}.get(normalized)
+        suffix_guard = rf"(?!{re.escape(blocked_suffix)})" if blocked_suffix else ""
+        pattern = rf"{re.escape(normalized)}{suffix_guard}"
     return [match.span() for match in re.finditer(pattern, text)]
 
 
@@ -546,6 +546,7 @@ def _contains_task_context(text: str, task_context: Iterable[Any]) -> bool:
 
 def _is_repeated(message: str, previous_messages: Iterable[Any]) -> bool:
     current = _compact(message)
+    current_operators = _semantic_operators(message)
     if not current:
         return False
     for previous in previous_messages:
@@ -555,12 +556,26 @@ def _is_repeated(message: str, previous_messages: Iterable[Any]) -> bool:
         candidate = _compact(raw_previous)
         if not candidate:
             continue
+        candidate_operators = _semantic_operators(raw_previous)
+        if current_operators != candidate_operators and (
+            current_operators or candidate_operators
+        ):
+            continue
         if current == candidate:
             return True
         if min(len(current), len(candidate)) >= 8:
             if SequenceMatcher(None, current, candidate).ratio() >= 0.9:
                 return True
     return False
+
+
+def _semantic_operators(value: str) -> tuple[str, ...]:
+    """Keep code operators that change behavior out of fuzzy deduplication."""
+
+    return tuple(re.findall(
+        r"<=|>=|==|!=|\+\+|--|->|::|&&|\|\||[<>=+*/%]",
+        str(value or ""),
+    ))
 
 
 __all__ = [
