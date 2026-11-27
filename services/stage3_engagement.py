@@ -29,7 +29,7 @@ ACTIVE_CONVERSATION_TARGET_SECONDS = 10 * 60
 ACTIVE_CONVERSATION_MAX_GAP_SECONDS = 3 * 60
 ACTIVE_CONVERSATION_MIN_MESSAGES = 3
 MAX_ENGAGEMENT_MESSAGE_CHARS = 2_000
-ASSESSMENT_VERSION = 11
+ASSESSMENT_VERSION = 12
 ASSESSMENT_SOURCE = "server_stage3_engagement"
 
 _QUESTION_INTENTS = frozenset({INTENT_ASK_TEACHER, INTENT_ASK_STUDENT})
@@ -181,8 +181,6 @@ _PROGRAMMING_CUE_PAIRS = (
     ("program", "run"),
     ("queue", "enqueue"),
     ("queue", "dequeue"),
-    ("queue", "front"),
-    ("queue", "rear"),
     ("error", "compile"),
     ("error", "runtime"),
 )

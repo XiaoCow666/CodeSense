@@ -933,9 +933,9 @@ def _maybe_complete_stage3_from_engagement(thinking_session, request_id: str):
                 int(thinking_session.total_time_seconds or 0),
                 elapsed,
             )
-        db.session.commit()
         if has_request_context():
             _record_demo_guided_submission(thinking_session)
+        db.session.commit()
         completion_event = _stage3_completion_event(thinking_session.id)
 
     engagement['completion_reasons'] = list(

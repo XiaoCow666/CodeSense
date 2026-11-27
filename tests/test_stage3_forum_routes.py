@@ -13,6 +13,7 @@ from models import (
     LearningAttempt,
     ThinkingSession,
     ThinkingStageLog,
+    Submission,
     User,
     db,
 )
@@ -227,6 +228,93 @@ def test_four_effective_questions_complete_stage_three_and_the_session(stage3_fo
         ).count() == 1
 
 
+def test_stage3_completion_retries_demo_submission_in_one_transaction(
+    stage3_forum_context,
+    monkeypatch,
+):
+    app, _, session_id, assignment_id = stage3_forum_context
+    started = datetime(2026, 11, 22, 8, 0, 0)
+    questions = [
+        "为什么循环条件要写成 i 小于 n？",
+        "输入为零时应该怎么处理这个边界？",
+        "如何保证每轮循环都更新当前结果？",
+        "输出最后一个值时为什么不能再循环一次？",
+    ]
+    attempts = {"count": 0}
+    marker = f"/* demo-retry-session:{session_id} */"
+
+    def record_demo_submission(thinking_session):
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise RuntimeError("simulated demo submission failure")
+        existing = Submission.query.filter_by(
+            student_id="student-1",
+            assignment_id=assignment_id,
+            code=marker,
+        ).first()
+        if existing is None:
+            db.session.add(Submission(
+                student_id="student-1",
+                assignment_id=assignment_id,
+                code=marker,
+                language="c",
+                status="evaluated",
+                score=100,
+            ))
+        db.session.flush()
+
+    monkeypatch.setattr(thinking_routes, "has_request_context", lambda: True)
+    monkeypatch.setattr(
+        thinking_routes,
+        "_record_demo_guided_submission",
+        record_demo_submission,
+    )
+
+    with app.app_context():
+        session = db.session.get(ThinkingSession, session_id)
+        session.started_at = started
+        for index, question in enumerate(questions, start=1):
+            db.session.add(ThinkingStageLog(
+                session_id=session_id,
+                stage=3,
+                event_type="agent_user_message",
+                role="student",
+                content=question,
+                metadata_json=json.dumps({"request_id": f"retry-{index}"}),
+                created_at=started + timedelta(minutes=index),
+            ))
+        db.session.commit()
+
+        with pytest.raises(RuntimeError, match="simulated demo submission failure"):
+            thinking_routes._maybe_complete_stage3_from_engagement(
+                session,
+                "retry-4-first",
+            )
+        db.session.rollback()
+
+        rolled_back = db.session.get(ThinkingSession, session_id)
+        assert rolled_back.status == "in_progress"
+        assert ThinkingStageLog.query.filter_by(
+            session_id=session_id,
+            event_type="stage_pass",
+        ).count() == 0
+        assert Submission.query.filter_by(code=marker).count() == 0
+
+        thinking_routes._maybe_complete_stage3_from_engagement(
+            rolled_back,
+            "retry-4-second",
+        )
+
+        saved = db.session.get(ThinkingSession, session_id)
+        assert saved.status == "completed"
+        assert saved.stage3_completed is True
+        assert ThinkingStageLog.query.filter_by(
+            session_id=session_id,
+            event_type="stage_pass",
+        ).count() == 1
+        assert Submission.query.filter_by(code=marker).count() == 1
+
+
 def test_four_ambiguous_off_task_questions_do_not_complete_stage_three(stage3_forum_context):
     app, _, session_id, _ = stage3_forum_context
     started = datetime(2026, 11, 22, 8, 0, 0)
@@ -327,6 +415,10 @@ def test_ambiguous_english_terms_do_not_complete_stage_three(
         "Why does the wedding dress code require black clothes?",
         "Why does the airport queue reach the door?",
         "Why does a spelling error on the ticket affect boarding?",
+        "Why is the queue at the front of the airport so long?",
+        "Why is the queue by the rear entrance moving slowly?",
+        "Why is the queue at the front desk taking forever?",
+        "Why is the rear queue at the concert so disorganized?",
     ]
 
     with app.app_context():

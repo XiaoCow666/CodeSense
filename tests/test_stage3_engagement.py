@@ -86,11 +86,13 @@ def test_ambiguous_english_programming_terms_require_local_context():
         "Why does the wedding dress code require black clothes?",
         "Why does the airport queue reach the door?",
         "Why does a spelling error on the ticket affect boarding?",
+        "Why is the queue at the front of the airport so long?",
+        "Why is the queue by the rear entrance moving slowly?",
     ]
     programming_questions = [
         "Why does this program fail when I run it?",
         "Why does this code fail the test case?",
-        "Why does enqueue put the value at the rear of the queue?",
+        "Why does this queue fail to enqueue?",
         "Why does this runtime error happen during compilation?",
     ]
 
