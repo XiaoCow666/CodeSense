@@ -89,6 +89,12 @@ def test_question_relevance_must_be_in_the_question_fragment():
     english_period = assess_stage3_message(
         "Array. Why did the train leave early?",
     )
+    lowercase_sentence = assess_stage3_message(
+        "Array. why did the train leave early?",
+    )
+    numeric_sentence = assess_stage3_message(
+        "Array 2. why did the train leave early?",
+    )
     no_question_mark = assess_stage3_message(
         "Array. Why did the train leave early",
     )
@@ -99,11 +105,24 @@ def test_question_relevance_must_be_in_the_question_fragment():
     decimal_code = assess_stage3_message(
         "为什么变量 ratio = 3.14 会报错？",
     )
+    member_access = assess_stage3_message(
+        "Why does obj.method(value) fail?",
+    )
+    not_equal = assess_stage3_message(
+        "为什么这里要写成 i != n？",
+    )
+    exclamation_boundary = assess_stage3_message(
+        "Array! why did the train leave early?",
+    )
 
     assert unrelated.valid_message is False
     assert unrelated.valid_question is False
     assert english_period.valid_message is False
     assert english_period.valid_question is False
+    assert lowercase_sentence.valid_message is False
+    assert lowercase_sentence.valid_question is False
+    assert numeric_sentence.valid_message is False
+    assert numeric_sentence.valid_question is False
     assert no_question_mark.valid_message is False
     assert no_question_mark.valid_question is False
     assert direct.valid_message is True
@@ -112,6 +131,12 @@ def test_question_relevance_must_be_in_the_question_fragment():
     assert code_follow_up.valid_question is True
     assert decimal_code.valid_message is True
     assert decimal_code.valid_question is True
+    assert member_access.valid_message is True
+    assert member_access.valid_question is True
+    assert not_equal.valid_message is True
+    assert not_equal.valid_question is True
+    assert exclamation_boundary.valid_message is False
+    assert exclamation_boundary.valid_question is False
 
 
 def test_english_assignment_title_words_do_not_independently_prove_relevance():

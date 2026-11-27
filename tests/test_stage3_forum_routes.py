@@ -373,6 +373,10 @@ def test_cross_sentence_task_words_do_not_complete_stage_three(
         "Function. Why is this restaurant closed today?",
         "Code. Why is the weather so cold today?",
         "Algorithm. Why does this novel end so suddenly?",
+        "Array. why did the train leave early?",
+        "Function 2. why is this restaurant closed today?",
+        "Code! why is the weather so cold today?",
+        "Algorithm 3. why does this novel end so suddenly?",
     ]
 
     with app.app_context():

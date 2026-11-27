@@ -29,7 +29,7 @@ ACTIVE_CONVERSATION_TARGET_SECONDS = 10 * 60
 ACTIVE_CONVERSATION_MAX_GAP_SECONDS = 3 * 60
 ACTIVE_CONVERSATION_MIN_MESSAGES = 3
 MAX_ENGAGEMENT_MESSAGE_CHARS = 2_000
-ASSESSMENT_VERSION = 16
+ASSESSMENT_VERSION = 17
 ASSESSMENT_SOURCE = "server_stage3_engagement"
 
 _QUESTION_INTENTS = frozenset({INTENT_ASK_TEACHER, INTENT_ASK_STUDENT})
@@ -350,13 +350,15 @@ def _question_has_task_signal(text: str, task_context: Iterable[Any]) -> bool:
 
 
 def _message_fragments(text: str) -> list[str]:
+    not_equal_marker = "\ue000"
+    protected_text = str(text or "").replace("!=", not_equal_marker)
     sentence_text = re.sub(
-        r"(?<=[^\d])\.(?=\s+[A-Z])",
+        r"\.(?=\s)",
         ".\n",
-        str(text or ""),
+        protected_text,
     )
     return [
-        fragment.strip()
+        fragment.replace(not_equal_marker, "!=").strip()
         for fragment in re.findall(
             r"[^。！？!?；;\r\n]+[。！？!?；;]?",
             sentence_text,
