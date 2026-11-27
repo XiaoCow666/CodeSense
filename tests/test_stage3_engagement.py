@@ -80,6 +80,31 @@ def test_english_assignment_title_words_do_not_independently_prove_relevance():
     assert assessment.reason == "no_learning_signal"
 
 
+def test_ambiguous_english_programming_terms_require_local_context():
+    everyday_questions = [
+        "Why does this television program air only once a week?",
+        "Why does the wedding dress code require black clothes?",
+        "Why does the airport queue reach the door?",
+        "Why does a spelling error on the ticket affect boarding?",
+    ]
+    programming_questions = [
+        "Why does this program fail when I run it?",
+        "Why does this code fail the test case?",
+        "Why does enqueue put the value at the rear of the queue?",
+        "Why does this runtime error happen during compilation?",
+    ]
+
+    everyday = [assess_stage3_message(message) for message in everyday_questions]
+    programming = [
+        assess_stage3_message(message) for message in programming_questions
+    ]
+
+    assert all(item.valid_message is False for item in everyday)
+    assert all(item.valid_question is False for item in everyday)
+    assert all(item.valid_message is True for item in programming)
+    assert all(item.valid_question is True for item in programming)
+
+
 def test_ambiguous_loop_term_counts_with_explicit_programming_context():
     assessment = assess_stage3_message("为什么循环会多执行一次？")
 

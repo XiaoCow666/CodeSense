@@ -29,7 +29,7 @@ ACTIVE_CONVERSATION_TARGET_SECONDS = 10 * 60
 ACTIVE_CONVERSATION_MAX_GAP_SECONDS = 3 * 60
 ACTIVE_CONVERSATION_MIN_MESSAGES = 3
 MAX_ENGAGEMENT_MESSAGE_CHARS = 2_000
-ASSESSMENT_VERSION = 10
+ASSESSMENT_VERSION = 11
 ASSESSMENT_SOURCE = "server_stage3_engagement"
 
 _QUESTION_INTENTS = frozenset({INTENT_ASK_TEACHER, INTENT_ASK_STUDENT})
@@ -94,18 +94,14 @@ _TASK_CUES = (
     "节点",
     "指针",
     "测试用例",
-    "code",
-    "program",
     "algorithm",
     "variable",
     "array",
     "function",
-    "error",
     "compile",
     "runtime",
     "pointer",
     "recursion",
-    "queue",
     "complexity",
     "test case",
 )
@@ -137,6 +133,10 @@ _AMBIGUOUS_TASK_CUES = (
     "stack",
     "tree",
     "graph",
+    "code",
+    "program",
+    "error",
+    "queue",
 )
 _PROGRAMMING_CUE_PAIRS = (
     ("循环", "边界"),
@@ -173,6 +173,18 @@ _PROGRAMMING_CUE_PAIRS = (
     ("loop", "execute"),
     ("tree", "node"),
     ("graph", "node"),
+    ("code", "compile"),
+    ("code", "fail"),
+    ("code", "run"),
+    ("program", "compile"),
+    ("program", "fail"),
+    ("program", "run"),
+    ("queue", "enqueue"),
+    ("queue", "dequeue"),
+    ("queue", "front"),
+    ("queue", "rear"),
+    ("error", "compile"),
+    ("error", "runtime"),
 )
 _TASK_CONTEXT_STOP_WORDS = frozenset({
     "a",
@@ -410,11 +422,7 @@ def _contains_any(text: str, values: Iterable[str]) -> bool:
 
 
 def _contains_ambiguous_task_cue(text: str) -> bool:
-    lowered = str(text or "").casefold()
-    return any(
-        str(value).casefold() in lowered
-        for value in _AMBIGUOUS_TASK_CUES
-    )
+    return _contains_any(text, _AMBIGUOUS_TASK_CUES)
 
 
 def _contains_programming_cue_pair(text: str) -> bool:

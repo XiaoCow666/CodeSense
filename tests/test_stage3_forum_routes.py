@@ -317,6 +317,49 @@ def test_separator_questions_do_not_complete_stage_three(stage3_forum_context):
         ).count() == 0
 
 
+def test_ambiguous_english_terms_do_not_complete_stage_three(
+    stage3_forum_context,
+):
+    app, _, session_id, _ = stage3_forum_context
+    started = datetime(2026, 11, 22, 8, 0, 0)
+    everyday_questions = [
+        "Why does this television program air only once a week?",
+        "Why does the wedding dress code require black clothes?",
+        "Why does the airport queue reach the door?",
+        "Why does a spelling error on the ticket affect boarding?",
+    ]
+
+    with app.app_context():
+        session = db.session.get(ThinkingSession, session_id)
+        for index, question in enumerate(everyday_questions, start=1):
+            db.session.add(ThinkingStageLog(
+                session_id=session_id,
+                stage=3,
+                event_type="agent_user_message",
+                role="student",
+                content=question,
+                metadata_json=json.dumps({"request_id": f"ambiguous-en-{index}"}),
+                created_at=started + timedelta(minutes=index),
+            ))
+        db.session.commit()
+
+        summary = thinking_routes._maybe_complete_stage3_from_engagement(
+            session,
+            "ambiguous-en-4",
+        )
+        saved = db.session.get(ThinkingSession, session_id)
+
+        assert summary["effective_message_count"] == 0
+        assert summary["effective_question_count"] == 0
+        assert summary["questions_complete"] is False
+        assert saved.stage3_completed is False
+        assert saved.status == "in_progress"
+        assert ThinkingStageLog.query.filter_by(
+            session_id=session_id,
+            event_type="stage_pass",
+        ).count() == 0
+
+
 def test_four_parenthetical_questions_do_not_complete_stage_three(stage3_forum_context):
     app, _, session_id, _ = stage3_forum_context
     started = datetime(2026, 11, 22, 8, 0, 0)
