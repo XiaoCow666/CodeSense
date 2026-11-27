@@ -95,11 +95,35 @@ def test_programming_cue_pairs_require_whole_words_and_local_context():
     distant_chinese_cues = assess_stage3_message(
         "为什么手机输入法总失败？聊完这个以后，我还想知道城市边界怎么划分？",
     )
+    cross_sentence_cues = assess_stage3_message(
+        "为什么手机输入法总失败？城市边界怎么划分？",
+    )
+    punctuation_separated_cues = assess_stage3_message(
+        "为什么输入，，，，，，，，，，，，，边界会这样？",
+    )
 
     assert english_substrings.valid_message is False
     assert english_substrings.valid_question is False
     assert distant_chinese_cues.valid_message is False
     assert distant_chinese_cues.valid_question is False
+    assert cross_sentence_cues.valid_message is False
+    assert cross_sentence_cues.valid_question is False
+    assert punctuation_separated_cues.valid_message is False
+    assert punctuation_separated_cues.valid_question is False
+
+
+def test_code_shape_rejects_natural_language_parenthetical_but_accepts_function_call():
+    parenthetical = assess_stage3_message(
+        "Why was the train (the late one) cancelled?",
+    )
+    function_call = assess_stage3_message(
+        "为什么 sort(values) 没有按预期排序？",
+    )
+
+    assert parenthetical.valid_message is False
+    assert parenthetical.valid_question is False
+    assert function_call.valid_message is True
+    assert function_call.valid_question is True
 
 
 def test_code_shape_requires_an_expression_around_operator_symbols():

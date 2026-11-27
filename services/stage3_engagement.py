@@ -29,7 +29,7 @@ ACTIVE_CONVERSATION_TARGET_SECONDS = 10 * 60
 ACTIVE_CONVERSATION_MAX_GAP_SECONDS = 3 * 60
 ACTIVE_CONVERSATION_MIN_MESSAGES = 3
 MAX_ENGAGEMENT_MESSAGE_CHARS = 2_000
-ASSESSMENT_VERSION = 6
+ASSESSMENT_VERSION = 7
 ASSESSMENT_SOURCE = "server_stage3_engagement"
 
 _QUESTION_INTENTS = frozenset({INTENT_ASK_TEACHER, INTENT_ASK_STUDENT})
@@ -422,7 +422,7 @@ def _contains_programming_cue_pair(text: str) -> bool:
                     gap = lowered[second_end:first_start]
                 else:
                     gap = ""
-                if _substantive_length(gap) <= 12:
+                if len(gap) <= 12 and not re.search(r"[。！？!?；;.\r\n]", gap):
                     return True
     return False
 
@@ -459,9 +459,12 @@ def _has_code_shape(value: str) -> bool:
     text = str(value or "")
     identifier = r"[A-Za-z_][A-Za-z0-9_]*"
     operand = rf"(?:{identifier}|\d+(?:\.\d+)?)"
+    string_literal = r'''(?:"[^"\r\n]*"|'[^'\r\n]*')'''
+    call_argument = rf"(?:{operand}|{string_literal})"
+    function_call = rf"{identifier}\(\s*(?:{call_argument}(?:\s*,\s*{call_argument})*)?\s*\)"
     return bool(
         re.search(rf"{operand}\s*(?:<=|>=|==|!=|<|>)\s*{operand}", text)
-        or re.search(rf"{identifier}\s*\([^\r\n]{{0,80}}\)", text)
+        or re.search(function_call, text)
         or re.search(
             rf"(?:{identifier}\s*(?:\+\+|--)(?!\s*[A-Za-z0-9_])"
             rf"|(?<![A-Za-z0-9_])(?:\+\+|--)\s*{identifier})",
