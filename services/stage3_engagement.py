@@ -29,7 +29,7 @@ ACTIVE_CONVERSATION_TARGET_SECONDS = 10 * 60
 ACTIVE_CONVERSATION_MAX_GAP_SECONDS = 3 * 60
 ACTIVE_CONVERSATION_MIN_MESSAGES = 3
 MAX_ENGAGEMENT_MESSAGE_CHARS = 2_000
-ASSESSMENT_VERSION = 8
+ASSESSMENT_VERSION = 9
 ASSESSMENT_SOURCE = "server_stage3_engagement"
 
 _QUESTION_INTENTS = frozenset({INTENT_ASK_TEACHER, INTENT_ASK_STUDENT})
@@ -476,11 +476,13 @@ def _has_code_shape(value: str) -> bool:
 
 
 def _has_increment_or_decrement_shape(text: str, identifier: str) -> bool:
-    if re.search(
+    for match in re.finditer(
         rf"(?<![A-Za-z0-9_]){identifier}(?:\+\+|--)(?![A-Za-z0-9_])",
         text,
     ):
-        return True
+        trailing = text[match.end():].lstrip()
+        if not trailing or not re.match(r"[A-Za-z0-9_]", trailing):
+            return True
     for match in re.finditer(
         rf"(?<![A-Za-z0-9_])(?:\+\+|--){identifier}(?![A-Za-z0-9_])",
         text,

@@ -273,6 +273,10 @@ def test_separator_questions_do_not_complete_stage_three(stage3_forum_context):
     separator_questions = [
         "Why is Beijing--Shanghai train travel expensive?",
         "Why is Beijing -- Shanghai train travel expensive?",
+        "Why is Beijing-- Shanghai train travel expensive?",
+        "Why is London-- Paris rail travel so expensive?",
+        "Why is the morning-- evening schedule so uneven?",
+        "Why is the express-- local train comparison confusing?",
         "为什么客厅->卧室的路线这么绕？",
         "为什么周一::周二的安排很奇怪？",
         "为什么苹果 && 香蕉不能一起吃？",

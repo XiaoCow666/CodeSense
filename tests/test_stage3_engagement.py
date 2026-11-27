@@ -140,6 +140,7 @@ def test_code_shape_requires_an_expression_around_operator_symbols():
     separators = [
         "Why is Beijing--Shanghai train travel expensive?",
         "Why is Beijing -- Shanghai train travel expensive?",
+        "Why is Beijing-- Shanghai train travel expensive?",
         "为什么客厅->卧室的路线这么绕？",
         "为什么周一::周二的安排很奇怪？",
         "为什么苹果 && 香蕉不能一起吃？",
