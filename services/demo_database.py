@@ -332,6 +332,15 @@ def activate_demo_run(run_id: str) -> bool:
     return True
 
 
+def activate_live_demo_run(run_id: str) -> bool:
+    """Restore a demo bind for detached work while its database is still live."""
+    if not _db_path(run_id).is_file() or _pending_delete_path(run_id).exists():
+        return False
+    if _is_expired(run_id, datetime.utcnow()):
+        return False
+    return activate_demo_run(run_id)
+
+
 def is_active_demo_run(run_id: str) -> bool:
     """Return whether the current scoped session is bound to this demo run."""
 

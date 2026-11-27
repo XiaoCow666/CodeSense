@@ -465,15 +465,27 @@ def _has_code_shape(value: str) -> bool:
     return bool(
         re.search(rf"{operand}\s*(?:<=|>=|==|!=|<|>)\s*{operand}", text)
         or re.search(function_call, text)
-        or re.search(
-            rf"(?:{identifier}\s*(?:\+\+|--)(?!\s*[A-Za-z0-9_])"
-            rf"|(?<![A-Za-z0-9_])(?:\+\+|--)\s*{identifier})",
-            text,
-        )
+        or _has_increment_or_decrement_shape(text, identifier)
         or re.search(rf"{identifier}\s*->\s*{identifier}", text)
         or re.search(rf"{identifier}\s*::\s*{identifier}", text)
         or re.search(rf"{operand}\s*(?:&&|\|\|)\s*{operand}", text)
     )
+
+
+def _has_increment_or_decrement_shape(text: str, identifier: str) -> bool:
+    if re.search(
+        rf"(?<![A-Za-z0-9_]){identifier}(?:\+\+|--)(?![A-Za-z0-9_])",
+        text,
+    ):
+        return True
+    for match in re.finditer(
+        rf"(?<![A-Za-z0-9_])(?:\+\+|--){identifier}(?![A-Za-z0-9_])",
+        text,
+    ):
+        leading = text[:match.start()].rstrip()
+        if not leading or not re.search(r"[A-Za-z0-9_]$", leading):
+            return True
+    return False
 
 
 def _contains_task_context(text: str, task_context: Iterable[Any]) -> bool:

@@ -7,15 +7,17 @@ import pytest
 from app import create_app
 from config import TestingConfig as _TestingConfig
 from models import (
+    AIChatTurn,
     Assignment,
     AssignmentThinkingPreset,
+    LearningAttempt,
     ThinkingSession,
     ThinkingStageLog,
     User,
     db,
 )
 from routes import thinking as thinking_routes
-from utils.agents.contracts import AgentResult, AgentRole
+from utils.agents.contracts import AgentDecision, AgentResult, AgentRole
 from utils.agents.feynman import FeynmanCallbacks, build_feynman_runtime
 from utils.agents.orchestrator import ForumTurnResult
 
@@ -72,6 +74,27 @@ def _stub_runtime_factory():
         return SimpleNamespace(session=SimpleNamespace(id=session.id))
 
     return factory
+
+
+def _assert_stage3_validation_contract(client, path, payload, *, start_message, status, error_body):
+    response = client.post(path, json=payload)
+    assert response.status_code == status
+    assert response.get_json() == error_body
+
+    streamed = client.post(path, json=payload, headers={"Accept": "text/event-stream"})
+    assert streamed.status_code == 200
+    assert streamed.mimetype == "text/event-stream"
+    events = [
+        json.loads(line[6:]) for line in streamed.get_data(as_text=True).splitlines()
+        if line.startswith("data: ")
+    ]
+    assert events == [
+        {"type": "start", "message": start_message},
+        {"type": "error", "error": "STAGE3_REQUEST_FAILED", "message": "阶段3处理失败，请稍后重试"},
+    ]
+    with client.application.app_context():
+        assert AIChatTurn.query.first() is None
+        assert LearningAttempt.query.first() is None
 
 
 def test_stage3_forum_message_requires_authenticated_user(stage3_forum_context):
@@ -243,11 +266,12 @@ def test_four_ambiguous_off_task_questions_do_not_complete_stage_three(stage3_fo
         ).count() == 0
 
 
-def test_four_separator_questions_do_not_complete_stage_three(stage3_forum_context):
+def test_separator_questions_do_not_complete_stage_three(stage3_forum_context):
     app, _, session_id, _ = stage3_forum_context
     started = datetime(2026, 11, 22, 8, 0, 0)
     separator_questions = [
         "Why is Beijing--Shanghai train travel expensive?",
+        "Why is Beijing -- Shanghai train travel expensive?",
         "为什么客厅->卧室的路线这么绕？",
         "为什么周一::周二的安排很奇怪？",
         "为什么苹果 && 香蕉不能一起吃？",
@@ -607,23 +631,56 @@ def test_forum_route_commits_non_completing_assessment_and_replay_reuses_it(
 
 
 @pytest.mark.parametrize(
-    ("payload", "error_code"),
+    ("endpoint", "start_message"),
     [
-        ({"message": "请解释循环边界。"}, "TARGET_ROLE_REQUIRED"),
-        ({"message": "请解释循环边界。", "target_role": "grader_agent"}, "TARGET_ROLE_INVALID"),
+        ("chat", "老师Agent正在整理回复..."),
+        ("teach", "小明Agent正在思考追问..."),
+        ("forum/message", "论坛Agent正在协同分析..."),
+        ("write_code", "小明Agent正在准备一份待检查代码..."),
+        ("fix_code", "老师Agent正在验证你的修复..."),
     ],
 )
-def test_stage3_forum_message_validates_target_role(stage3_forum_context, monkeypatch, payload, error_code):
+def test_stage3_invalid_session_preserves_sse_error_envelope(stage3_forum_context, endpoint, start_message):
+    _, client, session_id, _ = stage3_forum_context
+    _assert_stage3_validation_contract(
+        client, f"/thinking/api/stage3/{endpoint}",
+        {"session_id": session_id + 1, "message": "请解释循环边界。"},
+        start_message=start_message,
+        status=403,
+        error_body={"error": "会话不存在", "error_code": "SESSION_NOT_FOUND"},
+    )
+
+
+def test_stage3_missing_message_preserves_sse_error_envelope(stage3_forum_context):
+    _, client, session_id, _ = stage3_forum_context
+    _assert_stage3_validation_contract(
+        client, "/thinking/api/stage3/chat", {"session_id": session_id},
+        start_message="老师Agent正在整理回复...",
+        status=400,
+        error_body={"error": "缺少消息"},
+    )
+
+
+@pytest.mark.parametrize(
+    ("payload", "error_code", "error_message"),
+    [
+        ({"message": "请解释循环边界。"}, "TARGET_ROLE_REQUIRED", "缺少目标对象"),
+        ({"message": "请解释循环边界。", "target_role": "grader_agent"}, "TARGET_ROLE_INVALID", "目标对象无效"),
+    ],
+)
+def test_stage3_forum_message_validates_target_role(
+    stage3_forum_context, monkeypatch, payload, error_code, error_message,
+):
     _, client, session_id, _ = stage3_forum_context
     monkeypatch.setattr(thinking_routes, "build_feynman_runtime", _stub_runtime_factory())
 
-    response = client.post(
-        "/thinking/api/stage3/forum/message",
-        json={"session_id": session_id, "request_id": "forum-target-1", **payload},
+    _assert_stage3_validation_contract(
+        client, "/thinking/api/stage3/forum/message",
+        {"session_id": session_id, "request_id": "forum-target-1", **payload},
+        start_message="论坛Agent正在协同分析...",
+        status=400,
+        error_body={"error": error_message, "error_code": error_code},
     )
-
-    assert response.status_code == 400
-    assert response.json["error_code"] == error_code
 
 
 def test_stage3_forum_message_rejects_cross_session_reply_event(stage3_forum_context, monkeypatch):
@@ -663,19 +720,88 @@ def test_stage3_forum_message_rejects_cross_session_reply_event(stage3_forum_con
         lambda runtime: pytest.fail("orchestrator must not run for a cross-session reply target"),
     )
 
-    response = client.post(
-        "/thinking/api/stage3/forum/message",
-        json={
+    _assert_stage3_validation_contract(
+        client, "/thinking/api/stage3/forum/message",
+        {
             "session_id": session_id,
             "message": "回复当前会话外的消息。",
             "target_role": "teacher_agent",
             "reply_to_event_id": reply_to_event_id,
             "request_id": "forum-reply-miss-1",
         },
+        start_message="论坛Agent正在协同分析...",
+        status=400,
+        error_body={"error": "回复目标不存在", "error_code": "REPLY_EVENT_NOT_FOUND"},
     )
 
-    assert response.status_code == 400
-    assert response.json["error_code"] == "REPLY_EVENT_NOT_FOUND"
+
+@pytest.mark.parametrize("stored_status", ["generating", "completed", "failed", "interrupted"])
+def test_stage3_forum_replay_binds_request_to_role_and_reply(stage3_forum_context, monkeypatch, stored_status):
+    app, client, session_id, _ = stage3_forum_context
+    with app.app_context():
+        targets = [
+            ThinkingStageLog(
+                session_id=session_id, stage=3, event_type="agent_message", role="teacher_agent",
+                content=f"先前的论坛回复 {number}",
+                metadata_json=json.dumps({
+                    "request_id": f"parent-{number}",
+                    "source_role": "teacher_agent",
+                    "target_role": "user",
+                    "message_kind": "agent_message",
+                    "visibility": "public",
+                }),
+            ) for number in (1, 2)
+        ]
+        db.session.add_all(targets)
+        db.session.commit()
+        first_target, other_target = [str(event.id) for event in targets]
+
+    calls = []
+
+    def decide(**kwargs):
+        calls.append(kwargs)
+        return AgentDecision(message="判断循环边界时，试着手算最后一次迭代。")
+
+    def runtime_factory(session, assignment, preset):
+        return build_feynman_runtime(session, assignment, preset, model=SimpleNamespace(decide=decide))
+
+    monkeypatch.setattr(thinking_routes, "build_feynman_runtime", runtime_factory)
+    path = "/thinking/api/stage3/forum/message"
+    payload = {
+        "session_id": session_id,
+        "message": "如何判断循环边界？",
+        "target_role": "teacher_agent",
+        "reply_to_event_id": first_target,
+        "request_id": "forum-routing-replay",
+    }
+    first = client.post(path, json=payload)
+    assert first.status_code == 200
+    assert first.json["primary"]["success"] is True
+    assert len(calls) == 1
+    with app.app_context():
+        turn = AIChatTurn.query.one()
+        assert turn.status == "completed"
+        turn_id = turn.id
+        log_ids = {item.id for item in ThinkingStageLog.query.filter_by(session_id=session_id)}
+        turn.status = stored_status
+        db.session.commit()
+
+    for changed in ({"target_role": "student_agent"}, {"reply_to_event_id": other_target}):
+        response = client.post(path, json={**payload, **changed})
+        assert response.status_code == 409
+        assert response.json["error_code"] == "LEARNING_ATTEMPT_CONFLICT"
+
+    if stored_status == "completed":
+        retry = client.post(path, json={**payload, "reply_to_event_id": int(first_target)})
+        assert retry.status_code == 200
+        assert retry.json["primary"] == first.json["primary"]
+
+    with app.app_context():
+        turn = AIChatTurn.query.one()
+        assert turn.id == turn_id
+        assert turn.status == stored_status
+        assert {item.id for item in ThinkingStageLog.query.filter_by(session_id=session_id)} == log_ids
+    assert len(calls) == 1
 
 
 def test_forum_student_reply_is_not_blocked_by_legacy_fuzzy_repetition_guard(stage3_forum_context):

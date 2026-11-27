@@ -11,7 +11,9 @@ from flask_sqlalchemy.session import Session as FlaskSQLAlchemySession
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_login import UserMixin  # 添加UserMixin导入
 from sqlalchemy import Index, UniqueConstraint, and_, inspect, or_, select, text
+from sqlalchemy.dialects.mysql import MEDIUMTEXT
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.schema import AddConstraint
 from utils.scoring import normalize_mixed_score, normalize_submission_score, normalized_submission_score_sql
 
 # 班级默认配置
@@ -736,6 +738,13 @@ class Submission(db.Model):
     sandbox_passed = db.Column(db.Integer, default=0)          # 通过测试用例数
     sandbox_total = db.Column(db.Integer, default=0)           # 总测试用例数
     sandbox_detail = db.Column(db.Text, nullable=True)         # JSON：每个用例的结果详情
+    attempt_id = db.Column(db.Integer, db.ForeignKey(
+        'learning_attempts.id', name='fk_submissions_attempt', ondelete='SET NULL',
+    ))
+    code_version_id = db.Column(db.Integer, db.ForeignKey(
+        'code_versions.id', name='fk_submissions_code_version', ondelete='SET NULL',
+    ))
+    capture_request_id = db.Column(db.String(64))
 
 
 class SystemLog(db.Model):
@@ -1055,6 +1064,8 @@ def init_db(app):
         except Exception as e:
             # 生产部署使用显式 maintenance 命令；开发环境仍保留兼容性降级。
             print(f'自动迁移跳过: {type(e).__name__}: {e}')
+
+        ensure_learning_capture_schema()
 
         # 历史学生账号的 student_id 就是当时的学号，因此回填到新字段；
         # 教师和管理员不填，避免把内部工号误称为学生学号。
@@ -1744,6 +1755,9 @@ class ThinkingSession(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     student_id = db.Column(db.String(20), db.ForeignKey('users.student_id', ondelete='CASCADE'), nullable=False)
     assignment_id = db.Column(db.Integer, db.ForeignKey('assignments.id', ondelete='CASCADE'), nullable=False)
+    attempt_id = db.Column(db.Integer, db.ForeignKey(
+        'learning_attempts.id', name='fk_thinking_sessions_attempt', ondelete='SET NULL',
+    ))
     current_stage = db.Column(db.Integer, default=1)  # 当前阶段 1/2/3
     # 阶段1数据
     stage1_description = db.Column(db.Text, nullable=True)  # 学生的自然语言描述
@@ -1848,6 +1862,180 @@ class TeacherAISuggestion(db.Model):
             return json.loads(self.suggestion_json)
         except (json.JSONDecodeError, TypeError):
             return {}
+
+
+def _capture_text():
+    return db.Text().with_variant(MEDIUMTEXT(), 'mysql', 'mariadb')
+
+
+class AssignmentAnnotationRevision(db.Model):
+    __tablename__ = 'assignment_annotation_revisions'
+    __table_args__ = (
+        UniqueConstraint('assignment_id', 'revision_no', name='uq_assignment_annotation_number'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    assignment_id = db.Column(db.Integer, db.ForeignKey('assignments.id', ondelete='CASCADE'), nullable=False)
+    revision_no = db.Column(db.Integer, nullable=False)
+    content_hash = db.Column(db.String(64), nullable=False)
+    annotations_json = db.Column(_capture_text(), nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=dt.utcnow)
+    assignment = db.relationship('Assignment', backref=db.backref('annotation_revisions', cascade='all, delete'))
+
+
+class LearningAttempt(db.Model):
+    __tablename__ = 'learning_attempts'
+    __table_args__ = (
+        UniqueConstraint('student_id', 'assignment_id', 'attempt_no', name='uq_learning_attempt_number'),
+        UniqueConstraint('student_id', 'assignment_id', 'restart_request_id', name='uq_learning_attempt_restart'),
+        Index('ix_learning_attempt_assignment', 'assignment_id'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    student_id = db.Column(db.String(20), db.ForeignKey('users.student_id', ondelete='CASCADE'), nullable=False)
+    assignment_id = db.Column(db.Integer, db.ForeignKey('assignments.id', ondelete='CASCADE'), nullable=False)
+    annotation_revision_id = db.Column(db.Integer, db.ForeignKey(
+        'assignment_annotation_revisions.id', ondelete='SET NULL',
+    ))
+    attempt_no = db.Column(db.Integer, nullable=False)
+    restart_request_id = db.Column(db.String(64))
+    started_at = db.Column(db.DateTime, nullable=False, default=dt.utcnow)
+    closed_at = db.Column(db.DateTime)
+    # Mirror capture ownership in the ORM for SQLite connections without foreign-key enforcement.
+    student = db.relationship('User', backref=db.backref('learning_attempts', cascade='all, delete'))
+    assignment = db.relationship('Assignment', backref=db.backref('learning_attempts', cascade='all, delete'))
+    annotation_revision = db.relationship('AssignmentAnnotationRevision', backref='learning_attempts')
+    submissions = db.relationship('Submission', backref='learning_attempt')
+    thinking_session = db.relationship('ThinkingSession', backref='learning_attempt', uselist=False)
+
+
+class LearningStageInterval(db.Model):
+    __tablename__ = 'learning_stage_intervals'
+    __table_args__ = (
+        UniqueConstraint('attempt_id', 'interval_key', name='uq_learning_interval_key'),
+        Index('ix_learning_interval_attempt_stage', 'attempt_id', 'stage', 'started_at'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    attempt_id = db.Column(db.Integer, db.ForeignKey('learning_attempts.id', ondelete='CASCADE'), nullable=False)
+    interval_key = db.Column(db.String(64), nullable=False)
+    stage = db.Column(db.String(24), nullable=False)
+    started_at = db.Column(db.DateTime, nullable=False)
+    last_activity_at = db.Column(db.DateTime, nullable=False)
+    ended_at = db.Column(db.DateTime)
+    end_reason = db.Column(db.String(20))
+    attempt = db.relationship('LearningAttempt', backref=db.backref('stage_intervals', cascade='all, delete'))
+
+
+class CodeVersion(db.Model):
+    __tablename__ = 'code_versions'
+    __table_args__ = (
+        UniqueConstraint('attempt_id', 'version_no', name='uq_code_version_number'),
+        UniqueConstraint('attempt_id', 'language', 'content_hash', name='uq_code_version_content'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    attempt_id = db.Column(db.Integer, db.ForeignKey('learning_attempts.id', ondelete='CASCADE'), nullable=False)
+    version_no = db.Column(db.Integer, nullable=False)
+    language = db.Column(db.String(20), nullable=False)
+    content_hash = db.Column(db.String(64), nullable=False)
+    source_code = db.Column(_capture_text(), nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=dt.utcnow)
+    attempt = db.relationship('LearningAttempt', backref=db.backref('code_versions', cascade='all, delete'))
+    submissions = db.relationship('Submission', backref='code_version')
+
+
+class AIChatTurn(db.Model):
+    __tablename__ = 'ai_chat_turns'
+    __table_args__ = (
+        UniqueConstraint('student_id', 'conversation_id', 'request_id', name='uq_ai_chat_turn_request'),
+        Index('ix_ai_chat_conversation_time', 'student_id', 'conversation_id', 'asked_at', 'id'),
+        Index('ix_ai_chat_attempt_time', 'attempt_id', 'asked_at', 'id'),
+        Index('ix_ai_chat_code_version', 'code_version_id'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    student_id = db.Column(db.String(20), db.ForeignKey('users.student_id', ondelete='CASCADE'), nullable=False)
+    attempt_id = db.Column(db.Integer, db.ForeignKey('learning_attempts.id', ondelete='CASCADE'))
+    conversation_id = db.Column(db.String(64), nullable=False)
+    request_id = db.Column(db.String(64), nullable=False)
+    channel = db.Column(db.String(40), nullable=False)
+    stage = db.Column(db.String(24))
+    code_version_id = db.Column(db.Integer, db.ForeignKey('code_versions.id', ondelete='SET NULL'))
+    question = db.Column(_capture_text())
+    response = db.Column(_capture_text())
+    context_json = db.Column(db.Text)
+    status = db.Column(db.String(20), nullable=False, default='generating')
+    asked_at = db.Column(db.DateTime, nullable=False, default=dt.utcnow)
+    answered_at = db.Column(db.DateTime)
+    student = db.relationship('User', backref=db.backref('ai_chat_turns', cascade='all, delete'))
+    attempt = db.relationship('LearningAttempt', backref=db.backref('ai_chat_turns', cascade='all, delete'))
+    code_version = db.relationship('CodeVersion', backref='ai_chat_turns')
+
+
+class SubmissionEvent(db.Model):
+    __tablename__ = 'submission_events'
+    __table_args__ = (
+        UniqueConstraint('submission_id', 'run_id', 'event_key', name='uq_submission_capture_event'),
+        Index('ix_submission_capture_time', 'submission_id', 'occurred_at', 'id'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    submission_id = db.Column(db.Integer, db.ForeignKey('submissions.id', ondelete='CASCADE'), nullable=False)
+    annotation_revision_id = db.Column(db.Integer, db.ForeignKey(
+        'assignment_annotation_revisions.id', ondelete='SET NULL',
+    ))
+    run_id = db.Column(db.String(64), nullable=False)
+    event_key = db.Column(db.String(100), nullable=False)
+    event_type = db.Column(db.String(40), nullable=False)
+    status = db.Column(db.String(40))
+    error_code = db.Column(db.String(64))
+    message = db.Column(_capture_text())
+    details_json = db.Column(_capture_text())
+    occurred_at = db.Column(db.DateTime, nullable=False, default=dt.utcnow)
+    submission = db.relationship('Submission', backref=db.backref('capture_events', cascade='all, delete'))
+    annotation_revision = db.relationship('AssignmentAnnotationRevision', backref='submission_events')
+
+
+LEARNING_CAPTURE_INDEXES = (
+    Index('ix_submissions_attempt_time', Submission.attempt_id, Submission.submitted_at),
+    Index('ix_submissions_code_version', Submission.code_version_id),
+    Index('ux_submissions_capture_request', Submission.attempt_id, Submission.capture_request_id, unique=True),
+    Index('ux_thinking_sessions_attempt', ThinkingSession.attempt_id, unique=True),
+)
+
+
+def ensure_learning_capture_schema():
+    """Add capture links to old tables without rebuilding the SQLite database."""
+    links = (
+        (Submission.__table__, 'attempt_id', 'learning_attempts'),
+        (Submission.__table__, 'code_version_id', 'code_versions'),
+        (ThinkingSession.__table__, 'attempt_id', 'learning_attempts'),
+    )
+    with db.engine.begin() as connection:
+        sqlite = connection.dialect.name == 'sqlite'
+        for table, column, destination in links:
+            columns = {item['name'] for item in inspect(connection).get_columns(table.name)}
+            if column not in columns:
+                statement = f'ALTER TABLE {table.name} ADD COLUMN {column} INTEGER'
+                if sqlite:
+                    statement += f' REFERENCES {destination}(id) ON DELETE SET NULL'
+                connection.execute(text(statement))
+            if not sqlite and not any(
+                fk['constrained_columns'] == [column] and fk['referred_table'] == destination
+                for fk in inspect(connection).get_foreign_keys(table.name)
+            ):
+                constraint = next(
+                    fk for fk in table.foreign_key_constraints
+                    if list(fk.column_keys) == [column]
+                )
+                connection.execute(AddConstraint(constraint))
+
+        columns = {item['name'] for item in inspect(connection).get_columns('submissions')}
+        if 'capture_request_id' not in columns:
+            connection.execute(text('ALTER TABLE submissions ADD COLUMN capture_request_id VARCHAR(64)'))
+        for index in LEARNING_CAPTURE_INDEXES:
+            index.create(bind=connection, checkfirst=True)
 
 
 # 高频列表、统计和阶段三恢复查询使用的组合索引。它们集中声明在模型末尾，

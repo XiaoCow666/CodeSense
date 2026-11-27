@@ -70,6 +70,9 @@
             <button type="button" class="arena-btn arena-btn-outline" id="session-status-refresh">
                 <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>同步状态
             </button>
+            <button type="button" class="arena-btn arena-btn-outline" id="restart-learning-attempt" disabled>
+                重新开始
+            </button>
             <span class="session-lifecycle-feedback" id="session-status-feedback" role="status" aria-live="polite"></span>
         </div>
         <p class="session-lifecycle-note">状态来自服务器；切换标签页不会丢失进度。时间显示为服务器观察时间或历史保存计时。</p>
@@ -266,6 +269,16 @@
                     </div>
                 </div>
             </div>
+            <div id="stage-4" class="stage-section">
+                <div class="panel-header">
+                    <h3>三阶段学习已完成</h3>
+                </div>
+                <div class="panel-body">
+                    <a class="arena-btn arena-btn-primary" href="{{ url_for('assignments.submit_code', assignment_id=assignment.id) }}">
+                        继续编写代码
+                    </a>
+                </div>
+            </div>
         </div>
 
         <!-- ===== Middle Panel: Stage 2 Code Preview ===== -->
@@ -390,6 +403,7 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="{{ url_for('static', filename='js/learning_capture.js') }}"></script>
 <script src="{{ url_for('static', filename='js/thinking.js') }}?v={{ now().timestamp() }}"></script>
 <script>
     // Override stage switching to also toggle right panel + handle mobile tabs

@@ -542,6 +542,30 @@ def test_action_center_page_has_accessible_queue_contract(action_center_context)
     assert "SECRET_STUDENT_CODE" not in html
 
 
+def test_course_graph_uses_the_signed_in_navigation(action_center_context):
+    app, ids = action_center_context
+    client = app.test_client()
+    assert client.get("/knowledge-graph").status_code in {302, 303}
+    script = client.get("/static/js/course-knowledge-graph/graph.js")
+    assert script.status_code == 200
+    assert script.mimetype == "text/javascript"
+
+    for role in ("student", "teacher", "admin"):
+        _login(client, ids[role])
+        action_page = client.get("/action-center").get_data(as_text=True)
+        assert action_page.index('href="/knowledge-graph"') < action_page.index('href="/action-center"')
+        assert "js/course-knowledge-graph/graph.js" not in action_page
+
+        response = client.get("/knowledge-graph")
+        assert response.status_code == 200
+        html = response.get_data(as_text=True)
+        assert 'id="course-knowledge-title"' in html
+        assert 'aria-current="page"' in html
+        assert "bi bi-diagram-3" in html
+        assert "js/course-knowledge-graph/graph.js" in html
+        client.post("/logout")
+
+
 def test_action_center_empty_state_mentions_learning_suggestions(action_center_context):
     app, ids = action_center_context
     client = app.test_client()
