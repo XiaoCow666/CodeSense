@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -109,6 +110,601 @@ def test_stage3_forum_message_requires_authenticated_user(stage3_forum_context):
     )
 
     assert response.status_code in {302, 401}
+
+
+def test_stage3_forum_ignores_client_claimed_completion_fields(stage3_forum_context, monkeypatch):
+    app, client, session_id, _ = stage3_forum_context
+
+    class FakeOrchestrator:
+        def __init__(self, runtime):
+            self.session_id = runtime.session.id
+
+        def handle_user_message(self, message, *, target_role, request_id, reply_to_event_id=None):
+            db.session.add(ThinkingStageLog(
+                session_id=self.session_id,
+                stage=3,
+                event_type="agent_user_message",
+                role="student",
+                content=message,
+                metadata_json=json.dumps({"request_id": request_id}),
+            ))
+            db.session.commit()
+            return ForumTurnResult(primary=AgentResult(
+                success=True,
+                agent=AgentRole.TEACHER_AGENT,
+                response="请围绕当前题目继续说明。",
+            ))
+
+    monkeypatch.setattr(thinking_routes, "build_feynman_runtime", _stub_runtime_factory())
+    monkeypatch.setattr(thinking_routes, "Stage3Orchestrator", FakeOrchestrator)
+
+    response = client.post(
+        "/thinking/api/stage3/forum/message",
+        json={
+            "session_id": session_id,
+            "message": "abcdefghijk?",
+            "target_role": "teacher_agent",
+            "request_id": "forged-progress-1",
+            "effective_question_count": 999,
+            "active_seconds": 999999,
+            "stage3_completed": True,
+            "engagement_assessment": {
+                "source": "server_stage3_engagement",
+                "version": thinking_routes.ASSESSMENT_VERSION,
+                "valid_message": True,
+                "valid_question": True,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json["user_goal"]["progress_percent"] == 0
+    with app.app_context():
+        saved = db.session.get(ThinkingSession, session_id)
+        assert saved.stage3_completed is False
+        assert saved.status == "in_progress"
+        assert ThinkingStageLog.query.filter_by(
+            session_id=session_id,
+            event_type="stage_pass",
+        ).count() == 0
+
+
+def test_four_effective_questions_complete_stage_three_and_the_session(stage3_forum_context):
+    app, _, session_id, _ = stage3_forum_context
+    started = datetime(2026, 11, 22, 8, 0, 0)
+    questions = [
+        "为什么循环条件要写成 i 小于 n？",
+        "输入为零时应该怎么处理这个边界？",
+        "如何保证每轮循环都更新当前结果？",
+        "输出最后一个值时为什么不能再循环一次？",
+    ]
+
+    with app.app_context():
+        session = db.session.get(ThinkingSession, session_id)
+        session.started_at = started
+        for index, question in enumerate(questions, start=1):
+            db.session.add(ThinkingStageLog(
+                session_id=session_id,
+                stage=3,
+                event_type="agent_user_message",
+                role="student",
+                content=question,
+                metadata_json=json.dumps({"request_id": f"question-{index}"}),
+                created_at=started + timedelta(minutes=index),
+            ))
+        db.session.commit()
+
+        summary = thinking_routes._maybe_complete_stage3_from_engagement(
+            session,
+            "question-4",
+        )
+        saved = db.session.get(ThinkingSession, session_id)
+        goal = thinking_routes._stage3_user_goal(session_id)
+        stage_pass = ThinkingStageLog.query.filter_by(
+            session_id=session_id,
+            event_type="stage_pass",
+        ).one()
+
+        assert summary["questions_complete"] is True
+        assert saved.stage3_completed is True
+        assert saved.status == "completed"
+        assert saved.completed_at is not None
+        assert stage_pass.get_metadata()["validated"] is True
+        assert stage_pass.get_metadata()["completion_reasons"] == ["effective_questions"]
+        assert goal["status"] == "complete"
+        assert goal["progress_percent"] == 100
+        assert "已完成4次有效提问" in goal["progress_detail"]
+
+        replay_summary = thinking_routes._maybe_complete_stage3_from_engagement(
+            saved,
+            "question-4-replay",
+        )
+        assert replay_summary["questions_complete"] is True
+        assert ThinkingStageLog.query.filter_by(
+            session_id=session_id,
+            event_type="stage_pass",
+        ).count() == 1
+
+
+def test_four_ambiguous_off_task_questions_do_not_complete_stage_three(stage3_forum_context):
+    app, _, session_id, _ = stage3_forum_context
+    started = datetime(2026, 11, 22, 8, 0, 0)
+    off_task_questions = [
+        "为什么最后一个图标是灰色的？",
+        "院子里的树为什么秋天会落叶？",
+        "报名条件为什么这么严格？",
+        "手机返回键为什么没有反应？",
+    ]
+
+    with app.app_context():
+        session = db.session.get(ThinkingSession, session_id)
+        for index, question in enumerate(off_task_questions, start=1):
+            db.session.add(ThinkingStageLog(
+                session_id=session_id,
+                stage=3,
+                event_type="agent_user_message",
+                role="student",
+                content=question,
+                metadata_json=json.dumps({"request_id": f"off-task-{index}"}),
+                created_at=started + timedelta(minutes=index),
+            ))
+        db.session.commit()
+
+        summary = thinking_routes._maybe_complete_stage3_from_engagement(
+            session,
+            "off-task-4",
+        )
+        saved = db.session.get(ThinkingSession, session_id)
+
+        assert summary["effective_question_count"] == 0
+        assert summary["questions_complete"] is False
+        assert saved.stage3_completed is False
+        assert saved.status == "in_progress"
+        assert ThinkingStageLog.query.filter_by(
+            session_id=session_id,
+            event_type="stage_pass",
+        ).count() == 0
+
+
+def test_four_separator_questions_do_not_complete_stage_three(stage3_forum_context):
+    app, _, session_id, _ = stage3_forum_context
+    started = datetime(2026, 11, 22, 8, 0, 0)
+    separator_questions = [
+        "Why is Beijing--Shanghai train travel expensive?",
+        "为什么客厅->卧室的路线这么绕？",
+        "为什么周一::周二的安排很奇怪？",
+        "为什么苹果 && 香蕉不能一起吃？",
+    ]
+
+    with app.app_context():
+        session = db.session.get(ThinkingSession, session_id)
+        for index, question in enumerate(separator_questions, start=1):
+            db.session.add(ThinkingStageLog(
+                session_id=session_id,
+                stage=3,
+                event_type="agent_user_message",
+                role="student",
+                content=question,
+                metadata_json=json.dumps({"request_id": f"separator-{index}"}),
+                created_at=started + timedelta(minutes=index),
+            ))
+        db.session.commit()
+
+        summary = thinking_routes._maybe_complete_stage3_from_engagement(
+            session,
+            "separator-4",
+        )
+        saved = db.session.get(ThinkingSession, session_id)
+
+        assert summary["effective_message_count"] == 0
+        assert summary["effective_question_count"] == 0
+        assert summary["questions_complete"] is False
+        assert saved.stage3_completed is False
+        assert saved.status == "in_progress"
+        assert ThinkingStageLog.query.filter_by(
+            session_id=session_id,
+            event_type="stage_pass",
+        ).count() == 0
+
+
+def test_four_natural_parenthetical_questions_do_not_complete_stage_three(stage3_forum_context):
+    app, _, session_id, _ = stage3_forum_context
+    started = datetime(2026, 11, 22, 8, 0, 0)
+    off_task_questions = [
+        "Why is the train (the late one) always delayed?",
+        "Could the bus (the express one) stop here?",
+        "Is the movie (the longer cut) available today?",
+        "Did the cafe (the one nearby) close early?",
+    ]
+
+    with app.app_context():
+        session = db.session.get(ThinkingSession, session_id)
+        for index, question in enumerate(off_task_questions, start=1):
+            db.session.add(ThinkingStageLog(
+                session_id=session_id,
+                stage=3,
+                event_type="agent_user_message",
+                role="student",
+                content=question,
+                metadata_json=json.dumps({"request_id": f"parenthetical-{index}"}),
+                created_at=started + timedelta(minutes=index),
+            ))
+        db.session.commit()
+
+        summary = thinking_routes._maybe_complete_stage3_from_engagement(
+            session,
+            "parenthetical-4",
+        )
+        saved = db.session.get(ThinkingSession, session_id)
+
+        assert summary["effective_question_count"] == 0
+        assert summary["questions_complete"] is False
+        assert saved.stage3_completed is False
+        assert saved.status == "in_progress"
+        assert ThinkingStageLog.query.filter_by(
+            session_id=session_id,
+            event_type="stage_pass",
+        ).count() == 0
+
+
+def test_engagement_completion_requires_an_active_stage_three_session(stage3_forum_context):
+    app, _, session_id, _ = stage3_forum_context
+    started = datetime(2026, 11, 22, 8, 0, 0)
+    questions = [
+        "为什么循环条件要写成 i 小于 n？",
+        "输入为零时应该怎么处理这个边界？",
+        "如何保证每轮循环都更新当前结果？",
+        "输出最后一个值时为什么不能再循环一次？",
+    ]
+
+    with app.app_context():
+        session = db.session.get(ThinkingSession, session_id)
+        session.current_stage = 2
+        session.stage2_completed = False
+        for index, question in enumerate(questions, start=1):
+            db.session.add(ThinkingStageLog(
+                session_id=session_id,
+                stage=3,
+                event_type="agent_user_message",
+                role="student",
+                content=question,
+                metadata_json=json.dumps({"request_id": f"inactive-{index}"}),
+                created_at=started + timedelta(minutes=index),
+            ))
+        db.session.commit()
+
+        summary = thinking_routes._maybe_complete_stage3_from_engagement(
+            session,
+            "inactive-4",
+        )
+        saved = db.session.get(ThinkingSession, session_id)
+
+        assert summary["questions_complete"] is True
+        assert saved.stage3_completed is False
+        assert saved.status == "in_progress"
+        assert ThinkingStageLog.query.filter_by(
+            session_id=session_id,
+            event_type="stage_pass",
+        ).count() == 0
+
+
+def test_replayed_request_cannot_reclassify_persisted_message(stage3_forum_context):
+    app, _, session_id, _ = stage3_forum_context
+    with app.app_context():
+        log = ThinkingStageLog(
+            session_id=session_id,
+            stage=3,
+            event_type="agent_user_message",
+            role="student",
+            content="abcdefghijk?",
+            metadata_json=json.dumps({"request_id": "replay-1"}),
+        )
+        db.session.add(log)
+        db.session.commit()
+
+        routing = SimpleNamespace(intent=SimpleNamespace(
+            name="ask_teacher",
+            is_question=True,
+        ))
+        assessment = thinking_routes._annotate_stage3_engagement(
+            session_id,
+            "replay-1",
+            "为什么循环边界会越界？",
+            routing=routing,
+        )
+
+        assert assessment.valid_message is False
+        assert assessment.valid_question is False
+        assert db.session.get(ThinkingStageLog, log.id).content == "abcdefghijk?"
+
+
+def test_replaying_earlier_valid_request_preserves_question_count(stage3_forum_context):
+    app, _, session_id, _ = stage3_forum_context
+    message = "为什么循环条件要写成 i 小于 n？"
+    started = datetime(2026, 11, 22, 8, 0, 0)
+
+    with app.app_context():
+        first_log = ThinkingStageLog(
+            session_id=session_id,
+            stage=3,
+            event_type="agent_user_message",
+            role="student",
+            content=message,
+            metadata_json=json.dumps({"request_id": "first-valid"}),
+            created_at=started,
+        )
+        db.session.add(first_log)
+        db.session.commit()
+
+        first_assessment = thinking_routes._annotate_stage3_engagement(
+            session_id,
+            "first-valid",
+            message,
+        )
+        db.session.commit()
+        first_metadata_before = dict(
+            db.session.get(ThinkingStageLog, first_log.id).get_metadata()
+        )
+
+        duplicate_log = ThinkingStageLog(
+            session_id=session_id,
+            stage=3,
+            event_type="agent_user_message",
+            role="student",
+            content=message,
+            metadata_json=json.dumps({"request_id": "later-duplicate"}),
+            created_at=started + timedelta(minutes=1),
+        )
+        db.session.add(duplicate_log)
+        db.session.commit()
+        duplicate_assessment = thinking_routes._annotate_stage3_engagement(
+            session_id,
+            "later-duplicate",
+            message,
+        )
+        db.session.commit()
+
+        before_replay = thinking_routes._stage3_engagement_summary(session_id)
+        replay_assessment = thinking_routes._annotate_stage3_engagement(
+            session_id,
+            "first-valid",
+            message,
+        )
+        db.session.commit()
+        after_replay = thinking_routes._stage3_engagement_summary(session_id)
+        first_metadata_after = db.session.get(
+            ThinkingStageLog,
+            first_log.id,
+        ).get_metadata()
+
+        assert first_assessment.valid_question is True
+        assert duplicate_assessment.valid_question is False
+        assert duplicate_assessment.reason == "duplicate"
+        assert before_replay["effective_question_count"] == 1
+        assert replay_assessment == first_assessment
+        assert first_metadata_after == first_metadata_before
+        assert after_replay["effective_question_count"] == 1
+
+
+def test_history_summary_matches_after_assessment_backfill(stage3_forum_context):
+    app, _, session_id, _ = stage3_forum_context
+    started = datetime(2026, 11, 22, 8, 0, 0)
+    duplicate_question = "为什么循环条件要写成 i 小于 n？"
+    history = [
+        ("history-policy-rejected", duplicate_question, 0),
+        ("history-duplicate", duplicate_question, 60),
+        ("history-boundary", "输入为零时为什么需要单独处理循环边界？", 120),
+        ("history-update", "如何证明每轮循环都会更新当前结果？", 240),
+        ("history-index", "最后一个索引为什么是 n 减一？", 360),
+    ]
+
+    with app.app_context():
+        for index, (request_id, message, offset) in enumerate(history):
+            metadata = {"request_id": request_id}
+            if index == 0:
+                metadata["engagement_assessment"] = {
+                    "source": thinking_routes.ASSESSMENT_SOURCE,
+                    "version": thinking_routes.ASSESSMENT_VERSION,
+                    "valid_message": False,
+                    "valid_question": False,
+                    "reason": "policy_rejected",
+                    "intent": "",
+                }
+            db.session.add(ThinkingStageLog(
+                session_id=session_id,
+                stage=3,
+                event_type="agent_user_message",
+                role="student",
+                content=message,
+                metadata_json=json.dumps(metadata, ensure_ascii=False),
+                created_at=started + timedelta(seconds=offset),
+            ))
+        db.session.commit()
+
+        before_backfill = thinking_routes._stage3_engagement_summary(session_id)
+        for request_id, message, _ in history:
+            thinking_routes._annotate_stage3_engagement(
+                session_id,
+                request_id,
+                message,
+            )
+        db.session.commit()
+        after_backfill = thinking_routes._stage3_engagement_summary(session_id)
+
+        assert before_backfill["effective_question_count"] == 3
+        assert before_backfill["active_seconds"] == 240
+        assert after_backfill["effective_question_count"] == before_backfill["effective_question_count"]
+        assert after_backfill["active_seconds"] == before_backfill["active_seconds"]
+        assert after_backfill["effective_message_count"] == before_backfill["effective_message_count"]
+        assert after_backfill["active_message_count"] == before_backfill["active_message_count"]
+
+
+def test_forum_route_recomputes_legacy_v6_questions_before_stage_pass(stage3_forum_context, monkeypatch):
+    app, client, session_id, _ = stage3_forum_context
+    started = datetime(2026, 11, 22, 8, 0, 0)
+    old_irrelevant_questions = [
+        "Why is the train (the late one) always delayed?",
+        "Why is the bus (the late one) always late?",
+        "Why is the flight (the late one) still waiting?",
+        "Why is the ferry (the late one) so crowded?",
+    ]
+
+    with app.app_context():
+        for index, message in enumerate(old_irrelevant_questions):
+            metadata = {
+                "request_id": f"legacy-v6-{index}",
+                "engagement_assessment": {
+                    "source": thinking_routes.ASSESSMENT_SOURCE,
+                    "version": 6,
+                    "valid_message": True,
+                    "valid_question": True,
+                    "reason": "meaningful",
+                    "intent": "ask_teacher",
+                },
+            }
+            db.session.add(ThinkingStageLog(
+                session_id=session_id,
+                stage=3,
+                event_type="agent_user_message",
+                role="student",
+                content=message,
+                metadata_json=json.dumps(metadata, ensure_ascii=False),
+                created_at=started + timedelta(seconds=index),
+            ))
+        db.session.commit()
+
+    class FakeOrchestrator:
+        def __init__(self, runtime):
+            self.session_id = runtime.session.id
+
+        def handle_user_message(self, message, *, target_role, request_id, reply_to_event_id=None):
+            db.session.add(ThinkingStageLog(
+                session_id=self.session_id,
+                stage=3,
+                event_type="agent_user_message",
+                role="student",
+                content=message,
+                metadata_json=json.dumps({"request_id": request_id}, ensure_ascii=False),
+            ))
+            db.session.commit()
+            return ForumTurnResult(primary=AgentResult(
+                success=True,
+                agent=AgentRole.TEACHER_AGENT,
+                response="请围绕当前题目继续说明。",
+            ))
+
+    monkeypatch.setattr(thinking_routes, "build_feynman_runtime", _stub_runtime_factory())
+    monkeypatch.setattr(thinking_routes, "Stage3Orchestrator", FakeOrchestrator)
+
+    response = client.post(
+        "/thinking/api/stage3/forum/message",
+        json={
+            "session_id": session_id,
+            "message": "今天的天气真好，周末适合坐公交出行吗？",
+            "target_role": "teacher_agent",
+            "request_id": "legacy-v6-trigger",
+        },
+    )
+
+    assert response.status_code == 200
+    with app.app_context():
+        db.session.remove()
+        saved = db.session.get(ThinkingSession, session_id)
+        assert saved.stage3_completed is False
+        assert saved.status == "in_progress"
+        assert ThinkingStageLog.query.filter_by(
+            session_id=session_id,
+            event_type="stage_pass",
+        ).count() == 0
+
+
+def test_forum_route_commits_non_completing_assessment_and_replay_reuses_it(
+    stage3_forum_context,
+    monkeypatch,
+):
+    app, client, session_id, _ = stage3_forum_context
+    request_id = "committed-assessment-1"
+    message = "为什么循环条件要写成 i 小于 n？"
+
+    class FakeOrchestrator:
+        def __init__(self, runtime):
+            self.session_id = runtime.session.id
+
+        def handle_user_message(self, message, *, target_role, request_id, reply_to_event_id=None):
+            existing = [
+                log
+                for log in ThinkingStageLog.query.filter_by(
+                    session_id=self.session_id,
+                    stage=3,
+                    event_type="agent_user_message",
+                ).all()
+                if str((log.get_metadata() or {}).get("request_id") or "") == str(request_id)
+            ]
+            if not existing:
+                db.session.add(ThinkingStageLog(
+                    session_id=self.session_id,
+                    stage=3,
+                    event_type="agent_user_message",
+                    role="student",
+                    content=message,
+                    metadata_json=json.dumps({"request_id": request_id}, ensure_ascii=False),
+                ))
+                db.session.commit()
+            return ForumTurnResult(primary=AgentResult(
+                success=True,
+                agent=AgentRole.TEACHER_AGENT,
+                response="请继续分析循环边界。",
+            ))
+
+    monkeypatch.setattr(thinking_routes, "build_feynman_runtime", _stub_runtime_factory())
+    monkeypatch.setattr(thinking_routes, "Stage3Orchestrator", FakeOrchestrator)
+
+    payload = {
+        "session_id": session_id,
+        "message": message,
+        "target_role": "teacher_agent",
+        "request_id": request_id,
+    }
+    first_response = client.post("/thinking/api/stage3/forum/message", json=payload)
+
+    assert first_response.status_code == 200
+    with app.app_context():
+        db.session.remove()
+        saved_session = db.session.get(ThinkingSession, session_id)
+        matching_logs = [
+            log
+            for log in ThinkingStageLog.query.filter_by(
+                session_id=session_id,
+                stage=3,
+                event_type="agent_user_message",
+            ).all()
+            if str((log.get_metadata() or {}).get("request_id") or "") == request_id
+        ]
+        assert saved_session.status == "in_progress"
+        assert saved_session.stage3_completed is False
+        assert len(matching_logs) == 1
+        assessment_before = dict(matching_logs[0].get_metadata()["engagement_assessment"])
+        assert assessment_before["valid_question"] is True
+
+    replay_response = client.post("/thinking/api/stage3/forum/message", json=payload)
+
+    assert replay_response.status_code == 200
+    with app.app_context():
+        db.session.remove()
+        saved_session = db.session.get(ThinkingSession, session_id)
+        matching_logs = [
+            log
+            for log in ThinkingStageLog.query.filter_by(
+                session_id=session_id,
+                stage=3,
+                event_type="agent_user_message",
+            ).all()
+            if str((log.get_metadata() or {}).get("request_id") or "") == request_id
+        ]
+        assert saved_session.status == "in_progress"
+        assert saved_session.stage3_completed is False
+        assert len(matching_logs) == 1
+        assert matching_logs[0].get_metadata()["engagement_assessment"] == assessment_before
 
 
 @pytest.mark.parametrize(
