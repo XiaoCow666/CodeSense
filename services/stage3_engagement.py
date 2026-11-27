@@ -29,7 +29,7 @@ ACTIVE_CONVERSATION_TARGET_SECONDS = 10 * 60
 ACTIVE_CONVERSATION_MAX_GAP_SECONDS = 3 * 60
 ACTIVE_CONVERSATION_MIN_MESSAGES = 3
 MAX_ENGAGEMENT_MESSAGE_CHARS = 2_000
-ASSESSMENT_VERSION = 13
+ASSESSMENT_VERSION = 14
 ASSESSMENT_SOURCE = "server_stage3_engagement"
 
 _QUESTION_INTENTS = frozenset({INTENT_ASK_TEACHER, INTENT_ASK_STUDENT})
@@ -569,13 +569,25 @@ def _is_repeated(message: str, previous_messages: Iterable[Any]) -> bool:
     return False
 
 
-def _semantic_operators(value: str) -> tuple[str, ...]:
-    """Keep code operators that change behavior out of fuzzy deduplication."""
+def _semantic_operators(value: str) -> tuple[tuple[str, str, str], ...]:
+    """Keep each operator with its adjacent operands for fuzzy deduplication."""
 
-    return tuple(re.findall(
-        r"<=|>=|==|!=|\+\+|--|->|::|&&|\|\||[<>=+*/%]",
-        str(value or ""),
-    ))
+    operator_pattern = r"<=|>=|==|!=|\+\+|--|->|::|&&|\|\||[<>=+*/%]"
+    operand_pattern = r"[A-Za-z_][A-Za-z0-9_]*|\d+(?:\.\d+)?"
+    token_pattern = rf"{operator_pattern}|{operand_pattern}"
+    tokens = re.findall(token_pattern, str(value or "").casefold())
+    contexts = []
+    for index, token in enumerate(tokens):
+        if not re.fullmatch(operator_pattern, token):
+            continue
+        left = tokens[index - 1] if index > 0 else ""
+        right = tokens[index + 1] if index + 1 < len(tokens) else ""
+        if left and re.fullmatch(operator_pattern, left):
+            left = ""
+        if right and re.fullmatch(operator_pattern, right):
+            right = ""
+        contexts.append((left, token, right))
+    return tuple(contexts)
 
 
 __all__ = [

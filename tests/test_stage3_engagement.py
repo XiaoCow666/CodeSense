@@ -252,12 +252,26 @@ def test_duplicate_detection_preserves_semantic_code_operators():
         "为什么这里要写成 i<n?",
         previous_messages=[strict_boundary],
     )
+    postfix_decrement = "为什么这里用 count-- 会改变结果？"
+    prefix_decrement = assess_stage3_message(
+        "为什么这里用 --count 会改变结果？",
+        previous_messages=[postfix_decrement],
+    )
+    postfix_whitespace_restatement = assess_stage3_message(
+        "为什么这里用  count--   会改变结果?",
+        previous_messages=[postfix_decrement],
+    )
 
     assert inclusive_boundary.valid_message is True
     assert inclusive_boundary.valid_question is True
     assert whitespace_restatement.valid_message is False
     assert whitespace_restatement.valid_question is False
     assert whitespace_restatement.reason == "duplicate"
+    assert prefix_decrement.valid_message is True
+    assert prefix_decrement.valid_question is True
+    assert postfix_whitespace_restatement.valid_message is False
+    assert postfix_whitespace_restatement.valid_question is False
+    assert postfix_whitespace_restatement.reason == "duplicate"
 
 
 def test_summary_rejects_legacy_message_with_oversized_outer_whitespace():
