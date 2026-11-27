@@ -84,6 +84,21 @@ def test_everyday_input_output_pairs_do_not_count_as_programming_context():
     assert programming.valid_question is True
 
 
+def test_question_relevance_must_be_in_the_question_fragment():
+    unrelated = assess_stage3_message("数组。为什么电影结局会是这样？")
+    direct = assess_stage3_message("为什么循环会多执行一次？")
+    code_follow_up = assess_stage3_message(
+        "这里的条件是 i < n。为什么会漏掉最后一项？",
+    )
+
+    assert unrelated.valid_message is False
+    assert unrelated.valid_question is False
+    assert direct.valid_message is True
+    assert direct.valid_question is True
+    assert code_follow_up.valid_message is True
+    assert code_follow_up.valid_question is True
+
+
 def test_english_assignment_title_words_do_not_independently_prove_relevance():
     assessment = assess_stage3_message(
         "Why is the weather nice at the beach?",

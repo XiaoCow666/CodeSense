@@ -29,7 +29,7 @@ ACTIVE_CONVERSATION_TARGET_SECONDS = 10 * 60
 ACTIVE_CONVERSATION_MAX_GAP_SECONDS = 3 * 60
 ACTIVE_CONVERSATION_MIN_MESSAGES = 3
 MAX_ENGAGEMENT_MESSAGE_CHARS = 2_000
-ASSESSMENT_VERSION = 14
+ASSESSMENT_VERSION = 15
 ASSESSMENT_SOURCE = "server_stage3_engagement"
 
 _QUESTION_INTENTS = frozenset({INTENT_ASK_TEACHER, INTENT_ASK_STUDENT})
@@ -261,40 +261,20 @@ def assess_stage3_message(
         else bool(recognized.is_question)
     )
     is_question = explicit_question or intent in _QUESTION_INTENTS
-    has_explicit_programming_cue = _contains_any(text, _TASK_CUES)
-    has_specific_task_term = _contains_task_context(text, task_context)
-    has_programming_cue_pair = _contains_programming_cue_pair(raw_text)
-    has_code_shape = _has_code_shape(
-        text,
-        allow_ambiguous_operators=bool(
-            has_explicit_programming_cue
-            or has_specific_task_term
-            or has_programming_cue_pair
-        ),
+    has_task_cue = _has_task_signal(raw_text, task_context)
+    question_has_task_cue = bool(
+        is_question
+        and _question_has_task_signal(raw_text, task_context)
     )
-    has_contextualized_ambiguous_cue = bool(
-        _contains_ambiguous_task_cue(text)
-        and (
-            has_explicit_programming_cue
-            or has_code_shape
-            or has_specific_task_term
-            or has_programming_cue_pair
-        )
-    )
-    has_task_cue = bool(
-        has_explicit_programming_cue
-        or has_code_shape
-        or has_specific_task_term
-        or has_contextualized_ambiguous_cue
-    )
+    effective_task_cue = question_has_task_cue if is_question else has_task_cue
     has_explanation = _contains_any(text, _EXPLANATION_CUES)
 
     valid_question = bool(
         is_question
-        and has_task_cue
+        and question_has_task_cue
     )
     valid_message = bool(
-        has_task_cue
+        effective_task_cue
         and (
             valid_question
             or intent in _MEANINGFUL_INTENTS
@@ -308,6 +288,83 @@ def assess_stage3_message(
         reason="meaningful" if valid_message else "no_learning_signal",
         intent=intent,
     )
+
+
+def _has_task_signal(text: str, task_context: Iterable[Any]) -> bool:
+    normalized = " ".join(str(text or "").split()).strip()
+    has_explicit_programming_cue = _contains_any(normalized, _TASK_CUES)
+    has_specific_task_term = _contains_task_context(normalized, task_context)
+    has_programming_cue_pair = _contains_programming_cue_pair(text)
+    has_code_shape = _has_code_shape(
+        normalized,
+        allow_ambiguous_operators=bool(
+            has_explicit_programming_cue
+            or has_specific_task_term
+            or has_programming_cue_pair
+        ),
+    )
+    has_contextualized_ambiguous_cue = bool(
+        _contains_ambiguous_task_cue(normalized)
+        and (
+            has_explicit_programming_cue
+            or has_code_shape
+            or has_specific_task_term
+            or has_programming_cue_pair
+        )
+    )
+    return bool(
+        has_explicit_programming_cue
+        or has_code_shape
+        or has_specific_task_term
+        or has_contextualized_ambiguous_cue
+    )
+
+
+def _question_has_task_signal(text: str, task_context: Iterable[Any]) -> bool:
+    fragments = [
+        fragment.strip()
+        for fragment in re.findall(r"[^。！？!?；;\r\n]+[。！？!?；;]?", str(text or ""))
+        if fragment.strip()
+    ]
+    question_indexes = [
+        index
+        for index, fragment in enumerate(fragments)
+        if fragment.endswith(("?", "？"))
+    ]
+    if not question_indexes:
+        return _has_task_signal(text, task_context)
+    for index in question_indexes:
+        fragment = fragments[index]
+        if _has_task_signal(fragment, task_context):
+            return True
+        if (
+            index > 0
+            and _is_short_anaphoric_question(fragment)
+            and _has_task_signal(fragments[index - 1], task_context)
+        ):
+            return True
+    return False
+
+
+def _is_short_anaphoric_question(text: str) -> bool:
+    compact = _compact(text)
+    if _substantive_length(text) > 12:
+        return False
+    return compact.startswith((
+        "为什么会",
+        "为什么这样",
+        "怎么会",
+        "怎么办",
+        "怎么改",
+        "哪里错",
+        "为什么不对",
+        "如何修复",
+        "怎么修复",
+        "whydidthis",
+        "whydoesthis",
+        "howdoifixthis",
+        "whatiswrong",
+    ))
 
 
 def summarize_stage3_engagement(

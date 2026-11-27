@@ -359,6 +359,48 @@ def test_four_ambiguous_off_task_questions_do_not_complete_stage_three(stage3_fo
         ).count() == 0
 
 
+def test_cross_sentence_task_words_do_not_complete_stage_three(
+    stage3_forum_context,
+):
+    app, _, session_id, _ = stage3_forum_context
+    started = datetime(2026, 11, 22, 8, 0, 0)
+    messages = [
+        "数组。为什么电影结局会是这样？",
+        "函数。为什么这家餐厅今天关门？",
+        "代码。为什么今天的天气这么冷？",
+        "算法。为什么这本小说的结局很突然？",
+    ]
+
+    with app.app_context():
+        session = db.session.get(ThinkingSession, session_id)
+        for index, message in enumerate(messages, start=1):
+            db.session.add(ThinkingStageLog(
+                session_id=session_id,
+                stage=3,
+                event_type="agent_user_message",
+                role="student",
+                content=message,
+                metadata_json=json.dumps({"request_id": f"cross-sentence-{index}"}),
+                created_at=started + timedelta(minutes=index),
+            ))
+        db.session.commit()
+
+        summary = thinking_routes._maybe_complete_stage3_from_engagement(
+            session,
+            "cross-sentence-4",
+        )
+        saved = db.session.get(ThinkingSession, session_id)
+
+        assert summary["effective_message_count"] == 0
+        assert summary["effective_question_count"] == 0
+        assert saved.status == "in_progress"
+        assert saved.stage3_completed is False
+        assert ThinkingStageLog.query.filter_by(
+            session_id=session_id,
+            event_type="stage_pass",
+        ).count() == 0
+
+
 def test_separator_questions_do_not_complete_stage_three(stage3_forum_context):
     app, _, session_id, _ = stage3_forum_context
     started = datetime(2026, 11, 22, 8, 0, 0)
