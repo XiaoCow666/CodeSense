@@ -539,6 +539,85 @@ def test_history_summary_matches_after_assessment_backfill(stage3_forum_context)
         assert after_backfill["active_message_count"] == before_backfill["active_message_count"]
 
 
+def test_forum_route_recomputes_legacy_v6_questions_before_stage_pass(stage3_forum_context, monkeypatch):
+    app, client, session_id, _ = stage3_forum_context
+    started = datetime(2026, 11, 22, 8, 0, 0)
+    old_irrelevant_questions = [
+        "Why is the train (the late one) always delayed?",
+        "Why is the bus (the late one) always late?",
+        "Why is the flight (the late one) still waiting?",
+        "Why is the ferry (the late one) so crowded?",
+    ]
+
+    with app.app_context():
+        for index, message in enumerate(old_irrelevant_questions):
+            metadata = {
+                "request_id": f"legacy-v6-{index}",
+                "engagement_assessment": {
+                    "source": thinking_routes.ASSESSMENT_SOURCE,
+                    "version": 6,
+                    "valid_message": True,
+                    "valid_question": True,
+                    "reason": "meaningful",
+                    "intent": "ask_teacher",
+                },
+            }
+            db.session.add(ThinkingStageLog(
+                session_id=session_id,
+                stage=3,
+                event_type="agent_user_message",
+                role="student",
+                content=message,
+                metadata_json=json.dumps(metadata, ensure_ascii=False),
+                created_at=started + timedelta(seconds=index),
+            ))
+        db.session.commit()
+
+    class FakeOrchestrator:
+        def __init__(self, runtime):
+            self.session_id = runtime.session.id
+
+        def handle_user_message(self, message, *, target_role, request_id, reply_to_event_id=None):
+            db.session.add(ThinkingStageLog(
+                session_id=self.session_id,
+                stage=3,
+                event_type="agent_user_message",
+                role="student",
+                content=message,
+                metadata_json=json.dumps({"request_id": request_id}, ensure_ascii=False),
+            ))
+            db.session.commit()
+            return ForumTurnResult(primary=AgentResult(
+                success=True,
+                agent=AgentRole.TEACHER_AGENT,
+                response="请围绕当前题目继续说明。",
+            ))
+
+    monkeypatch.setattr(thinking_routes, "build_feynman_runtime", _stub_runtime_factory())
+    monkeypatch.setattr(thinking_routes, "Stage3Orchestrator", FakeOrchestrator)
+
+    response = client.post(
+        "/thinking/api/stage3/forum/message",
+        json={
+            "session_id": session_id,
+            "message": "今天的天气真好，周末适合坐公交出行吗？",
+            "target_role": "teacher_agent",
+            "request_id": "legacy-v6-trigger",
+        },
+    )
+
+    assert response.status_code == 200
+    with app.app_context():
+        db.session.remove()
+        saved = db.session.get(ThinkingSession, session_id)
+        assert saved.stage3_completed is False
+        assert saved.status == "in_progress"
+        assert ThinkingStageLog.query.filter_by(
+            session_id=session_id,
+            event_type="stage_pass",
+        ).count() == 0
+
+
 def test_forum_route_commits_non_completing_assessment_and_replay_reuses_it(
     stage3_forum_context,
     monkeypatch,

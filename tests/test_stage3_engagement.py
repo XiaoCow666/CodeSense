@@ -211,6 +211,31 @@ def test_summary_does_not_trust_browser_claimed_assessment_metadata():
     assert summary["questions_complete"] is False
 
 
+def test_summary_recomputes_legacy_v6_assessment_after_classifier_rules_change():
+    started = datetime(2026, 11, 22, 8, 0, 0)
+    event = {
+        "id": 1,
+        "content": "Why is the train (the late one) always delayed?",
+        "created_at": started,
+        "metadata": {
+            "engagement_assessment": {
+                "source": ASSESSMENT_SOURCE,
+                "version": 6,
+                "valid_message": True,
+                "valid_question": True,
+                "reason": "meaningful",
+                "intent": "ask_teacher",
+            },
+        },
+    }
+
+    summary = summarize_stage3_engagement([event])
+
+    assert summary["effective_message_count"] == 0
+    assert summary["effective_question_count"] == 0
+    assert summary["questions_complete"] is False
+
+
 def test_four_effective_questions_complete_the_question_path():
     started = datetime(2026, 11, 22, 8, 0, 0)
     questions = [
