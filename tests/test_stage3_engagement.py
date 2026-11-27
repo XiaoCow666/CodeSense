@@ -156,6 +156,7 @@ def test_ambiguous_english_programming_terms_require_local_context():
         "Why does the wedding dress code require black clothes?",
         "Why does the airport queue reach the door?",
         "Why does a spelling error on the ticket affect boarding?",
+        "Why does the television program run for an hour?",
         "Why is the queue at the front of the airport so long?",
         "Why is the queue by the rear entrance moving slowly?",
     ]
@@ -316,6 +317,15 @@ def test_duplicate_detection_preserves_semantic_code_operators():
         "为什么这里用  count--   会改变结果?",
         previous_messages=[postfix_decrement],
     )
+    subtraction = "为什么函数返回 a-b？"
+    concatenated_name = assess_stage3_message(
+        "为什么函数返回 ab？",
+        previous_messages=[subtraction],
+    )
+    subtraction_whitespace = assess_stage3_message(
+        "为什么函数返回 a - b?",
+        previous_messages=[subtraction],
+    )
 
     assert inclusive_boundary.valid_message is True
     assert inclusive_boundary.valid_question is True
@@ -327,6 +337,11 @@ def test_duplicate_detection_preserves_semantic_code_operators():
     assert postfix_whitespace_restatement.valid_message is False
     assert postfix_whitespace_restatement.valid_question is False
     assert postfix_whitespace_restatement.reason == "duplicate"
+    assert concatenated_name.valid_message is True
+    assert concatenated_name.valid_question is True
+    assert subtraction_whitespace.valid_message is False
+    assert subtraction_whitespace.valid_question is False
+    assert subtraction_whitespace.reason == "duplicate"
 
 
 def test_summary_rejects_legacy_message_with_oversized_outer_whitespace():

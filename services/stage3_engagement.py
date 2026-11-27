@@ -29,7 +29,7 @@ ACTIVE_CONVERSATION_TARGET_SECONDS = 10 * 60
 ACTIVE_CONVERSATION_MAX_GAP_SECONDS = 3 * 60
 ACTIVE_CONVERSATION_MIN_MESSAGES = 3
 MAX_ENGAGEMENT_MESSAGE_CHARS = 2_000
-ASSESSMENT_VERSION = 17
+ASSESSMENT_VERSION = 18
 ASSESSMENT_SOURCE = "server_stage3_engagement"
 
 _QUESTION_INTENTS = frozenset({INTENT_ASK_TEACHER, INTENT_ASK_STUDENT})
@@ -176,7 +176,6 @@ _PROGRAMMING_CUE_PAIRS = (
     ("code", "run"),
     ("program", "compile"),
     ("program", "fail"),
-    ("program", "run"),
     ("queue", "enqueue"),
     ("queue", "dequeue"),
     ("error", "compile"),
@@ -670,7 +669,7 @@ def _is_repeated(message: str, previous_messages: Iterable[Any]) -> bool:
 def _semantic_operators(value: str) -> tuple[tuple[str, str, str], ...]:
     """Keep each operator with its adjacent operands for fuzzy deduplication."""
 
-    operator_pattern = r"<=|>=|==|!=|\+\+|--|->|::|&&|\|\||[<>=+*/%]"
+    operator_pattern = r"<=|>=|==|!=|\+\+|--|->|::|&&|\|\||[<>=+\-*/%]"
     operand_pattern = r"[A-Za-z_][A-Za-z0-9_]*|\d+(?:\.\d+)?"
     token_pattern = rf"{operator_pattern}|{operand_pattern}"
     tokens = re.findall(token_pattern, str(value or "").casefold())

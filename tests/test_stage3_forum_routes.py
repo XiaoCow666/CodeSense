@@ -469,6 +469,7 @@ def test_ambiguous_english_terms_do_not_complete_stage_three(
         "Why does the wedding dress code require black clothes?",
         "Why does the airport queue reach the door?",
         "Why does a spelling error on the ticket affect boarding?",
+        "Why does the television program run for an hour?",
         "Why is the queue at the front of the airport so long?",
         "Why is the queue by the rear entrance moving slowly?",
         "Why is the queue at the front desk taking forever?",
