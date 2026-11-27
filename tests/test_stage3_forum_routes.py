@@ -17,6 +17,7 @@ from models import (
     db,
 )
 from routes import thinking as thinking_routes
+from services.stage3_engagement import MAX_ENGAGEMENT_MESSAGE_CHARS
 from utils.agents.contracts import AgentDecision, AgentResult, AgentRole
 from utils.agents.feynman import FeynmanCallbacks, build_feynman_runtime
 from utils.agents.orchestrator import ForumTurnResult
@@ -492,12 +493,19 @@ def test_history_summary_matches_after_assessment_backfill(stage3_forum_context)
     app, _, session_id, _ = stage3_forum_context
     started = datetime(2026, 11, 22, 8, 0, 0)
     duplicate_question = "为什么循环条件要写成 i 小于 n？"
+    oversized_then_valid_question = "为什么数组下标要从零开始？"
     history = [
         ("history-policy-rejected", duplicate_question, 0),
         ("history-duplicate", duplicate_question, 60),
         ("history-boundary", "输入为零时为什么需要单独处理循环边界？", 120),
         ("history-update", "如何证明每轮循环都会更新当前结果？", 240),
         ("history-index", "最后一个索引为什么是 n 减一？", 360),
+        (
+            "history-oversized",
+            (" " * MAX_ENGAGEMENT_MESSAGE_CHARS) + oversized_then_valid_question,
+            420,
+        ),
+        ("history-after-oversized", oversized_then_valid_question, 480),
     ]
 
     with app.app_context():
@@ -533,8 +541,8 @@ def test_history_summary_matches_after_assessment_backfill(stage3_forum_context)
         db.session.commit()
         after_backfill = thinking_routes._stage3_engagement_summary(session_id)
 
-        assert before_backfill["effective_question_count"] == 3
-        assert before_backfill["active_seconds"] == 240
+        assert before_backfill["effective_question_count"] == 4
+        assert before_backfill["active_seconds"] == 360
         assert after_backfill["effective_question_count"] == before_backfill["effective_question_count"]
         assert after_backfill["active_seconds"] == before_backfill["active_seconds"]
         assert after_backfill["effective_message_count"] == before_backfill["effective_message_count"]

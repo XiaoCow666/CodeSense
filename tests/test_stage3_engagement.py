@@ -101,6 +101,12 @@ def test_programming_cue_pairs_require_whole_words_and_local_context():
     punctuation_separated_cues = assess_stage3_message(
         "为什么输入，，，，，，，，，，，，，边界会这样？",
     )
+    lf_separated_cues = assess_stage3_message(
+        "为什么手机输入法总失败\n边界怎么划分？",
+    )
+    crlf_separated_cues = assess_stage3_message(
+        "为什么手机输入法总失败\r\n边界怎么划分？",
+    )
 
     assert english_substrings.valid_message is False
     assert english_substrings.valid_question is False
@@ -110,6 +116,10 @@ def test_programming_cue_pairs_require_whole_words_and_local_context():
     assert cross_sentence_cues.valid_question is False
     assert punctuation_separated_cues.valid_message is False
     assert punctuation_separated_cues.valid_question is False
+    assert lf_separated_cues.valid_message is False
+    assert lf_separated_cues.valid_question is False
+    assert crlf_separated_cues.valid_message is False
+    assert crlf_separated_cues.valid_question is False
 
 
 def test_code_shape_rejects_natural_language_parenthetical_but_accepts_function_call():
@@ -168,6 +178,18 @@ def test_raw_message_length_rejects_internal_whitespace_before_normalization():
     assert assessment.reason == "too_long"
     assert assessment.valid_message is False
     assert assessment.valid_question is False
+
+
+def test_oversized_previous_message_does_not_make_valid_question_duplicate():
+    question = "为什么循环条件要写成 i 小于 n？"
+    oversized = (" " * MAX_ENGAGEMENT_MESSAGE_CHARS) + question
+
+    rejected = assess_stage3_message(oversized)
+    valid = assess_stage3_message(question, previous_messages=[oversized])
+
+    assert rejected.reason == "too_long"
+    assert valid.valid_message is True
+    assert valid.valid_question is True
 
 
 def test_summary_rejects_legacy_message_with_oversized_outer_whitespace():

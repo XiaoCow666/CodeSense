@@ -29,7 +29,7 @@ ACTIVE_CONVERSATION_TARGET_SECONDS = 10 * 60
 ACTIVE_CONVERSATION_MAX_GAP_SECONDS = 3 * 60
 ACTIVE_CONVERSATION_MIN_MESSAGES = 3
 MAX_ENGAGEMENT_MESSAGE_CHARS = 2_000
-ASSESSMENT_VERSION = 7
+ASSESSMENT_VERSION = 8
 ASSESSMENT_SOURCE = "server_stage3_engagement"
 
 _QUESTION_INTENTS = frozenset({INTENT_ASK_TEACHER, INTENT_ASK_STUDENT})
@@ -262,7 +262,7 @@ def assess_stage3_message(
             has_explicit_programming_cue
             or has_code_shape
             or has_specific_task_term
-            or _contains_programming_cue_pair(text)
+            or _contains_programming_cue_pair(raw_text)
         )
     )
     has_task_cue = bool(
@@ -410,7 +410,10 @@ def _contains_ambiguous_task_cue(text: str) -> bool:
 
 
 def _contains_programming_cue_pair(text: str) -> bool:
-    lowered = str(text or "").casefold()
+    lowered = "\n".join(
+        " ".join(fragment.split())
+        for fragment in re.split(r"\r\n|\r|\n", str(text or ""))
+    ).casefold()
     for first, second in _PROGRAMMING_CUE_PAIRS:
         first_spans = _cue_spans(lowered, first)
         second_spans = _cue_spans(lowered, second)
@@ -520,7 +523,10 @@ def _is_repeated(message: str, previous_messages: Iterable[Any]) -> bool:
     if not current:
         return False
     for previous in previous_messages:
-        candidate = _compact(str(previous or ""))
+        raw_previous = str(previous or "")
+        if len(raw_previous) > MAX_ENGAGEMENT_MESSAGE_CHARS:
+            continue
+        candidate = _compact(raw_previous)
         if not candidate:
             continue
         if current == candidate:
