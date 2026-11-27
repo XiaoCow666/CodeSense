@@ -249,21 +249,19 @@ curl -fsS https://codesense.example.com/readyz
 
 先在可信电脑生成专用的 Ed25519 SSH 密钥对。私钥只保存为 GitHub `production` 环境密钥；服务器仅保存公钥。不要使用阿里云 AccessKey 或 ECS 管理员 SSH 密钥作为 Actions 凭证。
 
-通过阿里云 Workbench 以管理员身份连接 ECS，然后执行以下设置。把 `ops/codesense-github-deploy.sh` 放到服务器临时目录后，再安装为 root 所有的固定命令：
+通过阿里云 Workbench 以管理员身份连接 ECS，然后执行以下设置。把 `ops/codesense-github-deploy.sh` 和 `ops/codesense-deploy-runtime.sh` 放到服务器临时目录后，再安装为 root 所有的固定文件：
 
 ~~~bash
 sudo useradd --system --create-home --home-dir /var/lib/codesense-deploy --shell /bin/bash codesense-deploy
 sudo passwd --lock codesense-deploy
 sudo install -o root -g root -m 0755 /tmp/codesense-github-deploy.sh /usr/local/sbin/codesense-github-deploy
+sudo install -o root -g root -m 0644 /tmp/codesense-deploy-runtime.sh /usr/local/lib/codesense-deploy-runtime.sh
 
 sudo setfacl -R -m u:codesense-deploy:rwX /opt/codesense/venv
 sudo find /opt/codesense/venv -type d -exec setfacl -m d:u:codesense-deploy:rwX {} +
 
 sudo tee /etc/sudoers.d/codesense-github-deploy >/dev/null <<'SUDOERS'
 codesense-deploy ALL=(root) NOPASSWD: /usr/local/sbin/codesense-github-deploy
-codesense-deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart codesense
-codesense-deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart codesense-ability-worker codesense-submission-worker
-codesense-deploy ALL=(root) NOPASSWD: /usr/bin/systemctl stop codesense-ability-worker codesense-submission-worker
 SUDOERS
 sudo chmod 0440 /etc/sudoers.d/codesense-github-deploy
 sudo visudo -cf /etc/sudoers.d/codesense-github-deploy
@@ -299,7 +297,7 @@ Add these environment secrets:
 | `ECS_SSH_PRIVATE_KEY` | Private half of the dedicated Ed25519 key |
 | `ECS_KNOWN_HOSTS` | The verified SSH host-key line for this ECS |
 
-The workflow pins the server host key and passes the tested commit SHA over standard input. The server rejects a SHA unless it is still the current `main` tip, so a delayed or stale test run cannot roll production back. It fast-forwards the existing checkout, installs dependencies as `codesense-deploy`, runs database maintenance as the application user, restarts the current services, and checks `/healthz` and `/readyz`. Systemd unit-file changes remain a separate administrator-reviewed step.
+The workflow pins the server host key and passes the tested commit SHA over standard input. The server rejects a SHA unless it is still the current `main` tip, so a delayed or stale test run cannot roll production back. The root-owned fixed wrapper fast-forwards the existing checkout, then uses a root-owned runtime helper to install dependencies as `codesense-deploy`, run database maintenance as `codesense`, restart the current services, and check `/healthz` and `/readyz`. The deploy account has no direct service-control or general user-switching permission. Systemd unit-file changes remain a separate administrator-reviewed step.
 
 ## 9. 日志、备份与排障
 

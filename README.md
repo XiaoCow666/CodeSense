@@ -357,7 +357,7 @@ MAIL_DEFAULT_SENDER=
 APP_BASE_URL=https://codesense.example.com
 ~~~
 
-开发和测试配置会在启动时创建数据库表。生产配置要显式设置 <code>DATABASE_URL</code> 和 <code>SECRET_KEY</code>；生产 WSGI 默认跳过启动期建表和迁移，首次部署或数据库结构变化后请执行 <code>python database_maintenance.py</code>。仓库的 <code>update.sh</code> 会在重启应用前自动执行这项维护。不要把 <code>.env</code>、API 密钥或本地数据库文件提交到 Git。
+开发和测试配置会在启动时创建数据库表。生产配置要显式设置 <code>DATABASE_URL</code> 和 <code>SECRET_KEY</code>；生产 WSGI 默认跳过启动期建表和迁移，首次部署或数据库结构变化后请执行 <code>python database_maintenance.py</code>。配置 ECS 自动部署后，root 所有的固定包装器会在重启应用前以应用用户身份执行这项维护。不要把 <code>.env</code>、API 密钥或本地数据库文件提交到 Git。
 
 登录页同时提供学生名单注册和邮箱注册。邮箱注册不要求提前导入学生名单，账号创建后必须点击验证邮件中的链接才能登录；验证令牌只保存摘要，过期或重复发送后旧链接会自动失效。<code>AuthIdentity</code> 表为后续接入 Google、微信等社交登录保留统一的身份绑定位置。
 

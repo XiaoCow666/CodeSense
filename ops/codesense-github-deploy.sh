@@ -4,6 +4,9 @@ set -Eeuo pipefail
 readonly app_dir="/var/www/codesense"
 readonly repo_url="https://github.com/XiaoCow666/CodeSense"
 readonly deploy_user="codesense-deploy"
+readonly app_user="codesense"
+readonly runtime_python="/opt/codesense/venv/bin/python"
+readonly runtime_lib="/usr/local/lib/codesense-deploy-runtime.sh"
 readonly lock_file="/run/lock/codesense-github-deploy.lock"
 readonly git_bin="/usr/bin/git"
 
@@ -52,4 +55,19 @@ if /usr/bin/grep -q '^ABILITY_ANALYSIS_QUEUE_BACKEND=rq$' "$app_dir/.env" \
 fi
 
 printf 'Deploying tested main commit %s\n' "$target_sha"
-/usr/sbin/runuser -u "$deploy_user" -- /usr/bin/env "CODESENSE_RQ_ENABLED=$rq_enabled" /bin/bash "$app_dir/update.sh" "$target_sha"
+[[ -f "$runtime_lib" && ! -L "$runtime_lib" ]] || fail "root-owned deployment runtime is missing"
+[[ "$(/usr/bin/stat -c '%u:%a' "$runtime_lib")" == "0:644" ]] || fail "deployment runtime must be root-owned and read-only to non-root users"
+# This helper is installed root-owned outside the Git checkout. Never source a
+# helper from the repository while running as root.
+# shellcheck source=/dev/null
+source "$runtime_lib"
+codesense_deploy_runtime \
+    "$app_dir" \
+    "$runtime_python" \
+    "$deploy_user" \
+    "$app_user" \
+    "$rq_enabled" \
+    "/usr/sbin/runuser" \
+    "/usr/bin/systemctl" \
+    "/usr/bin/curl" \
+    "http://127.0.0.1:8000"
