@@ -141,6 +141,10 @@ def test_code_shape_requires_an_expression_around_operator_symbols():
         "Why is Beijing--Shanghai train travel expensive?",
         "Why is Beijing -- Shanghai train travel expensive?",
         "Why is Beijing-- Shanghai train travel expensive?",
+        "Why is Boston -> Chicago so expensive?",
+        "Why is Monday :: Tuesday so confusing?",
+        "Why is apples && bananas so unpopular?",
+        "Why is coffee || tea the only choice?",
         "为什么客厅->卧室的路线这么绕？",
         "为什么周一::周二的安排很奇怪？",
         "为什么苹果 && 香蕉不能一起吃？",
@@ -148,6 +152,7 @@ def test_code_shape_requires_an_expression_around_operator_symbols():
     assessments = [assess_stage3_message(message) for message in separators]
     postfix_expression = assess_stage3_message("为什么 count-- 会改变结果？")
     prefix_expression = assess_stage3_message("为什么 --count 会改变结果？")
+    contextual_arrow = assess_stage3_message("为什么指针 pointer -> next 会越界？")
 
     assert all(item.valid_message is False for item in assessments)
     assert all(item.valid_question is False for item in assessments)
@@ -155,6 +160,8 @@ def test_code_shape_requires_an_expression_around_operator_symbols():
     assert postfix_expression.valid_question is True
     assert prefix_expression.valid_message is True
     assert prefix_expression.valid_question is True
+    assert contextual_arrow.valid_message is True
+    assert contextual_arrow.valid_question is True
 
 
 def test_oversized_message_can_be_answered_but_cannot_advance_completion():

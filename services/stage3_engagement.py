@@ -29,7 +29,7 @@ ACTIVE_CONVERSATION_TARGET_SECONDS = 10 * 60
 ACTIVE_CONVERSATION_MAX_GAP_SECONDS = 3 * 60
 ACTIVE_CONVERSATION_MIN_MESSAGES = 3
 MAX_ENGAGEMENT_MESSAGE_CHARS = 2_000
-ASSESSMENT_VERSION = 9
+ASSESSMENT_VERSION = 10
 ASSESSMENT_SOURCE = "server_stage3_engagement"
 
 _QUESTION_INTENTS = frozenset({INTENT_ASK_TEACHER, INTENT_ASK_STUDENT})
@@ -254,15 +254,23 @@ def assess_stage3_message(
     )
     is_question = explicit_question or intent in _QUESTION_INTENTS
     has_explicit_programming_cue = _contains_any(text, _TASK_CUES)
-    has_code_shape = _has_code_shape(text)
     has_specific_task_term = _contains_task_context(text, task_context)
+    has_programming_cue_pair = _contains_programming_cue_pair(raw_text)
+    has_code_shape = _has_code_shape(
+        text,
+        allow_ambiguous_operators=bool(
+            has_explicit_programming_cue
+            or has_specific_task_term
+            or has_programming_cue_pair
+        ),
+    )
     has_contextualized_ambiguous_cue = bool(
         _contains_ambiguous_task_cue(text)
         and (
             has_explicit_programming_cue
             or has_code_shape
             or has_specific_task_term
-            or _contains_programming_cue_pair(raw_text)
+            or has_programming_cue_pair
         )
     )
     has_task_cue = bool(
@@ -458,18 +466,28 @@ def _looks_like_gibberish(value: str) -> bool:
     return len(tokens) >= 3 and len(set(tokens)) == 1
 
 
-def _has_code_shape(value: str) -> bool:
+def _has_code_shape(
+    value: str,
+    *,
+    allow_ambiguous_operators: bool = False,
+) -> bool:
     text = str(value or "")
     identifier = r"[A-Za-z_][A-Za-z0-9_]*"
     operand = rf"(?:{identifier}|\d+(?:\.\d+)?)"
     string_literal = r'''(?:"[^"\r\n]*"|'[^'\r\n]*')'''
     call_argument = rf"(?:{operand}|{string_literal})"
     function_call = rf"{identifier}\(\s*(?:{call_argument}(?:\s*,\s*{call_argument})*)?\s*\)"
-    return bool(
+    strong_shape = bool(
         re.search(rf"{operand}\s*(?:<=|>=|==|!=|<|>)\s*{operand}", text)
         or re.search(function_call, text)
         or _has_increment_or_decrement_shape(text, identifier)
-        or re.search(rf"{identifier}\s*->\s*{identifier}", text)
+    )
+    if strong_shape:
+        return True
+    if not allow_ambiguous_operators:
+        return False
+    return bool(
+        re.search(rf"{identifier}\s*->\s*{identifier}", text)
         or re.search(rf"{identifier}\s*::\s*{identifier}", text)
         or re.search(rf"{operand}\s*(?:&&|\|\|)\s*{operand}", text)
     )
