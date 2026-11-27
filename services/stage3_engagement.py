@@ -29,7 +29,7 @@ ACTIVE_CONVERSATION_TARGET_SECONDS = 10 * 60
 ACTIVE_CONVERSATION_MAX_GAP_SECONDS = 3 * 60
 ACTIVE_CONVERSATION_MIN_MESSAGES = 3
 MAX_ENGAGEMENT_MESSAGE_CHARS = 2_000
-ASSESSMENT_VERSION = 18
+ASSESSMENT_VERSION = 19
 ASSESSMENT_SOURCE = "server_stage3_engagement"
 
 _QUESTION_INTENTS = frozenset({INTENT_ASK_TEACHER, INTENT_ASK_STUDENT})
@@ -581,7 +581,11 @@ def _has_code_shape(
     call_argument = rf"(?:{operand}|{string_literal})"
     function_call = rf"{identifier}\(\s*(?:{call_argument}(?:\s*,\s*{call_argument})*)?\s*\)"
     strong_shape = bool(
-        re.search(rf"{operand}\s*(?:<=|>=|==|!=|<|>)\s*{operand}", text)
+        _has_comparison_shape(
+            text,
+            operand,
+            allow_word_operands=allow_ambiguous_operators,
+        )
         or re.search(function_call, text)
         or _has_increment_or_decrement_shape(text, identifier)
     )
@@ -596,22 +600,67 @@ def _has_code_shape(
     )
 
 
+def _has_comparison_shape(
+    text: str,
+    operand: str,
+    *,
+    allow_word_operands: bool,
+) -> bool:
+    pattern = rf"(?P<left>{operand})\s*(?P<operator><=|>=|==|!=|<|>)\s*(?P<right>{operand})"
+    for match in re.finditer(pattern, text):
+        operator = match.group("operator")
+        if operator not in {"<", ">"} or allow_word_operands:
+            return True
+        left = match.group("left")
+        right = match.group("right")
+        if (
+            left[:1].isdigit()
+            or right[:1].isdigit()
+            or re.fullmatch(r"[A-Za-z_]", left)
+            or re.fullmatch(r"[A-Za-z_]", right)
+        ):
+            return True
+    return False
+
+
 def _has_increment_or_decrement_shape(text: str, identifier: str) -> bool:
     for match in re.finditer(
         rf"(?<![A-Za-z0-9_]){identifier}(?:\+\+|--)(?![A-Za-z0-9_])",
         text,
     ):
         trailing = text[match.end():].lstrip()
-        if not trailing or not re.match(r"[A-Za-z0-9_]", trailing):
+        if (
+            not trailing
+            or not re.match(r"[A-Za-z0-9_]", trailing)
+            or _has_increment_or_decrement_question_context(text, match)
+        ):
             return True
     for match in re.finditer(
         rf"(?<![A-Za-z0-9_])(?:\+\+|--){identifier}(?![A-Za-z0-9_])",
         text,
     ):
         leading = text[:match.start()].rstrip()
-        if not leading or not re.search(r"[A-Za-z0-9_]$", leading):
+        if (
+            not leading
+            or not re.search(r"[A-Za-z0-9_]$", leading)
+            or _has_increment_or_decrement_question_context(text, match)
+        ):
             return True
     return False
+
+
+def _has_increment_or_decrement_question_context(text: str, match: re.Match) -> bool:
+    leading = text[:match.start()].casefold()
+    trailing = text[match.end():].casefold()
+    asks_about_expression = bool(re.search(
+        r"(?:\bwhy\s+(?:does|do|will|would)|\bhow\s+(?:does|do|will|would))\s*$",
+        leading,
+    ))
+    describes_code_behavior = bool(re.match(
+        r"\s*(?:change|affect|modify|update|return|evaluate|work|behave)\b",
+        trailing,
+    ))
+    return asks_about_expression and describes_code_behavior
 
 
 def _contains_task_context(text: str, task_context: Iterable[Any]) -> bool:

@@ -243,6 +243,7 @@ def test_code_shape_requires_an_expression_around_operator_symbols():
         "Why is Monday :: Tuesday so confusing?",
         "Why is apples && bananas so unpopular?",
         "Why is coffee || tea the only choice?",
+        "Why are morning temperatures < afternoon temperatures?",
         "为什么客厅->卧室的路线这么绕？",
         "为什么周一::周二的安排很奇怪？",
         "为什么苹果 && 香蕉不能一起吃？",
@@ -251,6 +252,11 @@ def test_code_shape_requires_an_expression_around_operator_symbols():
     postfix_expression = assess_stage3_message("为什么 count-- 会改变结果？")
     prefix_expression = assess_stage3_message("为什么 --count 会改变结果？")
     contextual_arrow = assess_stage3_message("为什么指针 pointer -> next 会越界？")
+    strict_boundary = assess_stage3_message("为什么这里要写成 i < n？")
+    inclusive_boundary = assess_stage3_message("为什么这里要写成 i <= n？")
+    not_equal_boundary = assess_stage3_message("为什么这里要写成 i != n？")
+    english_postfix = assess_stage3_message("Why does count-- change the result?")
+    english_prefix = assess_stage3_message("Why does --count change the result?")
 
     assert all(item.valid_message is False for item in assessments)
     assert all(item.valid_question is False for item in assessments)
@@ -260,6 +266,11 @@ def test_code_shape_requires_an_expression_around_operator_symbols():
     assert prefix_expression.valid_question is True
     assert contextual_arrow.valid_message is True
     assert contextual_arrow.valid_question is True
+    assert strict_boundary.valid_question is True
+    assert inclusive_boundary.valid_question is True
+    assert not_equal_boundary.valid_question is True
+    assert english_postfix.valid_question is True
+    assert english_prefix.valid_question is True
 
 
 def test_oversized_message_can_be_answered_but_cannot_advance_completion():
