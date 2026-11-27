@@ -369,6 +369,10 @@ def test_cross_sentence_task_words_do_not_complete_stage_three(
         "函数。为什么这家餐厅今天关门？",
         "代码。为什么今天的天气这么冷？",
         "算法。为什么这本小说的结局很突然？",
+        "Array. Why did the train leave early?",
+        "Function. Why is this restaurant closed today?",
+        "Code. Why is the weather so cold today?",
+        "Algorithm. Why does this novel end so suddenly?",
     ]
 
     with app.app_context():

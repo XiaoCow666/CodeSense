@@ -29,7 +29,7 @@ ACTIVE_CONVERSATION_TARGET_SECONDS = 10 * 60
 ACTIVE_CONVERSATION_MAX_GAP_SECONDS = 3 * 60
 ACTIVE_CONVERSATION_MIN_MESSAGES = 3
 MAX_ENGAGEMENT_MESSAGE_CHARS = 2_000
-ASSESSMENT_VERSION = 15
+ASSESSMENT_VERSION = 16
 ASSESSMENT_SOURCE = "server_stage3_engagement"
 
 _QUESTION_INTENTS = frozenset({INTENT_ASK_TEACHER, INTENT_ASK_STUDENT})
@@ -260,7 +260,11 @@ def assess_stage3_message(
         if intent_is_question is not None
         else bool(recognized.is_question)
     )
-    is_question = explicit_question or intent in _QUESTION_INTENTS
+    is_question = bool(
+        explicit_question
+        or recognized.is_question
+        or _has_question_fragment(raw_text)
+    )
     has_task_cue = _has_task_signal(raw_text, task_context)
     question_has_task_cue = bool(
         is_question
@@ -321,18 +325,17 @@ def _has_task_signal(text: str, task_context: Iterable[Any]) -> bool:
 
 
 def _question_has_task_signal(text: str, task_context: Iterable[Any]) -> bool:
-    fragments = [
-        fragment.strip()
-        for fragment in re.findall(r"[^。！？!?；;\r\n]+[。！？!?；;]?", str(text or ""))
-        if fragment.strip()
-    ]
+    fragments = _message_fragments(text)
     question_indexes = [
         index
         for index, fragment in enumerate(fragments)
-        if fragment.endswith(("?", "？"))
+        if _fragment_is_question(fragment)
     ]
     if not question_indexes:
-        return _has_task_signal(text, task_context)
+        return bool(
+            fragments
+            and _has_task_signal(fragments[-1], task_context)
+        )
     for index in question_indexes:
         fragment = fragments[index]
         if _has_task_signal(fragment, task_context):
@@ -344,6 +347,42 @@ def _question_has_task_signal(text: str, task_context: Iterable[Any]) -> bool:
         ):
             return True
     return False
+
+
+def _message_fragments(text: str) -> list[str]:
+    sentence_text = re.sub(
+        r"(?<=[^\d])\.(?=\s+[A-Z])",
+        ".\n",
+        str(text or ""),
+    )
+    return [
+        fragment.strip()
+        for fragment in re.findall(
+            r"[^。！？!?；;\r\n]+[。！？!?；;]?",
+            sentence_text,
+        )
+        if fragment.strip()
+    ]
+
+
+def _fragment_is_question(fragment: str) -> bool:
+    value = str(fragment or "").strip()
+    if not value:
+        return False
+    if value.endswith(("?", "？")) or recognize_forum_intent(value).is_question:
+        return True
+    return bool(re.match(
+        r"^(?:为什么|为何|怎么|如何|哪里|什么|是否|能否|可否|"
+        r"请解释|请说明|请分析|请告诉|帮我|解释一下|说明一下|"
+        r"why\b|how\b|what\b|when\b|where\b|who\b|which\b|"
+        r"can\b|could\b|would\b|should\b|is\b|are\b|do\b|does\b|did\b|"
+        r"explain\b|describe\b|tell\s+me\b|help\s+me\b)",
+        value.casefold(),
+    ))
+
+
+def _has_question_fragment(text: str) -> bool:
+    return any(_fragment_is_question(fragment) for fragment in _message_fragments(text))
 
 
 def _is_short_anaphoric_question(text: str) -> bool:
