@@ -5,6 +5,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 ARENA_TEMPLATE = (PROJECT_ROOT / "templates" / "thinking" / "arena.html").read_text(encoding="utf-8")
 THINKING_JS = (PROJECT_ROOT / "static" / "js" / "thinking.js").read_text(encoding="utf-8")
 THINKING_CSS = (PROJECT_ROOT / "static" / "css" / "thinking.css").read_text(encoding="utf-8")
+ASSIGNMENTS_TEMPLATE = (PROJECT_ROOT / "templates" / "s_assignments.html").read_text(encoding="utf-8")
 
 
 def _slice(text: str, start: str, end: str) -> str:
@@ -135,6 +136,20 @@ def test_stage3_forum_renders_one_primary_reply_with_reply_context_and_action():
     assert "message_kind" in THINKING_JS
     assert "payload.user_goal" in THINKING_JS
     assert "renderForumUserGoal" in THINKING_JS
+
+
+def test_stage3_goal_shows_engagement_progress_and_finishes_the_forum():
+    assert "progress_detail" in THINKING_JS
+    assert "关键点 0/3 · 有效提问 0/4 · 连续活跃 00:00/10:00" in ARENA_TEMPLATE
+    assert "function handleForumCompletion(payload)" in THINKING_JS
+    assert "payload.user_goal.status === 'complete'" in THINKING_JS
+    assert "input.disabled = goal.status === 'complete'" in THINKING_JS
+    assert "sendButton.disabled = goal.status === 'complete'" in THINKING_JS
+    assert "本次作业的引导学习已完成" in THINKING_JS
+    assert "本次作业的引导学习即完成" in ARENA_TEMPLATE
+    assert "阶段三和本次作业均已完成" not in THINKING_JS
+    assert "assignment.guided_learning_completed" in ASSIGNMENTS_TEMPLATE
+    assert "引导学习已完成" in ASSIGNMENTS_TEMPLATE
 
 
 def test_stage3_forum_keeps_model_failures_visible_instead_of_dropping_empty_replies():
