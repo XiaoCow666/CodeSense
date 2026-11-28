@@ -29,7 +29,7 @@ ACTIVE_CONVERSATION_TARGET_SECONDS = 10 * 60
 ACTIVE_CONVERSATION_MAX_GAP_SECONDS = 3 * 60
 ACTIVE_CONVERSATION_MIN_MESSAGES = 3
 MAX_ENGAGEMENT_MESSAGE_CHARS = 2_000
-ASSESSMENT_VERSION = 19
+ASSESSMENT_VERSION = 20
 ASSESSMENT_SOURCE = "server_stage3_engagement"
 
 _QUESTION_INTENTS = frozenset({INTENT_ASK_TEACHER, INTENT_ASK_STUDENT})
@@ -718,22 +718,38 @@ def _is_repeated(message: str, previous_messages: Iterable[Any]) -> bool:
 def _semantic_operators(value: str) -> tuple[tuple[str, str, str], ...]:
     """Keep each operator with its adjacent operands for fuzzy deduplication."""
 
-    operator_pattern = r"<=|>=|==|!=|\+\+|--|->|::|&&|\|\||[<>=+\-*/%]"
     operand_pattern = r"[A-Za-z_][A-Za-z0-9_]*|\d+(?:\.\d+)?"
-    token_pattern = rf"{operator_pattern}|{operand_pattern}"
-    tokens = re.findall(token_pattern, str(value or "").casefold())
-    contexts = []
-    for index, token in enumerate(tokens):
-        if not re.fullmatch(operator_pattern, token):
-            continue
-        left = tokens[index - 1] if index > 0 else ""
-        right = tokens[index + 1] if index + 1 < len(tokens) else ""
-        if left and re.fullmatch(operator_pattern, left):
-            left = ""
-        if right and re.fullmatch(operator_pattern, right):
-            right = ""
-        contexts.append((left, token, right))
-    return tuple(contexts)
+    binary_operator = r"<=|>=|==|!=|->|::|&&|\|\||[<>=+\-*/%]"
+    text = str(value or "").casefold()
+    contexts: list[tuple[int, tuple[str, str, str]]] = []
+    for match in re.finditer(
+        rf"(?P<left>{operand_pattern})\s*(?P<operator>{binary_operator})\s*(?P<right>{operand_pattern})",
+        text,
+    ):
+        contexts.append((match.start(), (
+            match.group("left"),
+            match.group("operator"),
+            match.group("right"),
+        )))
+    for match in re.finditer(
+        rf"(?P<left>{operand_pattern})(?P<operator>\+\+|--)",
+        text,
+    ):
+        contexts.append((match.start(), (
+            match.group("left"),
+            match.group("operator"),
+            "",
+        )))
+    for match in re.finditer(
+        rf"(?P<operator>\+\+|--)(?P<right>{operand_pattern})",
+        text,
+    ):
+        contexts.append((match.start(), (
+            "",
+            match.group("operator"),
+            match.group("right"),
+        )))
+    return tuple(context for _, context in sorted(contexts, key=lambda item: item[0]))
 
 
 __all__ = [

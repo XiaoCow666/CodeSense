@@ -409,6 +409,50 @@ def test_cross_sentence_task_words_do_not_complete_stage_three(
         ).count() == 0
 
 
+def test_isolated_operator_variants_do_not_complete_stage_three(
+    stage3_forum_context,
+):
+    app, _, session_id, _ = stage3_forum_context
+    started = datetime(2026, 11, 22, 8, 0, 0)
+    base_question = "为什么循环条件要写成 i 小于 n？"
+    messages = [
+        base_question,
+        base_question + "+",
+        base_question + "*",
+        base_question + "%",
+    ]
+
+    with app.app_context():
+        session = db.session.get(ThinkingSession, session_id)
+        for index, message in enumerate(messages, start=1):
+            db.session.add(ThinkingStageLog(
+                session_id=session_id,
+                stage=3,
+                event_type="agent_user_message",
+                role="student",
+                content=message,
+                metadata_json=json.dumps({"request_id": f"isolated-op-{index}"}),
+                created_at=started + timedelta(minutes=index),
+            ))
+        db.session.commit()
+
+        summary = thinking_routes._maybe_complete_stage3_from_engagement(
+            session,
+            "isolated-op-4",
+        )
+        saved = db.session.get(ThinkingSession, session_id)
+
+        assert summary["effective_message_count"] == 1
+        assert summary["effective_question_count"] == 1
+        assert summary["questions_complete"] is False
+        assert saved.status == "in_progress"
+        assert saved.stage3_completed is False
+        assert ThinkingStageLog.query.filter_by(
+            session_id=session_id,
+            event_type="stage_pass",
+        ).count() == 0
+
+
 def test_separator_questions_do_not_complete_stage_three(stage3_forum_context):
     app, _, session_id, _ = stage3_forum_context
     started = datetime(2026, 11, 22, 8, 0, 0)

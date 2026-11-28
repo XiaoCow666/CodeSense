@@ -337,6 +337,14 @@ def test_duplicate_detection_preserves_semantic_code_operators():
         "为什么函数返回 a - b?",
         previous_messages=[subtraction],
     )
+    plain_question = "为什么循环条件要写成 i 小于 n？"
+    isolated_operator_variants = [
+        assess_stage3_message(
+            plain_question + operator,
+            previous_messages=[plain_question],
+        )
+        for operator in ("+", "*", "%")
+    ]
 
     assert inclusive_boundary.valid_message is True
     assert inclusive_boundary.valid_question is True
@@ -353,6 +361,9 @@ def test_duplicate_detection_preserves_semantic_code_operators():
     assert subtraction_whitespace.valid_message is False
     assert subtraction_whitespace.valid_question is False
     assert subtraction_whitespace.reason == "duplicate"
+    assert all(item.valid_message is False for item in isolated_operator_variants)
+    assert all(item.valid_question is False for item in isolated_operator_variants)
+    assert all(item.reason == "duplicate" for item in isolated_operator_variants)
 
 
 def test_summary_rejects_legacy_message_with_oversized_outer_whitespace():
