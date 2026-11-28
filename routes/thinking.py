@@ -12,7 +12,17 @@ import re
 from datetime import datetime as dt
 import math
 
-from flask import Blueprint, abort, render_template, request, jsonify, session, Response, current_app
+from flask import (
+    Blueprint,
+    Response,
+    abort,
+    current_app,
+    has_request_context,
+    jsonify,
+    render_template,
+    request,
+    session,
+)
 from flask_login import current_user
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload
@@ -55,6 +65,13 @@ from services.session_lifecycle import (
     can_view_assignment,
     latest_session_activity,
     session_lifecycle_payload,
+)
+from services.stage3_engagement import (
+    ASSESSMENT_SOURCE,
+    ASSESSMENT_VERSION,
+    EngagementAssessment,
+    assess_stage3_message,
+    summarize_stage3_engagement,
 )
 
 thinking = Blueprint('thinking', __name__, url_prefix='/thinking')
@@ -510,6 +527,17 @@ def _run_stage3_forum_turn(ts, runtime, message, request_id, target_role, reply_
         )
     except ValueError:
         return _stage3_forum_validation_error_response('REPLY_EVENT_NOT_FOUND')
+    _annotate_stage3_engagement(
+        ts.id,
+        request_id,
+        message,
+        routing=getattr(result, 'routing', None),
+    )
+    _maybe_complete_stage3_from_engagement(ts, request_id)
+    # Agent events use short transactions of their own.  Commit the
+    # server-owned engagement assessment at the forum-turn boundary even when
+    # this message does not complete Stage 3.
+    db.session.commit()
     payload = result.to_public_dict()
     payload['user_goal'] = _stage3_user_goal(ts.id)
     payload['forum_state'] = _stage3_forum_state(ts.id)
@@ -734,6 +762,189 @@ def _stage3_forum_state(session_id: int):
     }
 
 
+def _stage3_user_message_logs(session_id: int):
+    return ThinkingStageLog.query.filter_by(
+        session_id=session_id,
+        stage=3,
+        event_type='agent_user_message',
+        role='student',
+    ).order_by(
+        ThinkingStageLog.created_at.asc(),
+        ThinkingStageLog.id.asc(),
+    ).all()
+
+
+def _annotate_stage3_engagement(
+    session_id: int,
+    request_id: str,
+    message: str,
+    routing=None,
+):
+    """Persist the server's bounded validity decision on the current turn."""
+    logs = _stage3_user_message_logs(session_id)
+    current_log = next((
+        log
+        for log in logs
+        if str((log.get_metadata() or {}).get('request_id') or '') == str(request_id)
+    ), None)
+    if current_log is None:
+        return None
+
+    metadata = current_log.get_metadata() or {}
+    stored = metadata.get('engagement_assessment')
+    if (
+        isinstance(stored, dict)
+        and stored.get('source') == ASSESSMENT_SOURCE
+        and stored.get('version') == ASSESSMENT_VERSION
+        and isinstance(stored.get('valid_message'), bool)
+        and isinstance(stored.get('valid_question'), bool)
+    ):
+        return EngagementAssessment(
+            valid_message=stored['valid_message'],
+            valid_question=stored['valid_question'],
+            reason=str(stored.get('reason') or 'stored'),
+            intent=str(stored.get('intent') or ''),
+        )
+
+    previous_messages = []
+    for log in logs:
+        if log.id == current_log.id:
+            break
+        if log.content:
+            previous_messages.append(log.content)
+
+    # Only the persisted event and messages that precede it are evidence for
+    # a missing assessment.  Replay payloads and later messages cannot alter
+    # an earlier validity decision.
+    assessment = assess_stage3_message(
+        str(current_log.content or ''),
+        previous_messages=previous_messages,
+        task_context=_stage3_engagement_task_context(session_id),
+    )
+    metadata['engagement_assessment'] = assessment.to_metadata()
+    current_log.metadata_json = json.dumps(metadata, ensure_ascii=False)
+    db.session.flush()
+    return assessment
+
+
+def _stage3_engagement_summary(session_id: int):
+    events = [
+        {
+            'id': log.id,
+            'content': log.content,
+            'created_at': log.created_at,
+            'metadata': log.get_metadata() or {},
+        }
+        for log in _stage3_user_message_logs(session_id)
+    ]
+    return summarize_stage3_engagement(
+        events,
+        task_context=_stage3_engagement_task_context(session_id),
+    )
+
+
+def _stage3_engagement_task_context(session_id: int):
+    """Return bounded, server-owned assignment terms used for relevance."""
+    thinking_session = db.session.get(ThinkingSession, session_id)
+    if not thinking_session:
+        return []
+    assignment = db.session.get(Assignment, thinking_session.assignment_id)
+    preset = AssignmentThinkingPreset.query.filter_by(
+        assignment_id=thinking_session.assignment_id,
+    ).first()
+    values = [getattr(assignment, 'title', '')]
+    key_steps = preset.get_key_steps() if preset else []
+    if isinstance(key_steps, list):
+        values.extend(key_steps[:20])
+    return [
+        str(value).strip()[:32]
+        for value in values
+        if isinstance(value, str) and str(value).strip()
+    ]
+
+
+def _stage3_completion_event(session_id: int):
+    logs = ThinkingStageLog.query.filter_by(
+        session_id=session_id,
+        stage=3,
+        event_type='stage_pass',
+    ).order_by(
+        ThinkingStageLog.created_at.desc(),
+        ThinkingStageLog.id.desc(),
+    ).all()
+    for log in logs:
+        metadata = log.get_metadata() or {}
+        if metadata.get('validated') is True:
+            return metadata
+    return {}
+
+
+def _maybe_complete_stage3_from_engagement(thinking_session, request_id: str):
+    """Complete Stage 3 when any server-owned learning threshold is met."""
+    locked_session = ThinkingSession.query.filter_by(
+        id=getattr(thinking_session, 'id', None),
+    ).with_for_update().populate_existing().one_or_none()
+    if locked_session is None:
+        return summarize_stage3_engagement([])
+    thinking_session = locked_session
+    engagement = _stage3_engagement_summary(thinking_session.id)
+    coverage_summary, _ = _stage3_safe_coverage_summary(thinking_session.id)
+    covered_concepts = sum(
+        1
+        for item in coverage_summary.get('concept_coverage', [])
+        if isinstance(item, dict) and item.get('status') == 'covered'
+    )
+
+    completion_reasons = []
+    if covered_concepts >= 3:
+        completion_reasons.append('knowledge_coverage')
+    if engagement.get('questions_complete') is True:
+        completion_reasons.append('effective_questions')
+    if engagement.get('active_conversation_complete') is True:
+        completion_reasons.append('active_conversation')
+
+    completion_event = _stage3_completion_event(thinking_session.id)
+    if completion_reasons and _stage3_session_is_active(thinking_session):
+        completed_at = dt.utcnow()
+        if not completion_event:
+            _log_event(
+                thinking_session.id,
+                3,
+                'stage_pass',
+                'system',
+                '已达到阶段三学习互动完成条件。',
+                metadata={
+                    'request_id': request_id,
+                    'source': 'engagement_completion',
+                    'validated': True,
+                    'completion_reasons': completion_reasons,
+                    'covered_concepts': covered_concepts,
+                    'effective_question_count': engagement.get('effective_question_count', 0),
+                    'active_message_count': engagement.get('active_message_count', 0),
+                    'active_seconds': engagement.get('active_seconds', 0),
+                },
+            )
+        thinking_session.stage3_completed = True
+        thinking_session.status = 'completed'
+        thinking_session.completed_at = thinking_session.completed_at or completed_at
+        if thinking_session.started_at:
+            elapsed = max(0, int((completed_at - thinking_session.started_at).total_seconds()))
+            thinking_session.total_time_seconds = max(
+                int(thinking_session.total_time_seconds or 0),
+                elapsed,
+            )
+        if has_request_context():
+            _record_demo_guided_submission(thinking_session)
+        db.session.commit()
+        completion_event = _stage3_completion_event(thinking_session.id)
+
+    engagement['completion_reasons'] = list(
+        completion_event.get('completion_reasons') or completion_reasons
+    )
+    engagement['covered_concepts'] = covered_concepts
+    return engagement
+
+
 def _stage3_user_goal(session_id: int, preset=None):
     """Return a safe, finite learning goal for the Stage 3 UI."""
     thinking_session = ThinkingSession.query.get(session_id)
@@ -769,6 +980,11 @@ def _stage3_user_goal(session_id: int, preset=None):
                 'concept': concept,
                 'dimension': dimension,
             }
+    engagement_summary = _stage3_engagement_summary(session_id)
+    completion_event = _stage3_completion_event(session_id)
+    engagement_summary['completion_reasons'] = list(
+        completion_event.get('completion_reasons') or []
+    )
     return build_stage3_user_goal(
         key_concepts=key_concepts,
         coverage_summary=coverage_summary,
@@ -777,6 +993,7 @@ def _stage3_user_goal(session_id: int, preset=None):
         session_status=getattr(thinking_session, 'status', 'in_progress'),
         code_review_status=snapshot.state.code_review_status,
         min_coverage=min_coverage,
+        engagement_summary=engagement_summary,
     )
 
 
@@ -1118,6 +1335,11 @@ def start_session():
                 existing = ThinkingSession.query.filter_by(attempt_id=attempt.id).one()
 
         if existing:
+            if existing.current_stage == 3 and existing.stage2_completed:
+                _maybe_complete_stage3_from_engagement(
+                    existing,
+                    f'stage3-resume:{existing.id}',
+                )
             _ensure_stage3_initial_prompt(existing, assignment, preset)
             db.session.commit()
             lifecycle = session_lifecycle_payload(existing)
