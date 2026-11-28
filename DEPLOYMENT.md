@@ -233,6 +233,72 @@ curl -fsS https://codesense.example.com/readyz
 
 每次发布前记录 Git commit。新版本启动失败时，先停止继续重启，查看日志并恢复到上一个已验证版本，再处理数据库或环境变量问题。
 
+### 8.1 使用 GitHub Actions 自动部署到阿里云 ECS
+
+仓库中的 GitHub Actions 部署工作流只在 `main` 的推送版本通过 `Test CodeSense` 后运行。生产凭证放在 GitHub 的 `production` 环境中；PR 测试任务不会获得这些凭证。服务器通过独立的 `codesense-deploy` SSH 用户接收部署请求，该账号只能调用固定部署脚本和重启 CodeSense 服务。
+
+当前 ECS 使用以下固定目录和服务：
+
+- 代码目录：`/var/www/codesense`
+- Python 环境：`/opt/codesense/venv`
+- Web 服务：`codesense`
+- RQ 服务：`codesense-ability-worker`、`codesense-submission-worker`
+- Gunicorn 本机端口：`8000`
+
+#### 服务器一次性设置
+
+先在可信电脑生成专用的 Ed25519 SSH 密钥对。私钥只保存为 GitHub `production` 环境密钥；服务器仅保存公钥。不要使用阿里云 AccessKey 或 ECS 管理员 SSH 密钥作为 Actions 凭证。
+
+通过阿里云 Workbench 以管理员身份连接 ECS，然后执行以下设置。把 `ops/codesense-github-deploy.sh` 和 `ops/codesense-deploy-runtime.sh` 放到服务器临时目录后，再安装为 root 所有的固定文件：
+
+~~~bash
+sudo useradd --system --create-home --home-dir /var/lib/codesense-deploy --shell /bin/bash codesense-deploy
+sudo passwd --lock codesense-deploy
+sudo install -o root -g root -m 0755 /tmp/codesense-github-deploy.sh /usr/local/sbin/codesense-github-deploy
+sudo install -o root -g root -m 0644 /tmp/codesense-deploy-runtime.sh /usr/local/lib/codesense-deploy-runtime.sh
+
+sudo setfacl -R -m u:codesense-deploy:rwX /opt/codesense/venv
+sudo find /opt/codesense/venv -type d -exec setfacl -m d:u:codesense-deploy:rwX {} +
+
+sudo tee /etc/sudoers.d/codesense-github-deploy >/dev/null <<'SUDOERS'
+codesense-deploy ALL=(root) NOPASSWD: /usr/local/sbin/codesense-github-deploy
+SUDOERS
+sudo chmod 0440 /etc/sudoers.d/codesense-github-deploy
+sudo visudo -cf /etc/sudoers.d/codesense-github-deploy
+~~~
+
+Create the SSH key directory and add the generated public key as one line. Replace `<PUBLIC_KEY>` with the full `ssh-ed25519 ...` public-key line:
+
+~~~bash
+sudo install -d -o codesense-deploy -g codesense-deploy -m 0700 /var/lib/codesense-deploy/.ssh
+sudo tee /var/lib/codesense-deploy/.ssh/authorized_keys >/dev/null <<'KEY'
+command="/usr/bin/sudo -n /usr/local/sbin/codesense-github-deploy",no-agent-forwarding,no-port-forwarding,no-pty,no-user-rc,no-X11-forwarding <PUBLIC_KEY>
+KEY
+sudo chown codesense-deploy:codesense-deploy /var/lib/codesense-deploy/.ssh/authorized_keys
+sudo chmod 0600 /var/lib/codesense-deploy/.ssh/authorized_keys
+~~~
+
+Check that `codesense-deploy` cannot read `/var/www/codesense/.env` or write to application data directories, and can write only to the Python virtual environment. The deploy key does not provide an interactive shell or port forwarding. Keep inbound TCP 22 limited to the approved GitHub Actions egress ranges or use a private runner path; do not open SSH to every source address.
+
+#### GitHub production environment
+
+Create a `production` environment and restrict deployments to protected branches. Add these environment variables:
+
+| Name | Value |
+| --- | --- |
+| `ECS_SSH_HOST` | ECS public IP or SSH hostname |
+| `ECS_SSH_PORT` | `22` |
+| `ECS_SSH_USER` | `codesense-deploy` |
+
+Add these environment secrets:
+
+| Name | Value |
+| --- | --- |
+| `ECS_SSH_PRIVATE_KEY` | Private half of the dedicated Ed25519 key |
+| `ECS_KNOWN_HOSTS` | The verified SSH host-key line for this ECS |
+
+The workflow pins the server host key and passes the tested commit SHA over standard input. The server rejects a SHA unless it is still the current `main` tip, so a delayed or stale test run cannot roll production back. The root-owned fixed wrapper fast-forwards the existing checkout, then uses a root-owned runtime helper to install dependencies as `codesense-deploy`, run database maintenance as `codesense`, restart the current services, and check `/healthz` and `/readyz`. The deploy account has no direct service-control or general user-switching permission. Systemd unit-file changes remain a separate administrator-reviewed step.
+
 ## 9. 日志、备份与排障
 
 ~~~bash

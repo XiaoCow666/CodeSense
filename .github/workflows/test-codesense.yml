@@ -1,6 +1,8 @@
 name: Test CodeSense
 
 on:
+  push:
+    branches: [main]
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
@@ -57,6 +59,9 @@ jobs:
 
       - name: Install test dependencies
         run: python -m pip install -r requirements.txt -r requirements-test.txt
+
+      - name: Smoke test deployment UID transitions
+        run: sudo -n bash ops/codesense-deployment-uid-smoke-test.sh
 
       - name: Run tests
         id: tests
